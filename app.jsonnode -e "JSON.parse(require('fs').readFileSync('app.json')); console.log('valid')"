@@ -1,0 +1,54 @@
+{
+  "expo": {
+    "name": "Vevaty",
+    "slug": "vevaty",
+    "version": "1.0.0",
+    "orientation": "portrait",
+    "icon": "./assets/icon.png",
+    "userInterfaceStyle": "light",
+    "backgroundColor": "#f5f5f3",
+    "ios": {
+      "supportsTablet": true
+    },
+    "android": {
+      "package": "com.vevaty.app",
+      "adaptiveIcon": {
+        "backgroundColor": "#E6F4FE",
+        "foregroundImage": "./assets/android-icon-foreground.png",
+        "backgroundImage": "./assets/android-icon-background.png",
+        "monochromeImage": "./assets/android-icon-monochrome.png"
+      },
+      "predictiveBackGestureEnabled": false,
+      "config": {
+        "googleMaps": {
+          "apiKey": "AIzaSyDXOYvYvftET7H9QRVmRaEEPZd74wIO2hQ"
+        }
+      }
+    },
+    "web": {
+      "favicon": "./assets/favicon.png"
+    },
+    "extra": {
+      "eas": {
+        "projectId": "f9c404c9-b0c5-456e-ae14-cab8a0112775"
+      }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Vevaty to use your location to set your listing's location and find listings near you."
+        }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Vevaty to access your camera to take listing photos and 360° spins.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
+      ]
+    ]
+  }
+}0
+

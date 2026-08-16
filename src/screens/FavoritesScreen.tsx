@@ -85,7 +85,7 @@ export default function FavoritesScreen({ navigation }: Props) {
 
   if (!isVerified) {
     return (
-      <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+      <Screen maxWidth={1180}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -102,7 +102,7 @@ export default function FavoritesScreen({ navigation }: Props) {
   if (tab === 'searches') {
     if (searchesLoaded && !searchesLoading && savedSearches.length === 0) {
       return (
-        <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+        <Screen maxWidth={1180}>
           {header}
           {tabRow}
           <View style={styles.empty}>
@@ -117,7 +117,7 @@ export default function FavoritesScreen({ navigation }: Props) {
     }
 
     return (
-      <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+      <Screen maxWidth={1180}>
         {header}
         {tabRow}
         <FlatList
@@ -155,7 +155,7 @@ export default function FavoritesScreen({ navigation }: Props) {
 
   if (loaded && !loading && favoritedListings.length === 0) {
     return (
-      <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+      <Screen maxWidth={1180}>
         {header}
         {tabRow}
         <View style={styles.empty}>
@@ -170,7 +170,7 @@ export default function FavoritesScreen({ navigation }: Props) {
   }
 
   return (
-    <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+    <Screen maxWidth={1180}>
       {header}
       {tabRow}
       <FlatList

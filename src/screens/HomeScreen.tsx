@@ -753,7 +753,7 @@ export default function HomeScreen() {
           </View>
 
           <Modal visible={mobileFiltersOpen} animationType="slide" onRequestClose={() => setMobileFiltersOpen(false)}>
-            <Screen edges={['top', 'left', 'right', 'bottom']}>
+            <Screen>
               <View style={styles.modalTopBar}>
                 <Text style={type.h3}>{t('home.filters.filters')}</Text>
                 <Pressy onPress={() => setMobileFiltersOpen(false)} style={styles.iconBtn}>

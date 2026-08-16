@@ -7,7 +7,21 @@ import { useLanguage } from '../i18n/LanguageContext';
 
 export default function Screen({
   children,
-  edges = ['top', 'left', 'right'],
+  // 'bottom' is included on purpose. Android's system nav bar (3-button or
+  // gesture pill) sits over the bottom of the window, and this used to
+  // default to top/left/right only -- so nothing reserved space for it, and
+  // any screen with something anchored to the bottom had to remember to add
+  // insets.bottom by hand. ListingDetailScreen and CreateListingScreen did;
+  // ChatThreadScreen didn't, which is why its message input and Send button
+  // ended up underneath the nav bar. Reserving the inset here once means no
+  // screen can forget it again.
+  //
+  // Safe to apply globally: Texture paints colors.bg full-bleed *behind*
+  // this SafeAreaView, so the reserved strip is the same colour as the bars
+  // that sit against it rather than showing through as a seam. The floating
+  // tab bar is the one thing not covered by this -- it's rendered by the tab
+  // navigator outside any Screen, and keeps its own insets.bottom handling.
+  edges = ['top', 'left', 'right', 'bottom'],
   maxWidth,
   reserveSidebar = false,
 }: {

@@ -4,7 +4,6 @@ import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -83,12 +82,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified } = useAppStore();
   const { categoryById, resolveAttributesForCategory, categoryMatches } = useSettings();
   const { t, language, isRTL } = useLanguage();
-  // Android's own gesture/nav bar sits right at the bottom of the screen --
-  // without this, the fixed footer's Continue/Post listing button rendered
-  // partly underneath it (same class of bug TabBar.tsx had). Padding the
-  // footer by the live inset instead of a hardcoded guess keeps it clear on
-  // every device, and is simply 0 on iOS/web where there's no overlap.
-  const insets = useSafeAreaInsets();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
   const editingListing = editListingId ? listings.find((l) => l.id === editListingId) : undefined;
   const isEditMode = !!editingListing;
@@ -1030,7 +1023,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         )}
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: 18 + insets.bottom }]}>
+      <View style={styles.footer}>
         {step < STEPS.length - 1 ? (
           <Button label={t('common.continue')} disabled={!canNext} onPress={() => setStep((s) => s + 1)} />
         ) : (
@@ -1285,8 +1278,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 16,
   },
   aiTagText: { fontSize: 11.5, fontWeight: '600', color: colors.ink },
-  // paddingBottom is applied inline (18 + the live safe-area inset) instead
-  // of hardcoded here -- see the insets comment near the top of the
-  // component.
-  footer: { paddingHorizontal: 18, paddingTop: 12 },
+  // paddingBottom is plain -- Screen reserves the Android nav-bar inset
+  // globally via its 'bottom' edge (see Screen.tsx).
+  footer: { paddingHorizontal: 18, paddingTop: 12, paddingBottom: 18 },
 });

@@ -195,7 +195,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   // name and "0 published ads" while that fetch is still in flight.
   if (fallbackLoading && sellerListings.length === 0) {
     return (
-      <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+      <Screen maxWidth={1180}>
         {header}
         <View style={styles.empty}>
           <ActivityIndicator size="small" color={colors.ink} />
@@ -206,7 +206,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
 
   if (!knowSeller) {
     return (
-      <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+      <Screen maxWidth={1180}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -219,7 +219,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   }
 
   return (
-    <Screen edges={['top', 'left', 'right']} maxWidth={1180}>
+    <Screen maxWidth={1180}>
       <FlatList
         key={columns}
         data={sellerListings}

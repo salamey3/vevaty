@@ -1,7 +1,6 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, Image, Modal, TextInput, Linking } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -44,10 +43,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { t, language, isRTL } = useLanguage();
-  // Same fixed-bottom-bar-over-Android's-nav-bar issue TabBar.tsx and
-  // CreateListingScreen's footer had -- the mobile-only "Contact & Buy"
-  // footer below is pinned to the bottom of the screen too.
-  const insets = useSafeAreaInsets();
   const [favBusy, setFavBusy] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -538,7 +533,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
   if (isDesktop) {
     return (
-      <Screen edges={['top', 'left', 'right']} maxWidth={1040}>
+      <Screen maxWidth={1040}>
         {topBar}
         <ScrollView contentContainerStyle={styles.desktopScroll}>
           <View style={styles.desktopRow}>
@@ -559,7 +554,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   }
 
   return (
-    <Screen edges={['top', 'left', 'right']}>
+    <Screen>
       {topBar}
 
       <ScrollView contentContainerStyle={styles.scroll}>
@@ -568,7 +563,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <View style={styles.card}>{details}</View>
       </ScrollView>
 
-      <View style={[styles.footer, { paddingBottom: 18 + insets.bottom }]}>
+      <View style={styles.footer}>
         {ctaSection()}
       </View>
       {confirmDialog}
@@ -699,11 +694,11 @@ const styles = StyleSheet.create({
   verifiedBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.success },
   memberSince: { ...type.tiny, marginTop: 3 },
   relatedRow: { gap: 12, paddingTop: 2, paddingBottom: 4 },
-  // paddingBottom is applied inline (18 + the live safe-area inset) instead
-  // of hardcoded here -- see the insets comment near the top of the
-  // component.
+  // Plain paddingBottom now -- the Android nav-bar inset is reserved once,
+  // globally, by Screen's 'bottom' edge, so adding insets.bottom here too
+  // would double-pad.
   footer: {
-    paddingHorizontal: 18, paddingTop: 12,
+    paddingHorizontal: 18, paddingTop: 12, paddingBottom: 18,
     borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.bg,
   },
   messageBtn: {

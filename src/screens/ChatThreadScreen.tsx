@@ -177,7 +177,7 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
   const listingTitleText = listing ? listingTitle(listing, language) : t('chat.listingRemoved');
 
   return (
-    <Screen edges={['top', 'left', 'right']} maxWidth={720}>
+    <Screen maxWidth={720}>
       <View style={styles.topBar}>
         <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <Icon name="back" size={18} />
