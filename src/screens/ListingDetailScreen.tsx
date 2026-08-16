@@ -21,7 +21,7 @@ import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
-import { listingTitle, listingDescription } from '../lib/listingText';
+import { listingTitle, listingDescription, listingDistrict } from '../lib/listingText';
 
 // Phase 4 item 16 -- "Member since Month Year", derived from the seller's
 // join-date timestamp already carried on the listing (see AppStore's
@@ -298,29 +298,29 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
   const details = (
     <>
-      <View style={styles.priceRow}>
+      <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
         <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
         {editButton}
       </View>
       <Text style={[styles.title, isRTL && styles.rtlText]}>{listingTitle(listing, language)}</Text>
       <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
         <Icon name="location" size={13} color={colors.inkSoft} />
-        <Text style={type.soft}>{listing.district}</Text>
+        <Text style={type.soft}>{listingDistrict(listing, language)}</Text>
       </View>
 
       {listing.aiGenerated && (
-        <View style={styles.aiTag}>
+        <View style={[styles.aiTag, isRTL && styles.aiTagRTL]}>
           <Icon name="sparkle" size={12} color={colors.ink} />
           <Text style={styles.aiTagText}>{t('listingDetail.aiTag')}</Text>
         </View>
       )}
 
-      <Text style={styles.sectionLabel}>{t('listingDetail.description')}</Text>
+      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.description')}</Text>
       <Text style={[styles.desc, isRTL && styles.rtlText]}>{listingDescription(listing, language) || t('listingDetail.noDescription')}</Text>
 
       {specs.length > 0 && (
         <>
-          <Text style={styles.sectionLabel}>{t('listingDetail.specs')}</Text>
+          <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.specs')}</Text>
           <View style={styles.specsGrid}>
             {specs.map((a) => (
               <View key={a.id} style={[styles.specRow, isRTL && styles.specRowRTL]}>
@@ -332,17 +332,17 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         </>
       )}
 
-      <Text style={styles.sectionLabel}>{t('listingDetail.seller')}</Text>
+      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.seller')}</Text>
       <Pressy
         onPress={() => navigation.push('SellerProfile', { sellerId: listing.sellerId })}
-        style={styles.sellerRow}
+        style={[styles.sellerRow, isRTL && styles.sellerRowRTL]}
         accessibilityLabel="View seller profile"
       >
         <View style={styles.sellerAvatar}>
           <Icon name="user" size={18} color={colors.inkSoft} />
         </View>
         <View style={{ flex: 1 }}>
-          <View style={styles.sellerNameRow}>
+          <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
             <Text style={type.h3}>{listing.sellerName}</Text>
             {listing.sellerVerified && (
               <View style={styles.verifiedBadge}>
@@ -351,28 +351,44 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
               </View>
             )}
           </View>
-          <View style={styles.metaRow}>
+          <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
             <Icon name="star" size={12} color={colors.inkSoft} />
             <Text style={type.tiny}>{listing.rating.toFixed(1)} {t('listingDetail.rating')}</Text>
           </View>
-          <Text style={styles.memberSince}>
+          <Text style={[styles.memberSince, isRTL && styles.rtlText]}>
             {t('listingDetail.memberSince', { date: formatMemberSince(listing.sellerMemberSince, language) })}
           </Text>
         </View>
-        <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+        <View style={isRTL && styles.chevronRTL}>
+          <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+        </View>
       </Pressy>
 
       {relatedListings.length > 0 && (
         <>
-          <Text style={styles.sectionLabel}>{t('listingDetail.relatedListings')}</Text>
-          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.relatedRow}>
+          <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.relatedListings')}</Text>
+          <ScrollView
+            horizontal
+            showsHorizontalScrollIndicator={false}
+            contentContainerStyle={styles.relatedRow}
+            // Mirrors the whole scroller horizontally so the swipe
+            // direction itself reads RTL (first item anchored at the
+            // right, dragging leftward reveals the next one) -- see the
+            // matching comment on CategoryCarouselSection's row for why
+            // this scaleX trick and not FlatList's `inverted` (this is a
+            // plain ScrollView, and inverted would also flip vertically).
+            // Each card is counter-flipped below so its own content still
+            // renders right-side-up.
+            style={isRTL && styles.relatedScrollRTL}
+          >
             {relatedListings.map((item) => (
-              <ListingCard
-                key={item.id}
-                listing={item}
-                width={140}
-                onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
-              />
+              <View key={item.id} style={isRTL && styles.relatedItemRTL}>
+                <ListingCard
+                  listing={item}
+                  width={140}
+                  onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
+                />
+              </View>
             ))}
           </ScrollView>
         </>
@@ -592,6 +608,13 @@ const styles = StyleSheet.create({
   viewToggleTextActive: { color: colors.white },
   card: { padding: 18 },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
+  // With a single child (the price, whenever this isn't the owner's own
+  // listing and editButton is null) justify-content: space-between still
+  // resolves to flex-start of the row -- i.e. the LEFT edge, even in
+  // Arabic. row-reverse flips which edge "flex-start" actually is, so the
+  // price (and, for the owner, the edit actions alongside it) anchors to
+  // the right instead.
+  priceRowRTL: { flexDirection: 'row-reverse' },
   ownerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
@@ -628,7 +651,17 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 12,
   },
+  // row-reverse alone would still leave the pill itself hugging the LEFT
+  // edge of the screen (alignSelf: 'flex-start' from aiTag above) -- flip
+  // that too, or the badge ends up mirrored internally but stranded on
+  // the wrong side entirely.
+  aiTagRTL: { flexDirection: 'row-reverse', alignSelf: 'flex-end' },
   aiTagText: { fontSize: 11.5, fontWeight: '600', color: colors.ink },
+  // Plain left-aligned uppercase labels ("Description", "Details &
+  // Specs", "Seller", "Similar listings") -- like every other bare Text
+  // in this file, these need the same explicit isRTL override as
+  // `rtlText` above; type.tiny's theme-level `textAlign: 'auto'` doesn't
+  // actually flip on native (see the rtlText comment).
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 22, marginBottom: 8 },
   desc: { ...type.body, lineHeight: 21 },
   specsGrid: { gap: 2 },
@@ -642,11 +675,18 @@ const styles = StyleSheet.create({
   // touching justify-content: space-between.
   specRowRTL: { flexDirection: 'row-reverse' },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
+  sellerRowRTL: { flexDirection: 'row-reverse' },
+  sellerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  sellerNameRowRTL: { flexDirection: 'row-reverse' },
+  // Mirrors chevronRight (there's no separate chevronLeft glyph in the
+  // icon set) so it still reads as "this row navigates further" pointing
+  // toward the row's own leading edge once sellerRowRTL has flipped which
+  // side that is.
+  chevronRTL: { transform: [{ scaleX: -1 }] },
   sellerAvatar: {
     width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface,
     alignItems: 'center', justifyContent: 'center',
   },
-  sellerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   verifiedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: '#e3efe8', borderRadius: radius.pill, paddingHorizontal: 8, height: 20,
@@ -654,6 +694,16 @@ const styles = StyleSheet.create({
   verifiedBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.success },
   memberSince: { ...type.tiny, marginTop: 3 },
   relatedRow: { gap: 12, paddingTop: 2, paddingBottom: 4 },
+  // Flips the whole horizontal scroller so its swipe direction reads RTL
+  // (first card anchored at the right edge, dragging leftward reveals the
+  // next one) -- then each card is counter-flipped (relatedItemRTL) so
+  // its own photo/text renders right-side-up instead of mirrored. Same
+  // scaleX technique CategoryCarouselSection's row uses; a plain
+  // ScrollView has no `inverted` prop the way FlatList does, and FlatList
+  // horizontal + inverted mirrors vertically too (upside-down cards), so
+  // this manual pair is the correct one for both.
+  relatedScrollRTL: { transform: [{ scaleX: -1 }] },
+  relatedItemRTL: { transform: [{ scaleX: -1 }] },
   // paddingBottom is applied inline (18 + the live safe-area inset) instead
   // of hardcoded here -- see the insets comment near the top of the
   // component.

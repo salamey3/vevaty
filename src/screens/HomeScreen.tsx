@@ -693,19 +693,29 @@ export default function HomeScreen() {
               <ScrollView
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                style={styles.catSlider}
+                style={[styles.catSlider, isRTL && styles.catSliderRTL]}
                 contentContainerStyle={styles.catSliderContent}
               >
-                <Pressy onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
-                  <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
-                    <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
-                  </View>
-                  <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
-                    {t('common.all')}
-                  </Text>
-                </Pressy>
+                {/* Same scaleX mirror-the-scroller-then-counter-flip-each-
+                    item technique as CategoryCarouselSection's listing row
+                    -- swiping this categories menu should read RTL too
+                    ("All" anchored at the right, dragging leftward walks
+                    through the rest), not just keep English's left-to-
+                    right chip order with right-aligned labels. */}
+                <View style={isRTL && styles.catSliderItemRTL}>
+                  <Pressy onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
+                    <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
+                      <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
+                    </View>
+                    <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
+                      {t('common.all')}
+                    </Text>
+                  </Pressy>
+                </View>
                 {categories.map((c) => (
-                  <CategoryCard key={c.id} category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
+                  <View key={c.id} style={isRTL && styles.catSliderItemRTL}>
+                    <CategoryCard category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
+                  </View>
                 ))}
               </ScrollView>
             </View>
@@ -810,6 +820,12 @@ const styles = StyleSheet.create({
   // the row out of stretch is what keeps chips square regardless of
   // how tall the surrounding screen is.
   catSlider: { height: 80, flexGrow: 0, flexShrink: 0 },
+  // Mirrors the whole scroller so its swipe direction reads RTL -- see the
+  // render-side comment above. catSliderItemRTL (applied per-chip below)
+  // undoes the mirror on each individual chip so its icon/label still
+  // renders right-side-up.
+  catSliderRTL: { transform: [{ scaleX: -1 }] },
+  catSliderItemRTL: { transform: [{ scaleX: -1 }] },
   catSliderContent: { paddingHorizontal: 18, gap: 10, alignItems: 'flex-start' },
   // Positioning root shared by catSliderWrap (absolute) and the scrollable
   // content it overlays -- see the render-side comment on carouselsAnchor.

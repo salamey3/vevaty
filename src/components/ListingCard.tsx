@@ -10,7 +10,7 @@ import { useSettings } from '../store/SettingsStore';
 import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
-import { listingTitle } from '../lib/listingText';
+import { listingTitle, listingDistrict } from '../lib/listingText';
 import { RootStackParamList } from '../navigation/types';
 
 export default function ListingCard({
@@ -87,11 +87,11 @@ export default function ListingCard({
         )}
       </View>
       <View style={styles.info}>
-        <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
+        <Text style={[styles.price, isRTL && styles.rtlText]}>${listing.price.toLocaleString()}</Text>
         <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
-        <View style={styles.metaRow}>
+        <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
           <Icon name="location" size={12} color={colors.inkSoft} />
-          <Text style={styles.district} numberOfLines={1}>{listing.district}</Text>
+          <Text style={styles.district} numberOfLines={1}>{listingDistrict(listing, language)}</Text>
         </View>
       </View>
     </Pressy>
@@ -135,5 +135,11 @@ const styles = StyleSheet.create({
   // story). This explicit override is the real fix.
   rtlText: { textAlign: 'right', writingDirection: 'rtl' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
+  // Same icon-then-text mirroring as ListingDetailScreen's metaRowRTL --
+  // this card's own location row never got the isRTL treatment the
+  // detail screen's equivalent row already had, so the pin icon and
+  // district text stayed LTR-ordered here even once everything else on
+  // the card (title) was fixed.
+  metaRowRTL: { flexDirection: 'row-reverse' },
   district: { ...type.tiny },
 });
