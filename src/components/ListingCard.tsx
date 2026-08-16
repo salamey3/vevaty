@@ -11,6 +11,7 @@ import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle, listingDistrict } from '../lib/listingText';
+import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { RootStackParamList } from '../navigation/types';
 
 export default function ListingCard({
@@ -67,7 +68,10 @@ export default function ListingCard({
     <Pressy onPress={onPress} style={[styles.card, { width: width ?? widthPct }]}>
       <View style={[styles.thumb, columns > 2 && styles.thumbWide]}>
         {listing.photos[0] ? (
-          <Image source={{ uri: listing.photos[0] }} style={styles.thumbImg} />
+          // Requested at card size, not the seeded 900x1200 original -- see
+          // photoSize.ts for why that mattered so much more than it looks
+          // (bitmap heap, not bandwidth).
+          <Image source={{ uri: sizedPhotoUrl(listing.photos[0], PHOTO_WIDTHS.card)! }} style={styles.thumbImg} />
         ) : (
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
         )}

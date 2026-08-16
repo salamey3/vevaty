@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { StyleSheet, View, Text, ViewStyle } from 'react-native';
+import { Platform, StyleSheet, View, Text, ViewStyle } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -106,8 +106,18 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
       pointerEvents={chromeVisible ? 'box-none' : 'none'}
     >
       <View style={styles.pillShadow}>
-        <BlurView intensity={55} tint="light" style={StyleSheet.absoluteFill} />
-        <View style={styles.pill}>
+        {/* This pill floats permanently over an actively-scrolling list, so
+            whatever is behind the blur changes on every single frame. On
+            iOS that's a cheap native UIVisualEffectView, and on web it's a
+            GPU-composited backdrop-filter -- but on Android expo-blur has
+            to re-capture and re-blur the content underneath continuously,
+            which is a well-known frame-rate killer and (unlike a one-off
+            static blur, e.g. Glass on the language-select screen) is paid
+            for every frame the user scrolls. Android gets a solid pill
+            instead; visually near-identical against this app's near-white
+            background, minus the per-frame cost. */}
+        {Platform.OS !== 'android' && <BlurView intensity={55} tint="light" style={StyleSheet.absoluteFill} />}
+        <View style={[styles.pill, Platform.OS === 'android' && styles.pillAndroid]}>
           {state.routes.map((route, index) => {
             const focused = state.index === index;
             const isSell = route.name === 'SellTab';
@@ -175,6 +185,10 @@ const styles = StyleSheet.create({
     height: 66,
     gap: 4,
   },
+  // Compensates for the missing BlurView on Android (see the render above):
+  // without something behind it, the 0.62-alpha pill would let the list
+  // scroll through it unblurred, which reads as a bug rather than as glass.
+  pillAndroid: { backgroundColor: 'rgba(252,252,251,0.97)' },
   tabItem: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center', gap: 4 },
   dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'transparent' },
   dotActive: { backgroundColor: colors.ink },

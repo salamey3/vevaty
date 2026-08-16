@@ -4,6 +4,7 @@ import Pressy from './Pressy';
 import Icon, { IconName } from '../icons/Icon';
 import PhotoLightbox from './PhotoLightbox';
 import { colors } from '../theme/theme';
+import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 
 type Props = {
   photos: string[];
@@ -52,7 +53,7 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
     return (
       <>
         <Pressy style={styles.fill} onPress={() => setLightboxIndex(0)} haptic={false} accessibilityLabel="View full photo">
-          <Image source={{ uri: photos[0] }} style={styles.img} />
+          <Image source={{ uri: sizedPhotoUrl(photos[0], PHOTO_WIDTHS.detail)! }} style={styles.img} />
           <View style={styles.expandHint} pointerEvents="none">
             <Icon name="expand" size={13} color={colors.white} />
           </View>
@@ -85,7 +86,7 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
             haptic={false}
             accessibilityLabel="View full photo"
           >
-            <Image source={{ uri }} style={styles.img} />
+            <Image source={{ uri: sizedPhotoUrl(uri, PHOTO_WIDTHS.detail)! }} style={styles.img} />
           </Pressy>
         ))}
       </ScrollView>
