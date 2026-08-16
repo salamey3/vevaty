@@ -100,11 +100,29 @@ const FONT_FAMILY = Platform.OS === 'web'
   ? "var(--vevaty-font, 'Inter', system-ui, -apple-system, sans-serif)"
   : 'System';
 
+// 'auto' (not 'left') is the actual fix for RTL content, and it's a much
+// better one than the manual isRTL-conditional row-reverse styling used
+// elsewhere in this app: RN detects each Text's own writing direction
+// straight from its Unicode content at render time (Arabic script ->
+// right-aligned, Latin -> left-aligned), so titles/descriptions align
+// correctly per-listing with no isRTL plumbing needed at every call site
+// -- and it degrades safely for mixed content (an Arabic title containing
+// a Latin brand name, etc). Without this, RN's default is a flat 'left'
+// regardless of the string's actual script, which is what caused listing
+// titles/descriptions to render flush-left (reading start on the wrong
+// side) even though the text itself was correctly Arabic -- reported
+// as "titles and descriptions still rendering LTR" after the spec-row/
+// location-row fix (isRTL row-reverse) didn't touch this, since it's a
+// different mechanism (paragraph text alignment vs. layout direction).
+// Anywhere that deliberately wants centered/right-aligned text (e.g. a
+// modal's centered instructions) already sets its own textAlign after
+// spreading these, which still wins -- see e.g. CameraCapture.tsx's
+// `{ ...type.h3, textAlign: 'center' }`.
 export const type = {
-  title: { fontSize: 26, fontWeight: '600' as const, color: colors.ink, letterSpacing: -0.3, fontFamily: FONT_FAMILY },
-  h2: { fontSize: 19, fontWeight: '600' as const, color: colors.ink, letterSpacing: -0.2, fontFamily: FONT_FAMILY },
-  h3: { fontSize: 15, fontWeight: '600' as const, color: colors.ink, fontFamily: FONT_FAMILY },
-  body: { fontSize: 14.5, fontWeight: '400' as const, color: colors.ink, fontFamily: FONT_FAMILY },
-  soft: { fontSize: 13, fontWeight: '400' as const, color: colors.inkSoft, fontFamily: FONT_FAMILY },
-  tiny: { fontSize: 11.5, fontWeight: '500' as const, color: colors.inkSoft, fontFamily: FONT_FAMILY },
+  title: { fontSize: 26, fontWeight: '600' as const, color: colors.ink, letterSpacing: -0.3, fontFamily: FONT_FAMILY, textAlign: 'auto' as const },
+  h2: { fontSize: 19, fontWeight: '600' as const, color: colors.ink, letterSpacing: -0.2, fontFamily: FONT_FAMILY, textAlign: 'auto' as const },
+  h3: { fontSize: 15, fontWeight: '600' as const, color: colors.ink, fontFamily: FONT_FAMILY, textAlign: 'auto' as const },
+  body: { fontSize: 14.5, fontWeight: '400' as const, color: colors.ink, fontFamily: FONT_FAMILY, textAlign: 'auto' as const },
+  soft: { fontSize: 13, fontWeight: '400' as const, color: colors.inkSoft, fontFamily: FONT_FAMILY, textAlign: 'auto' as const },
+  tiny: { fontSize: 11.5, fontWeight: '500' as const, color: colors.inkSoft, fontFamily: FONT_FAMILY, textAlign: 'auto' as const },
 };
