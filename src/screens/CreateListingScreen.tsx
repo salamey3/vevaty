@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useState } from 'react';
 import { StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
+import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -573,28 +574,30 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   };
   const canNext = canNextByKind[currentKind];
 
-  // Browser-native geolocation -- no mapping SDK dependency. Reverse-
-  // resolves the captured coordinates against the same dataset the map
-  // pin-drop uses, so "Use my location" also fills in the town/district/
-  // governorate, not just raw coordinates like it used to.
-  const useMyLocation = () => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      Alert.alert('Not available', 'This browser does not support location access.');
-      return;
-    }
+  // expo-location -- works on both native (Android/iOS) and web (it wraps
+  // the browser Geolocation API there), unlike the raw `navigator.geolocation`
+  // call this used to make directly: that was web-only and silently broken
+  // in the native build (no `navigator` global there), surfacing as a
+  // confusing "This browser does not support location access" alert on a
+  // real device. Reverse-resolves the captured coordinates against the same
+  // dataset the map pin-drop uses, so "Use my location" also fills in the
+  // town/district/governorate, not just raw coordinates like it used to.
+  const useMyLocation = async () => {
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
-        resolvePlace(nearestPlace(coords), coords);
-        setLocating(false);
-      },
-      () => {
-        setLocating(false);
-        Alert.alert('Could not get your location', 'Check your browser’s location permission for this site, or just leave the area field as text.');
-      },
-      { enableHighAccuracy: false, timeout: 10000 }
-    );
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location permission needed', 'Enable location access for this app to use your current location, or just leave the area field as text.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      const coords = { lat: pos.coords.latitude, lng: pos.coords.longitude };
+      resolvePlace(nearestPlace(coords), coords);
+    } catch {
+      Alert.alert('Could not get your location', 'Check your location permission for this app, or just leave the area field as text.');
+    } finally {
+      setLocating(false);
+    }
   };
 
   const post = async () => {

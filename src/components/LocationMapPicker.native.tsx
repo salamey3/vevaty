@@ -22,8 +22,13 @@ import { LatLng } from '../lib/geo';
 const PIN_INK = '#2b2b2f';
 
 const LEBANON_CENTER: LatLng = { lat: 33.8547, lng: 35.8623 };
-// Roughly spans all of Lebanon north-south at this aspect ratio.
-const DEFAULT_DELTA = 3.2;
+// Lebanon's real extent is only ~1.7deg north-south and ~1.5deg east-west
+// (33.0-34.7 lat, 35.1-36.6 lng) -- 1.8 covers the whole country with a
+// little margin. The web sibling's equivalent is Leaflet zoom 8 (see
+// DEFAULT_ZOOM in LocationMapPicker.web.tsx), which frames the same area.
+// (Was previously 3.2, which is nearly double the country's actual height --
+// that showed Damascus and Haifa, both outside Lebanon, in the initial view.)
+const DEFAULT_DELTA = 1.8;
 const PIN_DELTA = 0.02;
 
 export default function LocationMapPicker({

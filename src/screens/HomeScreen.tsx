@@ -13,6 +13,7 @@ import LanguageSwitch from '../components/LanguageSwitch';
 import FilterSection, { FilterOption } from '../components/FilterSection';
 import RangeSlider from '../components/RangeSlider';
 import SaveSearchModal from '../components/SaveSearchModal';
+import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
@@ -112,7 +113,8 @@ export default function HomeScreen() {
 
   // Distance-filter anchor point: defaults to the buyer's profile district
   // (resolved via the Lebanon locality dataset), can be upgraded to precise
-  // browser geolocation if they tap "Use my location".
+  // device geolocation (expo-location, works on native + web) if they tap
+  // "Use my location".
   const [anchor, setAnchor] = useState<LatLng | null>(() => {
     const p = findPlaceByFreeText(profile.district);
     return p ? { lat: p.lat, lng: p.lng } : null;
@@ -126,23 +128,21 @@ export default function HomeScreen() {
     });
   }, [profile.district]);
 
-  const useMyLocationForFilter = () => {
-    if (typeof navigator === 'undefined' || !navigator.geolocation) {
-      Alert.alert('Not available', 'This browser does not support location access.');
-      return;
-    }
+  const useMyLocationForFilter = async () => {
     setLocating(true);
-    navigator.geolocation.getCurrentPosition(
-      (pos) => {
-        setAnchor({ lat: pos.coords.latitude, lng: pos.coords.longitude });
-        setLocating(false);
-      },
-      () => {
-        setLocating(false);
-        Alert.alert('Could not get your location', 'Check your browser’s location permission for this site.');
-      },
-      { enableHighAccuracy: false, timeout: 10000 }
-    );
+    try {
+      const { status } = await Location.requestForegroundPermissionsAsync();
+      if (status !== 'granted') {
+        Alert.alert('Location permission needed', 'Enable location access for this app to use your current location.');
+        return;
+      }
+      const pos = await Location.getCurrentPositionAsync({ accuracy: Location.Accuracy.Balanced });
+      setAnchor({ lat: pos.coords.latitude, lng: pos.coords.longitude });
+    } catch {
+      Alert.alert('Could not get your location', 'Check your location permission for this app.');
+    } finally {
+      setLocating(false);
+    }
   };
 
   const chooseTopCategory = (id: CategoryId) => {

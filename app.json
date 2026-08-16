@@ -27,6 +27,14 @@
     },
     "web": {
       "favicon": "./assets/favicon.png"
-    }
+    },
+    "plugins": [
+      [
+        "expo-location",
+        {
+          "locationWhenInUsePermission": "Allow Vevaty to use your location to set your listing's location and find listings near you."
+        }
+      ]
+    ]
   }
 }
