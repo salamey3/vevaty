@@ -556,6 +556,17 @@ export default function HomeScreen() {
       contentContainerStyle={styles.carouselsContent}
       onScroll={onChromeScroll}
       scrollEventThrottle={16}
+      // Android's native ScrollView doesn't support nested scrolling by
+      // default -- and every CategoryCarouselSection below nests its own
+      // horizontal ScrollView inside this outer vertical one. Without this,
+      // a vertical swipe that starts or passes over one of those horizontal
+      // rows (Vehicles/Properties/Mobiles/...) gets fought over between the
+      // two scrollables for gesture ownership, which is what was actually
+      // behind the "scrolling acts up" jumping/flicker on-device -- a
+      // platform-level Android gap, not a timing/animation issue (that's
+      // also real, fixed separately in ScrollChromeContext, but wasn't the
+      // cause of this). No-op on iOS/web, safe to always set.
+      nestedScrollEnabled
     >
       {categoryCarousels.map(({ category, items }) => (
         <CategoryCarouselSection

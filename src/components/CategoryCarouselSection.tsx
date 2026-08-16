@@ -38,6 +38,12 @@ export default function CategoryCarouselSection({
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
+        // This carousel nests inside HomeScreen's outer vertical ScrollView
+        // (which also sets nestedScrollEnabled) -- Android needs it on both
+        // sides of a nested pair to reliably hand off gesture ownership
+        // instead of the two scrollables fighting over a swipe that starts
+        // or crosses over this row. No-op on iOS/web.
+        nestedScrollEnabled
       >
         {items.map((item) => (
           <ListingCard key={item.id} listing={item} width={148} onPress={() => onPressListing(item)} />
