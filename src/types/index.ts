@@ -1,0 +1,269 @@
+// Category ids used to be a fixed union (electronics | vehicles | ...).
+// Categories are now admin-managed rows in Supabase (myazar.categories),
+// so any string is a valid id -- new categories the admin creates don't
+// need a code change or redeploy to be usable everywhere a CategoryId
+// used to be required.
+export type CategoryId = string;
+
+export interface Category {
+  id: CategoryId; // stable slug, also the id stored on listings.category_id
+  // Top-level categories have parentId === null. A category with a
+  // parentId is a subcategory (e.g. Apartments under Properties) --
+  // the app currently supports one level of nesting in its UI, though
+  // the data model itself allows deeper chains.
+  parentId: CategoryId | null;
+  nameEn: string;
+  nameAr: string;
+  // Admin-uploaded custom icon image, hosted on vevaty.com.
+  // Preferred over `icon` whenever set.
+  iconUrl: string | null;
+  // Fallback to the built-in icon set (src/icons/Icon.tsx) when no
+  // iconUrl is set yet -- keeps the six original categories looking
+  // right even before an admin uploads custom art for them.
+  icon: string;
+  supports3d: boolean;
+  shotListEn: string[];
+  shotListAr: string[];
+  sortOrder: number;
+  active: boolean;
+  // A services category (e.g. plumbing, tutoring) rather than a
+  // physical item for sale/rent -- changes the listing detail page's
+  // call-to-action to "Contact to hire".
+  isService: boolean;
+  // Shown as the placeholder text on the title/description fields when
+  // posting a listing in this category, so the example is relevant
+  // (an apartment listing shouldn't see a hardcoded phone example).
+  // Falls back to a generic placeholder when unset.
+  titleExampleEn: string | null;
+  titleExampleAr: string | null;
+  descriptionExampleEn: string | null;
+  descriptionExampleAr: string | null;
+  // Where the "Area" and "pick a subcategory" steps fall in this
+  // category's Home-screen filter drill-down (see FilterFacet below).
+  // null = that step isn't offered as a filter for this category.
+  areaFilterPriority: number | null;
+  subcategoryFilterPriority: number | null;
+}
+
+// The kind of input a category attribute's value should be collected
+// with. `select`/`multiselect` use `options`; `number` and `text` are
+// free entry; `boolean` is a yes/no switch.
+export type AttributeType = 'text' | 'number' | 'select' | 'multiselect' | 'boolean';
+
+export interface AttributeOption {
+  value: string;
+  labelEn: string;
+  labelAr: string;
+}
+
+// A single spec field an admin has defined for a category -- e.g.
+// "Bedrooms" (number) on Properties, or "Resolution" (select) on TVs.
+// Attributes defined on a parent category are inherited by all of its
+// subcategories (resolved in SettingsStore, not duplicated in the DB).
+export interface CategoryAttribute {
+  id: string;
+  categoryId: CategoryId;
+  slug: string;
+  labelEn: string;
+  labelAr: string;
+  type: AttributeType;
+  options: AttributeOption[];
+  unitEn: string | null;
+  unitAr: string | null;
+  required: boolean;
+  sortOrder: number;
+  // Position of this attribute in its OWN category's Home-screen filter
+  // drill-down sequence (see FilterFacet below). null = this attribute
+  // is a spec/create-form field only, not offered as a search filter.
+  // Separate from sortOrder, which only governs spec/create-form order.
+  filterPriority: number | null;
+}
+
+// One step in a category's Home-screen filter drill-down, in the order
+// the admin has configured (via categories.area_filter_priority /
+// subcategory_filter_priority and category_attributes.filter_priority).
+// Resolved by SettingsStore's resolveFilterFacetsForCategory.
+export type FilterFacet =
+  | { kind: 'subcategory'; priority: number }
+  | { kind: 'area'; priority: number }
+  | { kind: 'attribute'; priority: number; attribute: CategoryAttribute };
+
+// The value a listing stores for one attribute slug. Multiselect stores
+// an array of option values; everything else stores a single value.
+export type AttributeValue = string | number | boolean | string[];
+
+export type PaymentMethod = 'whish' | 'cash_confirmation' | 'card';
+
+// One named 360° spin (e.g. "Exterior"/"Interior" for a car, or one per
+// room for a property) -- a listing can have zero, one, or several. `id`
+// is a client-generated id for brand-new sets (before the listing/set is
+// ever saved) and becomes the real myazar.listing_spin_sets row id once
+// synced from Supabase (see dbListingToLocal in AppStore.tsx) -- either
+// way it's only used as a React key and to target retake/remove/rename
+// actions at the right set, never sent back to the server as-is.
+export interface SpinSet {
+  id: string;
+  label: string;
+  frames: string[]; // same local-uri-then-hosted-url lifecycle as photos, in capture order
+}
+
+export interface Listing {
+  id: string;
+  cat: CategoryId;
+  // Stored in both languages -- either from the seller writing both
+  // themselves, or from the auto-translate suggestion they reviewed
+  // when posting. Use pickText() (src/lib/listingText.ts) to read the
+  // right one for the current UI language with a same-listing fallback.
+  titleEn: string;
+  titleAr: string;
+  descriptionEn: string;
+  descriptionAr: string;
+  price: number;
+  district: string;
+  // Lebanese governorate/caza (district), resolved via the map picker or
+  // town-name autocomplete against the lebanonPlaces dataset (see
+  // src/data/lebanonPlaces.ts). Nullable -- `district` above remains the
+  // source-of-truth freeform display string; these are purely additive and
+  // stay null for listings posted before this feature or where the typed
+  // town didn't match anything in the dataset.
+  governorate: string | null;
+  caza: string | null;
+  // GeoNames geonameid of the resolved town/village, if any -- lets
+  // governorate/caza be re-derived deterministically after a future
+  // dataset refresh.
+  geonameId: number | null;
+  // Approximate coordinates for the "distance from me" filter -- captured
+  // from the seller's device geolocation when they post, or derived from
+  // the resolved place/district via lebanonPlaces as a fallback. null when
+  // neither was available; such listings are simply excluded while a buyer
+  // has the distance filter actively set (see HomeScreen).
+  lat: number | null;
+  lng: number | null;
+  photos: string[]; // local file uris
+  // One or more named 360° spins -- e.g. a car might have "Exterior" and
+  // "Interior" spins, a property one spin per room. Empty array is the
+  // common case (no spin at all). Replaces the old flat single-spin
+  // `spinPhotos: string[]` field.
+  spinSets: SpinSet[];
+  sellerName: string;
+  sellerId: string;
+  rating: number;
+  createdAt: number;
+  aiGenerated: boolean;
+  // Spec values for this listing's category (and its ancestors), keyed
+  // by attribute slug -- e.g. { bedrooms: 3, listing_purpose: 'rent' }.
+  attributes: Record<string, AttributeValue>;
+  // Lifecycle status -- mirrors myazar.listings.status. 'expired' is shown
+  // to the app user as "Unpublished" (see ProfileScreen) rather than using
+  // the DB word directly; it's driven by a daily pg_cron job flipping any
+  // listing past its expiresAt, not by anything client-side.
+  status: 'draft' | 'active' | 'sold' | 'expired' | 'removed';
+  // 15 days after posting by default (DB column default), reset to
+  // now+15d by extendListing/republishListing. expiryReminderSentAt is set
+  // once the day-15 WhatsApp reminder has actually gone out (see the
+  // send-expiry-reminders edge function) so it's never sent twice for the
+  // same expiry window.
+  expiresAt: number;
+  expiryReminderSentAt: number | null;
+  // Phase 4 item 14 -- which of the contact CTAs (chat / phone+WhatsApp)
+  // show on ListingDetailScreen for this listing. 'both' is the default
+  // for every existing listing (via the DB column default and the
+  // fallback in normalizeListing/dbListingToLocal) so this is purely
+  // additive -- nothing already posted loses a contact option.
+  contactMethod: 'phone' | 'chat' | 'both';
+  // Phase 4 item 16 -- carried on the listing (from a join against the
+  // seller's profile row) purely so the seller panel on ListingDetail can
+  // show a "Verified" badge and "Member since" line without a second
+  // fetch. Mirrors profiles.is_phone_verified / profiles.created_at.
+  sellerVerified: boolean;
+  sellerMemberSince: number;
+}
+
+export interface Profile {
+  id: string;
+  name: string;
+  district: string;
+  points: number;
+  tier: 'Bronze' | 'Silver' | 'Gold';
+}
+
+export interface PointsEvent {
+  id: string;
+  label: string;
+  amount: number;
+  createdAt: number;
+}
+
+// Phase 4 item 11 -- a conversation between a listing's buyer and seller.
+// One thread per (listing, buyer) pair; the seller side is whoever posted
+// the listing at thread-creation time. Mirrors myazar.chat_threads exactly
+// (see ChatStore.tsx for the mapping and RLS notes).
+export interface ChatThread {
+  id: string;
+  listingId: string;
+  buyerId: string;
+  sellerId: string;
+  createdAt: number;
+}
+
+// A single message inside a ChatThread. Mirrors myazar.chat_messages.
+export interface ChatMessage {
+  id: string;
+  threadId: string;
+  senderId: string;
+  body: string;
+  createdAt: number;
+  // Phase 4 item 15 -- 'text' is a normal typed message (every message
+  // before this feature, and most since). 'offer' additionally carries
+  // offerAmount + offerStatus and renders as a structured card with
+  // Accept/Decline actions instead of a plain bubble.
+  kind: 'text' | 'offer';
+  offerAmount: number | null;
+  offerStatus: 'pending' | 'accepted' | 'declined' | null;
+}
+
+// Phase 4 item 17 -- a listing a user has saved. One row per (user,
+// listing); mirrors myazar.favorites.
+export interface Favorite {
+  id: string;
+  userId: string;
+  listingId: string;
+  createdAt: number;
+}
+
+// The filter state HomeScreen can restore verbatim when a saved search is
+// run -- mirrors HomeScreen's own SelectionState plus the free-text query
+// (kept here rather than in HomeScreen so both HomeScreen and
+// SavedSearchesStore/navigation types can reference it without a circular
+// import). Kept structurally identical to SelectionState on purpose: see
+// HomeScreen's route.params?.applyCriteria handling.
+export interface SavedSearchCriteria {
+  query: string;
+  subCatIds: string[];
+  facetValues: Record<string, string[]>;
+  priceMin: number | null;
+  priceMax: number | null;
+  distanceKm: number | null;
+}
+
+// A buyer-saved search -- one row per (user, cat, criteria) the user chose
+// to bookmark from the Home filter sidebar/modal. Mirrors
+// myazar.saved_searches (see SavedSearchesStore.tsx).
+export interface SavedSearch {
+  id: string;
+  userId: string;
+  cat: CategoryId;
+  label: string;
+  criteria: SavedSearchCriteria;
+  createdAt: number;
+}
+
+// Site-wide branding, editable live from the admin panel -- no rebuild
+// needed for a new color scheme, logo, or favicon to go live.
+export interface SiteSettings {
+  brandPrimaryColor: string;
+  brandAccentColor: string;
+  logoEnUrl: string | null;
+  logoArUrl: string | null;
+  faviconUrl: string | null;
+}

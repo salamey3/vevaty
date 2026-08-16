@@ -1,0 +1,41 @@
+# BEGIN cPanel-generated php ini directives, do not edit
+# Manual editing of this file may result in unexpected behavior.
+# To make changes to this file, use the cPanel MultiPHP INI Editor (Home >> Software >> MultiPHP INI Editor)
+# For more information, read our documentation (https://go.cpanel.net/EA4ModifyINI)
+<IfModule php8_module>
+   php_value error_log "/home/yousifs1/logs/php.error.log"
+   php_flag log_errors On
+</IfModule>
+<IfModule lsapi_module>
+   php_value error_log "/home/yousifs1/logs/php.error.log"
+   php_flag log_errors On
+</IfModule>
+# END cPanel-generated php ini directives, do not edit
+
+<IfModule mod_rewrite.c>
+  RewriteEngine On
+  RewriteBase /
+  RewriteCond %{REQUEST_FILENAME} -f [OR]
+  RewriteCond %{REQUEST_FILENAME} -d
+  RewriteRule ^ - [L]
+  RewriteRule ^ index.html [L]
+</IfModule>
+
+# This is a single-file SPA deploy: index.html is regenerated and
+# re-uploaded on every release, and every route (via the rewrite above)
+# resolves to it. If any layer between the server and a visitor's browser
+# -- the browser's own HTTP cache, or an intermediary/proxy cache -- ever
+# serves a STALE index.html from a previous release, the visitor can load
+# a page whose inline bundle references data/behavior that no longer
+# matches the backend, and in the worst case (as happened once already,
+# when a stale copy referenced a JS chunk that was never part of a
+# single-file deploy) the page renders fully blank with no visible error.
+# Forcing every HTML file to always revalidate with the origin eliminates
+# that whole class of "works for me, blank for them" bugs.
+<IfModule mod_headers.c>
+  <FilesMatch "\.html$">
+    Header set Cache-Control "no-cache, no-store, must-revalidate"
+    Header set Pragma "no-cache"
+    Header set Expires "0"
+  </FilesMatch>
+</IfModule>
