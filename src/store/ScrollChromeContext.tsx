@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
-import { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
+import { LayoutAnimation, NativeScrollEvent, NativeSyntheticEvent, Platform, UIManager } from 'react-native';
 
 // Shared "is the floating chrome visible right now" flag for mobile's
 // auto-hiding category slider (HomeScreen) and bottom tab bar (TabBar) --
@@ -8,12 +8,29 @@ import { NativeScrollEvent, NativeSyntheticEvent } from 'react-native';
 // scroll event on HomeScreen's list has no direct way to reach TabBar
 // without lifting the flag up to a shared context like this one.
 //
-// Deliberately NOT built on RN's Animated API: this app is web-only (see
-// Pressy.tsx's own comment on this), and Animated's web fallback has real,
-// previously-hit bugs there (dropped style-array entries, no native
-// driver). Every consumer instead just reads the plain `chromeVisible`
-// boolean and flips a couple of CSS-transition-backed style props, same
-// pattern Pressy already uses for its press-scale motion.
+// Consumers still just read the plain `chromeVisible` boolean and flip a
+// couple of CSS-transition-backed style props (transitionProperty/
+// transitionDuration) -- that's a react-native-web-only feature, and it's
+// genuinely what animates the fade/slide on the web build. But on the real
+// native build there's no CSS engine to interpret those props at all, so
+// the style change (e.g. the category chip row's height snapping between
+// 94 and 0) applied INSTANTLY with no animation. An ~94px layout change
+// happening synchronously, right above an actively-scrolling list, mid-
+// gesture, was enough to visibly disturb the list's own scroll position on
+// Android (content jumping backward, already-loaded images re-flashing
+// their placeholder state) -- reported as "scrolling acts up" on-device.
+// LayoutAnimation is native RN's own mechanism for exactly this (animating
+// a layout change that's about to happen, without wiring an Animated.Value
+// per style prop) and is a no-op on web, so triggering it here -- right
+// before every setChromeVisible call, guarded to non-web -- smooths the
+// transition on native without touching the working web CSS path at all.
+if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
+  UIManager.setLayoutAnimationEnabledExperimental(true);
+}
+const animateChromeTransition = () => {
+  if (Platform.OS === 'web') return;
+  LayoutAnimation.configureNext(LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
+};
 type ScrollChromeContextValue = {
   chromeVisible: boolean;
   onChromeScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
@@ -40,14 +57,28 @@ const TOP_SNAP_ZONE = 24;
 
 export function ScrollChromeProvider({ children }: { children: React.ReactNode }) {
   const [chromeVisible, setChromeVisible] = useState(true);
+  // Mirrors chromeVisible synchronously for the callbacks below (which are
+  // stable useCallbacks with `[]` deps, so they'd otherwise only ever see
+  // the initial value) -- lets each call site check "is this visibility
+  // change actually a change" before bothering to animate, instead of
+  // reconfiguring LayoutAnimation on every single scroll frame near the top
+  // (TOP_SNAP_ZONE calls setChromeVisible(true) unconditionally on every
+  // event while in that zone, not just once on entry).
+  const chromeVisibleRef = useRef(true);
+  const setVisible = useCallback((next: boolean) => {
+    if (chromeVisibleRef.current === next) return;
+    chromeVisibleRef.current = next;
+    animateChromeTransition();
+    setChromeVisible(next);
+  }, []);
   const lastY = useRef(0);
   const accumulated = useRef(0);
 
   const showChrome = useCallback(() => {
     lastY.current = 0;
     accumulated.current = 0;
-    setChromeVisible(true);
-  }, []);
+    setVisible(true);
+  }, [setVisible]);
 
   const onChromeScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
     const y = Math.max(0, e.nativeEvent.contentOffset.y);
@@ -56,7 +87,7 @@ export function ScrollChromeProvider({ children }: { children: React.ReactNode }
 
     if (y <= TOP_SNAP_ZONE) {
       accumulated.current = 0;
-      setChromeVisible(true);
+      setVisible(true);
       return;
     }
 
@@ -66,11 +97,11 @@ export function ScrollChromeProvider({ children }: { children: React.ReactNode }
     );
 
     if (accumulated.current >= DIRECTION_THRESHOLD) {
-      setChromeVisible(false);
+      setVisible(false);
     } else if (accumulated.current <= -DIRECTION_THRESHOLD) {
-      setChromeVisible(true);
+      setVisible(true);
     }
-  }, []);
+  }, [setVisible]);
 
   const value = useMemo(
     () => ({ chromeVisible, onChromeScroll, showChrome }),
