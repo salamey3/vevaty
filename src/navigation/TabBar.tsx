@@ -2,6 +2,7 @@ import React, { useEffect, useRef } from 'react';
 import { StyleSheet, View, Text, ViewStyle } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from '../components/Pressy';
 import BrandMark from '../components/BrandMark';
 import Icon, { IconName } from '../icons/Icon';
@@ -27,6 +28,19 @@ const LABEL_KEYS: Record<string, string> = {
 export default function TabBar({ state, navigation }: BottomTabBarProps) {
   const isDesktop = useIsDesktop();
   const { t, isRTL } = useLanguage();
+  // On native Android, the system nav bar (3-button or gesture pill) sits
+  // right where this floating pill used to be pinned (bottom: 0 + a fixed
+  // 20px padding) -- that combo was never a problem on web, where there's
+  // no OS chrome to collide with, but on-device the system bar visually
+  // overlapped/obscured the tab bar. insets.bottom reports exactly how
+  // much the current device's system bar (or iOS home indicator) needs, so
+  // add it on top of the existing 20px breathing room instead of the pill
+  // sitting flush against -- or under -- the system chrome. Deliberately
+  // not attempting to hide the system nav bar itself (immersive mode):
+  // that fights the OS, isn't guaranteed to stay hidden across
+  // interactions, and removes the user's back/home affordance, which is
+  // worse than a slightly taller floating pill.
+  const insets = useSafeAreaInsets();
   // Mobile-only auto-hide, shared with HomeScreen's category slider via
   // ScrollChromeContext (this component can't see another screen's scroll
   // events directly -- see that file's own comment for why). Whichever tab
@@ -88,7 +102,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
 
   return (
     <View
-      style={[styles.wrap, !chromeVisible && styles.wrapHidden]}
+      style={[styles.wrap, { paddingBottom: 20 + insets.bottom }, !chromeVisible && styles.wrapHidden]}
       pointerEvents={chromeVisible ? 'box-none' : 'none'}
     >
       <View style={styles.pillShadow}>

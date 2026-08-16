@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Image, Modal, Platform, StyleSheet, Text, View, ViewStyle } from 'react-native';
+import { Image, Modal, StyleSheet, Text, View } from 'react-native';
+import { CameraView, useCameraPermissions } from 'expo-camera';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
@@ -14,18 +15,22 @@ type Props = {
   onFallbackToLibrary: () => void;
 };
 
-type CamState = 'idle' | 'requesting' | 'active' | 'denied' | 'unsupported';
+type CamState = 'idle' | 'requesting' | 'active' | 'denied';
 
-// Guided in-app 360° spin capture (Phase 3 item 7). No new dependency --
-// camera access goes through the browser's own navigator.mediaDevices
-// API directly, the same "call the raw Web API, no wrapper library"
-// approach already used for navigator.geolocation in CreateListingScreen's
-// "Use my current location" button. This is the app's first raw-DOM
-// element rendered inside the React tree (<video>, via
-// React.createElement rather than a react-native-web component) -- the
-// live camera preview has no RN-primitive equivalent. This app ships
-// web-only (see theme.ts), so this is unconditionally safe, but the
-// feature-detection below is written defensively anyway.
+// Guided in-app 360deg spin capture (Phase 3 item 7), backed by expo-camera's
+// CameraView -- works on native (Android/iOS) AND web (it uses getUserMedia
+// under the hood there), unlike the previous implementation. That one called
+// navigator.mediaDevices.getUserMedia directly, a raw browser API with no
+// native equivalent -- feature-detection always failed on-device, so
+// startNewSpin() silently kicked straight to onFallbackToLibrary() and a
+// seller tapping "capture a 360 spin" never saw an in-app camera at all,
+// unlike the plain Photos step (which already used expo-image-picker's
+// launchCameraAsync, itself cross-platform). This brings spin capture to
+// parity with that. Also means captured frames are now real file:// URIs
+// (native) or object URLs handled internally by expo-camera on web, same
+// shape as the photos[] array already produced by expo-image-picker, so
+// they flow through the exact same upload path (see AppStore) instead of
+// the old raw canvas-drawn blob: URLs.
 export default function CameraCapture({
   visible,
   minFrames,
@@ -35,17 +40,13 @@ export default function CameraCapture({
   onFallbackToLibrary,
 }: Props) {
   const { t } = useLanguage();
+  const [permission, requestPermission] = useCameraPermissions();
   const [camState, setCamState] = useState<CamState>('idle');
   const [frames, setFrames] = useState<string[]>([]);
-  const streamRef = useRef<MediaStream | null>(null);
-  const videoElRef = useRef<any>(null);
+  const cameraRef = useRef<CameraView>(null);
+  const capturingRef = useRef(false);
   const framesRef = useRef<string[]>([]);
   framesRef.current = frames;
-
-  const stopStream = () => {
-    streamRef.current?.getTracks().forEach((tr) => tr.stop());
-    streamRef.current = null;
-  };
 
   useEffect(() => {
     if (!visible) return;
@@ -53,77 +54,44 @@ export default function CameraCapture({
     setFrames([]);
     setCamState('requesting');
 
-    const nav: any = typeof navigator !== 'undefined' ? navigator : null;
-    const supported = !!nav && !!nav.mediaDevices && !!nav.mediaDevices.getUserMedia;
-    if (!supported) {
-      setCamState('unsupported');
-      onFallbackToLibrary();
-      return;
-    }
-
-    nav.mediaDevices
-      .getUserMedia({ video: { facingMode: 'environment' } })
-      .then((stream: MediaStream) => {
-        if (cancelled) {
-          stream.getTracks().forEach((tr) => tr.stop());
-          return;
-        }
-        streamRef.current = stream;
-        if (videoElRef.current) videoElRef.current.srcObject = stream;
-        setCamState('active');
-      })
-      .catch(() => {
+    (async () => {
+      try {
+        const current = permission?.granted ? permission : await requestPermission();
+        if (cancelled) return;
+        setCamState(current?.granted ? 'active' : 'denied');
+      } catch {
         if (!cancelled) setCamState('denied');
-      });
+      }
+    })();
 
     return () => {
       cancelled = true;
-      stopStream();
     };
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [visible]);
 
-  const attachVideoRef = (el: any) => {
-    videoElRef.current = el;
-    if (el && streamRef.current) el.srcObject = streamRef.current;
-  };
-
-  const handleCapture = () => {
-    const videoEl = videoElRef.current;
-    if (!videoEl || typeof document === 'undefined' || framesRef.current.length >= maxFrames) return;
-    const srcW = videoEl.videoWidth || 1280;
-    const srcH = videoEl.videoHeight || 720;
-    const canvas = document.createElement('canvas');
-    canvas.width = Math.min(srcW, 1280);
-    canvas.height = Math.round(canvas.width * (srcH / srcW));
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    ctx.drawImage(videoEl, 0, 0, canvas.width, canvas.height);
-    canvas.toBlob(
-      (blob) => {
-        if (!blob) return;
-        const uri = URL.createObjectURL(blob);
-        setFrames((prev) => (prev.length >= maxFrames ? prev : [...prev, uri]));
-      },
-      'image/jpeg',
-      0.85
-    );
+  const handleCapture = async () => {
+    if (capturingRef.current || framesRef.current.length >= maxFrames || !cameraRef.current) return;
+    capturingRef.current = true;
+    try {
+      const photo = await cameraRef.current.takePictureAsync({ quality: 0.85, skipProcessing: true });
+      if (photo?.uri) {
+        setFrames((prev) => (prev.length >= maxFrames ? prev : [...prev, photo.uri]));
+      }
+    } catch {
+      // A single failed capture isn't worth interrupting the session for --
+      // the seller can just tap the shutter again.
+    } finally {
+      capturingRef.current = false;
+    }
   };
 
   const handleDelete = (uri: string) => {
-    URL.revokeObjectURL(uri);
     setFrames((prev) => prev.filter((f) => f !== uri));
   };
 
   const handleFinish = () => {
-    stopStream();
     onFinish(framesRef.current);
-  };
-
-  const handleCancel = () => {
-    framesRef.current.forEach((uri) => URL.revokeObjectURL(uri));
-    stopStream();
-    onCancel();
   };
 
   if (!visible) return null;
@@ -132,25 +100,19 @@ export default function CameraCapture({
   const canFinish = count >= minFrames;
 
   return (
-    <Modal transparent visible={visible} animationType="fade" onRequestClose={handleCancel}>
+    <Modal transparent visible={visible} animationType="fade" onRequestClose={onCancel}>
       <View style={styles.backdrop}>
         <View style={styles.topBar}>
-          <Pressy onPress={handleCancel} style={styles.iconBtn} accessibilityLabel="Close">
+          <Pressy onPress={onCancel} style={styles.iconBtn} accessibilityLabel="Close">
             <Icon name="close" size={18} color={colors.white} />
           </Pressy>
           <Text style={styles.counter}>{count}/{maxFrames}</Text>
           <View style={styles.iconBtn} />
         </View>
 
-        {camState === 'active' && Platform.OS === 'web' && (
+        {camState === 'active' && (
           <View style={styles.videoWrap}>
-            {React.createElement('video', {
-              ref: attachVideoRef,
-              autoPlay: true,
-              muted: true,
-              playsInline: true,
-              style: { width: '100%', height: '100%', objectFit: 'cover' },
-            } as any)}
+            <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
             <View style={styles.instructionBanner} pointerEvents="none">
               <Text style={styles.instructionText}>{t('createListing.cameraInstructions')}</Text>
             </View>
@@ -163,20 +125,14 @@ export default function CameraCapture({
           </View>
         )}
 
-        {(camState === 'denied' || camState === 'unsupported') && (
+        {camState === 'denied' && (
           <View style={styles.centerMsg}>
             <Text style={styles.centerMsgTitle}>{t('createListing.cameraUnavailableTitle')}</Text>
             <Text style={styles.centerMsgText}>{t('createListing.cameraUnavailableMessage')}</Text>
-            <Pressy
-              onPress={() => {
-                stopStream();
-                onFallbackToLibrary();
-              }}
-              style={styles.libraryBtn}
-            >
+            <Pressy onPress={onFallbackToLibrary} style={styles.libraryBtn}>
               <Text style={styles.libraryBtnText}>{t('createListing.cameraChooseFromLibrary')}</Text>
             </Pressy>
-            <Pressy onPress={handleCancel} style={styles.cancelLink}>
+            <Pressy onPress={onCancel} style={styles.cancelLink}>
               <Text style={styles.cancelLinkText}>{t('common.cancel')}</Text>
             </Pressy>
           </View>

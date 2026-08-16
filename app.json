@@ -34,6 +34,14 @@
         {
           "locationWhenInUsePermission": "Allow Vevaty to use your location to set your listing's location and find listings near you."
         }
+      ],
+      [
+        "expo-camera",
+        {
+          "cameraPermission": "Allow Vevaty to access your camera to take listing photos and 360° spins.",
+          "microphonePermission": false,
+          "recordAudioAndroid": false
+        }
       ]
     ]
   }
