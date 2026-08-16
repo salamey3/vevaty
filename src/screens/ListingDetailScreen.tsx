@@ -1,6 +1,7 @@
 import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, Image, Modal, TextInput, Linking } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -42,6 +43,10 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { t, language } = useLanguage();
+  // Same fixed-bottom-bar-over-Android's-nav-bar issue TabBar.tsx and
+  // CreateListingScreen's footer had -- the mobile-only "Contact & Buy"
+  // footer below is pinned to the bottom of the screen too.
+  const insets = useSafeAreaInsets();
   const [favBusy, setFavBusy] = useState(false);
   const [chatLoading, setChatLoading] = useState(false);
   const [chatError, setChatError] = useState<string | null>(null);
@@ -542,7 +547,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <View style={styles.card}>{details}</View>
       </ScrollView>
 
-      <View style={styles.footer}>
+      <View style={[styles.footer, { paddingBottom: 18 + insets.bottom }]}>
         {ctaSection()}
       </View>
       {confirmDialog}
@@ -562,7 +567,13 @@ const styles = StyleSheet.create({
   topBarTitle: { ...type.h3, flex: 1, textAlign: 'center' },
   scroll: { paddingBottom: 20 },
   photo: {
-    height: 260, marginHorizontal: 18, borderRadius: radius.lg,
+    // 3:4 (width:height) instead of a fixed pixel height -- tall enough to
+    // do right by the vertical photos most sellers actually shoot, while
+    // still showing a landscape photo without excessive letterboxing.
+    // PhotoGallery/SpinViewer crop to `cover` in this box; the uncropped
+    // original is always still reachable by tapping through to the
+    // lightbox.
+    aspectRatio: 3 / 4, marginHorizontal: 18, borderRadius: radius.lg,
     backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   photoImg: { width: '100%', height: '100%' },
@@ -621,8 +632,11 @@ const styles = StyleSheet.create({
   verifiedBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.success },
   memberSince: { ...type.tiny, marginTop: 3 },
   relatedRow: { gap: 12, paddingTop: 2, paddingBottom: 4 },
+  // paddingBottom is applied inline (18 + the live safe-area inset) instead
+  // of hardcoded here -- see the insets comment near the top of the
+  // component.
   footer: {
-    paddingHorizontal: 18, paddingTop: 12, paddingBottom: 18,
+    paddingHorizontal: 18, paddingTop: 12,
     borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.bg,
   },
   messageBtn: {
@@ -646,7 +660,10 @@ const styles = StyleSheet.create({
   desktopScroll: { paddingTop: 8, paddingBottom: 60 },
   desktopRow: { flexDirection: 'row', gap: 40 },
   desktopPhoto: {
-    width: 440, height: 440, borderRadius: radius.lg, flexShrink: 0,
+    // Same 3:4 as the mobile photo box (see its comment) -- width stays
+    // fixed since this column sits beside the details column, height
+    // follows from the ratio.
+    width: 440, aspectRatio: 3 / 4, borderRadius: radius.lg, flexShrink: 0,
     backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   desktopInfo: { flex: 1, paddingTop: 4 },
