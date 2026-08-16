@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useRef, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { ChatMessage, ChatThread } from '../types';
 import { supabase, ensureSession } from '../lib/supabase';
 
@@ -261,19 +261,37 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
     };
   }, [loadMessages]);
 
-  const value: ChatStoreValue = {
-    threads,
-    threadsLoading,
-    messagesByThread,
-    loadThreads,
-    loadMessages,
-    getOrCreateThread,
-    sendMessage,
-    sendOffer,
-    respondToOffer,
-    subscribeToThread,
-    currentUserId,
-  };
+  // Memoized so consumers don't re-render purely because this provider did
+  // -- see the matching comment in FavoritesStore. Every function above is
+  // already a stable useCallback.
+  const value = useMemo<ChatStoreValue>(
+    () => ({
+      threads,
+      threadsLoading,
+      messagesByThread,
+      loadThreads,
+      loadMessages,
+      getOrCreateThread,
+      sendMessage,
+      sendOffer,
+      respondToOffer,
+      subscribeToThread,
+      currentUserId,
+    }),
+    [
+      threads,
+      threadsLoading,
+      messagesByThread,
+      loadThreads,
+      loadMessages,
+      getOrCreateThread,
+      sendMessage,
+      sendOffer,
+      respondToOffer,
+      subscribeToThread,
+      currentUserId,
+    ],
+  );
 
   return <ChatStoreContext.Provider value={value}>{children}</ChatStoreContext.Provider>;
 }

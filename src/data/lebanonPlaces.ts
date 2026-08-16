@@ -98,6 +98,27 @@ function normalizeFreeText(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }
 
+// Precomputed once at module load, not per call -- findPlaceByFreeText used
+// to re-run normalizeFreeText (two regex passes) over every place's
+// name+altNames on every single invocation, for every place in the ~1,700
+// row dataset. That's static data; normalizing it once here instead of on
+// every call is what actually removes the cost, not just moving it around.
+// (Short keys are pre-filtered here too, so the per-call loop below never
+// has to re-check the length-3 minimum.)
+const freeTextCandidates: { key: string; place: LebanonPlace }[] = LEBANON_PLACES.flatMap((p) =>
+  [p.name, ...p.altNames]
+    .map((c) => normalizeFreeText(c))
+    .filter((key, i, arr) => key.length >= 3 && arr.indexOf(key) === i)
+    .map((key) => ({ key, place: p }))
+);
+
+// listingDistrict() (see ../lib/listingText.ts) calls this for every visible
+// listing card, on every render -- including the mass re-render a language
+// toggle triggers across the whole visible list. The same handful of district
+// strings repeat across dozens of listings, so caching by raw input turns
+// nearly every one of those calls into a Map lookup instead of a full rescan.
+const freeTextCache = new Map<string, LebanonPlace | null>();
+
 // Resolves a free-text location string (however it was typed -- "Achrafieh,
 // Beirut", bare "Jounieh", extra punctuation, etc.) by finding every known
 // place name contained in it, preferring the LONGEST matching name (most
@@ -108,22 +129,22 @@ function normalizeFreeText(s: string): string {
 // unnecessary here since we rank by match length instead of list order.
 export function findPlaceByFreeText(freeText: string | null | undefined): LebanonPlace | null {
   if (!freeText) return null;
+  if (freeTextCache.has(freeText)) return freeTextCache.get(freeText)!;
   const normalized = normalizeFreeText(freeText);
-  if (!normalized) return null;
+  if (!normalized) {
+    freeTextCache.set(freeText, null);
+    return null;
+  }
   let best: LebanonPlace | null = null;
   let bestLen = 0;
-  for (const p of LEBANON_PLACES) {
-    const candidates = [p.name, ...p.altNames];
-    for (const c of candidates) {
-      const key = normalizeFreeText(c);
-      if (key.length < 3) continue; // avoid noisy super-short substrings
-      if (!normalized.includes(key)) continue;
-      if (key.length > bestLen || (key.length === bestLen && best && p.population > best.population)) {
-        best = p;
-        bestLen = key.length;
-      }
+  for (const { key, place } of freeTextCandidates) {
+    if (!normalized.includes(key)) continue;
+    if (key.length > bestLen || (key.length === bestLen && best && place.population > best.population)) {
+      best = place;
+      bestLen = key.length;
     }
   }
+  freeTextCache.set(freeText, best);
   return best;
 }
 

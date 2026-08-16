@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { supabase, ensureSession } from '../lib/supabase';
 import { SavedSearch, SavedSearchCriteria, CategoryId } from '../types';
 
@@ -104,14 +104,20 @@ export function SavedSearchesStoreProvider({ children }: { children: React.React
     }
   }, [savedSearches]);
 
-  const value: SavedSearchesStoreValue = {
-    savedSearches,
-    loading,
-    loaded,
-    loadSavedSearches,
-    saveSearch,
-    deleteSavedSearch,
-  };
+  // Memoized so consumers don't re-render purely because this provider did
+  // -- see the matching comment in FavoritesStore. Every function above is
+  // already a stable useCallback.
+  const value = useMemo<SavedSearchesStoreValue>(
+    () => ({
+      savedSearches,
+      loading,
+      loaded,
+      loadSavedSearches,
+      saveSearch,
+      deleteSavedSearch,
+    }),
+    [savedSearches, loading, loaded, loadSavedSearches, saveSearch, deleteSavedSearch],
+  );
 
   return <SavedSearchesStoreContext.Provider value={value}>{children}</SavedSearchesStoreContext.Provider>;
 }

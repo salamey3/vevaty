@@ -22,6 +22,7 @@ import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingTitle, listingDescription, listingDistrict } from '../lib/listingText';
+import { useRtlCarousel } from '../lib/useRtlCarousel';
 
 // Phase 4 item 16 -- "Member since Month Year", derived from the seller's
 // join-date timestamp already carried on the listing (see AppStore's
@@ -94,6 +95,14 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       .sort((a, b) => Math.abs(a.price - listing.price) - Math.abs(b.price - listing.price))
       .slice(0, 10);
   }, [listing, listings, catAncestors, categoryMatches]);
+
+  // RTL swipe direction via reversed order + viewport parked at the far end,
+  // rather than a scaleX(-1) mirror on the scroller -- see useRtlCarousel.
+  const {
+    ordered: orderedRelated,
+    scrollRef: relatedScrollRef,
+    onContentSizeChange: onRelatedContentSizeChange,
+  } = useRtlCarousel(relatedListings, isRTL);
 
   const handleToggleFavorite = async () => {
     if (!listing) return;
@@ -368,27 +377,23 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <>
           <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.relatedListings')}</Text>
           <ScrollView
+            ref={relatedScrollRef}
             horizontal
             showsHorizontalScrollIndicator={false}
             contentContainerStyle={styles.relatedRow}
-            // Mirrors the whole scroller horizontally so the swipe
-            // direction itself reads RTL (first item anchored at the
-            // right, dragging leftward reveals the next one) -- see the
-            // matching comment on CategoryCarouselSection's row for why
-            // this scaleX trick and not FlatList's `inverted` (this is a
-            // plain ScrollView, and inverted would also flip vertically).
-            // Each card is counter-flipped below so its own content still
-            // renders right-side-up.
-            style={isRTL && styles.relatedScrollRTL}
+            onContentSizeChange={onRelatedContentSizeChange}
+            // Nests inside this screen's outer vertical ScrollView -- same
+            // Android nested-scroll gesture-ownership gap as the home
+            // screen's carousels (see that comment for the full story).
+            nestedScrollEnabled
           >
-            {relatedListings.map((item) => (
-              <View key={item.id} style={isRTL && styles.relatedItemRTL}>
-                <ListingCard
-                  listing={item}
-                  width={140}
-                  onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
-                />
-              </View>
+            {orderedRelated.map((item) => (
+              <ListingCard
+                key={item.id}
+                listing={item}
+                width={140}
+                onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
+              />
             ))}
           </ScrollView>
         </>
@@ -694,16 +699,6 @@ const styles = StyleSheet.create({
   verifiedBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.success },
   memberSince: { ...type.tiny, marginTop: 3 },
   relatedRow: { gap: 12, paddingTop: 2, paddingBottom: 4 },
-  // Flips the whole horizontal scroller so its swipe direction reads RTL
-  // (first card anchored at the right edge, dragging leftward reveals the
-  // next one) -- then each card is counter-flipped (relatedItemRTL) so
-  // its own photo/text renders right-side-up instead of mirrored. Same
-  // scaleX technique CategoryCarouselSection's row uses; a plain
-  // ScrollView has no `inverted` prop the way FlatList does, and FlatList
-  // horizontal + inverted mirrors vertically too (upside-down cards), so
-  // this manual pair is the correct one for both.
-  relatedScrollRTL: { transform: [{ scaleX: -1 }] },
-  relatedItemRTL: { transform: [{ scaleX: -1 }] },
   // paddingBottom is applied inline (18 + the live safe-area inset) instead
   // of hardcoded here -- see the insets comment near the top of the
   // component.

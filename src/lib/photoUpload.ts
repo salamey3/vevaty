@@ -1,4 +1,5 @@
 import { Platform } from 'react-native';
+import { resizePhotoForUpload } from './imageToBase64';
 
 // Listing photos are hosted on the same ChemiCloud domain the app itself is
 // served from (vevaty.com/upload.php), not Supabase Storage —
@@ -16,15 +17,25 @@ export async function uploadPhoto(localUri: string): Promise<string> {
   const form = new FormData();
   form.append('token', UPLOAD_TOKEN);
 
+  // upload.php serves back whatever it's given with no server-side
+  // resizing, and every card/carousel in the app requests that same
+  // full-size original just to paint a ~148px-wide thumbnail -- capping the
+  // longest edge here (once, before it ever leaves the device) is what
+  // actually fixes that mismatch, instead of every future upload repeating
+  // the same "dozens of multi-megabyte photos loading at once" jank a
+  // screen recording caught on the existing listings. Falls back to the
+  // original URI if resizing fails for any reason (see resizePhotoForUpload).
+  const uri = await resizePhotoForUpload(localUri);
+
   if (Platform.OS === 'web') {
-    const response = await fetch(localUri);
+    const response = await fetch(uri);
     const blob = await response.blob();
     form.append('photo', blob, 'photo.jpg');
   } else {
     // React Native's FormData/XHR implementation uploads a local file when
     // given this { uri, name, type } shape -- not an actual Blob object.
     form.append('photo', {
-      uri: localUri,
+      uri,
       name: 'photo.jpg',
       type: 'image/jpeg',
     } as any);

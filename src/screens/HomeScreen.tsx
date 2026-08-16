@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Modal, StyleSheet, Text, View, TextInput, FlatList, ScrollView, ViewStyle } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -21,11 +21,12 @@ import { useSettings } from '../store/SettingsStore';
 import { useScrollChrome } from '../store/ScrollChromeContext';
 import { useSavedSearches } from '../store/SavedSearchesStore';
 import { RootStackParamList, HomeStackParamList } from '../navigation/types';
-import { CategoryAttribute, CategoryId, FilterFacet, Listing, SavedSearchCriteria } from '../types';
+import { Category, CategoryAttribute, CategoryId, FilterFacet, Listing, SavedSearchCriteria } from '../types';
 import { useIsDesktop, useGridColumns } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { haversineKm, LatLng } from '../lib/geo';
 import { findPlaceByFreeText } from '../data/lebanonPlaces';
+import { useRtlCarousel } from '../lib/useRtlCarousel';
 
 // Parallel, always-visible selection state -- replaces the old one-facet-
 // at-a-time drill-down. Every enabled facet is its own sidebar section;
@@ -349,6 +350,17 @@ export default function HomeScreen() {
   }, [topCat, query, categories, listings, categoryMatches]);
   const showCarousels = categoryCarousels.length > 0;
 
+  // The categories chip strip is one "All" chip followed by every top-level
+  // category. Reversing that whole sequence (rather than transforming the
+  // scroller) is what gives the strip its RTL swipe direction -- see the
+  // comment at the render site.
+  const catChips = useMemo<('all' | Category)[]>(() => ['all', ...categories], [categories]);
+  const {
+    ordered: orderedCatChips,
+    scrollRef: catSliderRef,
+    onContentSizeChange: onCatSliderContentSizeChange,
+  } = useRtlCarousel(catChips, isRTL);
+
   const categoryLabel = topCat !== 'all' ? (() => {
     const cat = categoryById(topCat);
     return cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : topCat;
@@ -550,16 +562,30 @@ export default function HomeScreen() {
   // Mobile-only "all categories" home view: a vertical stack of per-
   // category carousels (see categoryCarousels above) instead of the
   // combined grid.
+  //
+  // Windowed FlatList instead of a plain ScrollView+map -- every section
+  // used to mount (and start loading all ~10 of its full-size listing
+  // photos) the instant the home screen rendered, regardless of whether
+  // that section was anywhere near the visible viewport. With up to 13
+  // top-level categories that's well over a hundred concurrent image
+  // requests competing for the same handful of connections, which is what
+  // was actually behind photos taking tens of seconds (or longer) to show
+  // up and scrolling/swiping feeling heavy well after the screen first
+  // painted -- not a one-time load blip. A conservative initial render +
+  // one screen of look-ahead keeps far-off sections from mounting (and
+  // fetching) until they're actually about to be scrolled into view.
   const carousels = (
-    <ScrollView
+    <FlatList
+      data={categoryCarousels}
+      keyExtractor={({ category }) => category.id}
       style={styles.list}
       contentContainerStyle={styles.carouselsContent}
       onScroll={onChromeScroll}
       scrollEventThrottle={16}
       // Android's native ScrollView doesn't support nested scrolling by
       // default -- and every CategoryCarouselSection below nests its own
-      // horizontal ScrollView inside this outer vertical one. Without this,
-      // a vertical swipe that starts or passes over one of those horizontal
+      // horizontal list inside this outer vertical one. Without this, a
+      // vertical swipe that starts or passes over one of those horizontal
       // rows (Vehicles/Properties/Mobiles/...) gets fought over between the
       // two scrollables for gesture ownership, which is what was actually
       // behind the "scrolling acts up" jumping/flicker on-device -- a
@@ -567,17 +593,19 @@ export default function HomeScreen() {
       // also real, fixed separately in ScrollChromeContext, but wasn't the
       // cause of this). No-op on iOS/web, safe to always set.
       nestedScrollEnabled
-    >
-      {categoryCarousels.map(({ category, items }) => (
+      initialNumToRender={2}
+      maxToRenderPerBatch={2}
+      windowSize={3}
+      removeClippedSubviews
+      renderItem={({ item: { category, items } }) => (
         <CategoryCarouselSection
-          key={category.id}
           category={category}
           items={items}
           onSeeAll={() => chooseTopCategory(category.id)}
           onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
         />
-      ))}
-    </ScrollView>
+      )}
+    />
   );
 
   return (
@@ -690,33 +718,36 @@ export default function HomeScreen() {
               style={[styles.catSliderWrap, !chromeVisible && styles.catSliderWrapHidden]}
               pointerEvents={chromeVisible ? 'auto' : 'none'}
             >
+              {/* RTL swipe direction here is done by reversing the chip
+                  ORDER and parking the viewport at the far end, not by
+                  mirroring the scroller with scaleX(-1) and counter-
+                  flipping every chip -- see CategoryCarouselSection for the
+                  full reasoning (transforms block Android view flattening
+                  and invert the list clipping math). Same result: "All"
+                  sits at the right edge and dragging rightward walks
+                  leftward through the categories. */}
               <ScrollView
+                ref={catSliderRef}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                style={[styles.catSlider, isRTL && styles.catSliderRTL]}
+                style={styles.catSlider}
                 contentContainerStyle={styles.catSliderContent}
+                onContentSizeChange={onCatSliderContentSizeChange}
               >
-                {/* Same scaleX mirror-the-scroller-then-counter-flip-each-
-                    item technique as CategoryCarouselSection's listing row
-                    -- swiping this categories menu should read RTL too
-                    ("All" anchored at the right, dragging leftward walks
-                    through the rest), not just keep English's left-to-
-                    right chip order with right-aligned labels. */}
-                <View style={isRTL && styles.catSliderItemRTL}>
-                  <Pressy onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
-                    <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
-                      <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
-                    </View>
-                    <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
-                      {t('common.all')}
-                    </Text>
-                  </Pressy>
-                </View>
-                {categories.map((c) => (
-                  <View key={c.id} style={isRTL && styles.catSliderItemRTL}>
-                    <CategoryCard category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
-                  </View>
-                ))}
+                {orderedCatChips.map((c) =>
+                  c === 'all' ? (
+                    <Pressy key="all" onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
+                      <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
+                        <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
+                      </View>
+                      <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
+                        {t('common.all')}
+                      </Text>
+                    </Pressy>
+                  ) : (
+                    <CategoryCard key={c.id} category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
+                  )
+                )}
               </ScrollView>
             </View>
           </View>
@@ -820,12 +851,6 @@ const styles = StyleSheet.create({
   // the row out of stretch is what keeps chips square regardless of
   // how tall the surrounding screen is.
   catSlider: { height: 80, flexGrow: 0, flexShrink: 0 },
-  // Mirrors the whole scroller so its swipe direction reads RTL -- see the
-  // render-side comment above. catSliderItemRTL (applied per-chip below)
-  // undoes the mirror on each individual chip so its icon/label still
-  // renders right-side-up.
-  catSliderRTL: { transform: [{ scaleX: -1 }] },
-  catSliderItemRTL: { transform: [{ scaleX: -1 }] },
   catSliderContent: { paddingHorizontal: 18, gap: 10, alignItems: 'flex-start' },
   // Positioning root shared by catSliderWrap (absolute) and the scrollable
   // content it overlays -- see the render-side comment on carouselsAnchor.

@@ -1,4 +1,4 @@
-import React, { createContext, useCallback, useContext, useState } from 'react';
+import React, { createContext, useCallback, useContext, useMemo, useState } from 'react';
 import { supabase, ensureSession } from '../lib/supabase';
 
 // Phase 4 item 17 -- saved/favorited listings. Deliberately small and
@@ -84,7 +84,18 @@ export function FavoritesStoreProvider({ children }: { children: React.ReactNode
     }
   }, [favoriteIds]);
 
-  const value: FavoritesStoreValue = { favoriteIds, loading, loaded, loadFavorites, isFavorite, toggleFavorite };
+  // Memoized so this object keeps its identity between renders. Without it
+  // a fresh object was handed to the Provider on every render of this
+  // component, which makes every useFavorites() consumer re-render even when
+  // nothing it reads actually changed -- and ListingCard is a consumer, so
+  // that meant every card on screen. Every function above is already a
+  // stable useCallback, so the dep list here is honest rather than a way of
+  // silencing the linter. Matches how AppStore and SettingsStore already
+  // build their values.
+  const value = useMemo<FavoritesStoreValue>(
+    () => ({ favoriteIds, loading, loaded, loadFavorites, isFavorite, toggleFavorite }),
+    [favoriteIds, loading, loaded, loadFavorites, isFavorite, toggleFavorite],
+  );
 
   return <FavoritesStoreContext.Provider value={value}>{children}</FavoritesStoreContext.Provider>;
 }

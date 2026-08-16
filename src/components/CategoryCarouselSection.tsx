@@ -5,6 +5,7 @@ import ListingCard from './ListingCard';
 import { colors, type } from '../theme/theme';
 import { Category, Listing } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useRtlCarousel } from '../lib/useRtlCarousel';
 
 // One home-page section for a single top-level category: a
 // "[Category name] · See all" header row followed by its own
@@ -26,6 +27,12 @@ export default function CategoryCarouselSection({
   const { language, t, isRTL } = useLanguage();
   const label = language === 'ar' ? category.nameAr : category.nameEn;
 
+  // RTL swipe direction: reversed order + viewport parked at the far end,
+  // rather than a scaleX(-1) mirror on the scroller. See useRtlCarousel for
+  // why the mirror was actively harmful on Android, and why this is a no-op
+  // on web.
+  const { ordered, scrollRef, onContentSizeChange } = useRtlCarousel(items, isRTL);
+
   return (
     <View style={styles.section}>
       <View style={[styles.headerRow, isRTL && styles.headerRowRTL]}>
@@ -35,29 +42,30 @@ export default function CategoryCarouselSection({
         </Pressy>
       </View>
       <ScrollView
+        ref={scrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
-        // This carousel nests inside HomeScreen's outer vertical ScrollView
-        // (which also sets nestedScrollEnabled) -- Android needs it on both
-        // sides of a nested pair to reliably hand off gesture ownership
-        // instead of the two scrollables fighting over a swipe that starts
-        // or crosses over this row. No-op on iOS/web.
+        onContentSizeChange={onContentSizeChange}
+        // Back to a plain ScrollView rather than a windowed FlatList: these
+        // rows are capped at 10 items (see HomeScreen's categoryCarousels),
+        // and a FlatList that hasn't rendered its tail yet reports a content
+        // size that isn't final, which would make the scroll-to-end above
+        // land in the wrong place. The reason the windowing was added --
+        // stopping a hundred-plus full-size photos loading at once -- is
+        // now handled where it belongs: the OUTER vertical list still only
+        // mounts the sections near the viewport, and photos are requested
+        // at card size instead of 900x1200 (see lib/photoSize.ts).
+        //
+        // This carousel nests inside HomeScreen's outer vertical list --
+        // Android needs nestedScrollEnabled on both sides of a nested pair
+        // to reliably hand off gesture ownership instead of the two
+        // scrollables fighting over a swipe that starts or crosses over
+        // this row. No-op on iOS/web.
         nestedScrollEnabled
-        // Mirrors the entire scroller horizontally so swiping reads RTL --
-        // the first card sits at the right edge, and dragging leftward
-        // (the natural "continue reading" gesture in Arabic) reveals the
-        // rest, instead of English's left-to-right order just being kept
-        // with right-aligned text. Each card is counter-flipped
-        // (rowItemRTL) so its own content still renders right-side-up --
-        // without that second flip every photo/label on the card would
-        // also come out mirrored.
-        style={isRTL && styles.rowRTL}
       >
-        {items.map((item) => (
-          <View key={item.id} style={isRTL && styles.rowItemRTL}>
-            <ListingCard listing={item} width={148} onPress={() => onPressListing(item)} />
-          </View>
+        {ordered.map((item) => (
+          <ListingCard key={item.id} listing={item} width={148} onPress={() => onPressListing(item)} />
         ))}
       </ScrollView>
     </View>
@@ -83,6 +91,4 @@ const styles = StyleSheet.create({
   titleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   row: { paddingHorizontal: 18, gap: 12 },
-  rowRTL: { transform: [{ scaleX: -1 }] },
-  rowItemRTL: { transform: [{ scaleX: -1 }] },
 });
