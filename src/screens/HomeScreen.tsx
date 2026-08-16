@@ -532,7 +532,7 @@ export default function HomeScreen() {
       numColumns={columns}
       style={styles.list}
       columnWrapperStyle={{ justifyContent: 'space-between' }}
-      contentContainerStyle={[styles.grid, isDesktop && styles.gridDesktop]}
+      contentContainerStyle={[styles.grid, isDesktop ? styles.gridDesktop : styles.gridMobileTopReserve]}
       onScroll={!isDesktop ? onChromeScroll : undefined}
       scrollEventThrottle={16}
       ListEmptyComponent={
@@ -650,36 +650,6 @@ export default function HomeScreen() {
         // was just buried below a full-screen wall of category tiles with
         // nothing else visible above the fold.
         <>
-          {/* Auto-hides while scrolling the listings grid below (see
-              ScrollChromeContext) -- the wrapper (not the ScrollView
-              itself) carries the collapse/slide, so the space it occupies
-              closes smoothly instead of leaving a gap. pointerEvents is
-              turned off while hidden so a swipe over its old position
-              can't accidentally hit an invisible chip. */}
-          <View
-            style={[styles.catSliderWrap, !chromeVisible && styles.catSliderWrapHidden]}
-            pointerEvents={chromeVisible ? 'auto' : 'none'}
-          >
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
-              style={styles.catSlider}
-              contentContainerStyle={styles.catSliderContent}
-            >
-              <Pressy onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
-                <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
-                  <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
-                </View>
-                <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
-                  {t('common.all')}
-                </Text>
-              </Pressy>
-              {categories.map((c) => (
-                <CategoryCard key={c.id} category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
-              ))}
-            </ScrollView>
-          </View>
-
           {topCat !== 'all' && (
             <View style={styles.mobileCatRow}>
               <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
@@ -690,7 +660,56 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {showCarousels ? carousels : grid}
+          {/* carouselsAnchor is the positioning root for catSliderWrap below
+              (position: absolute positions relative to the nearest parent
+              View regardless of whether it declares position:'relative' --
+              that's just how RN works, unlike web CSS -- so catSliderWrap
+              needs to share a parent with exactly the content it overlays,
+              not the whole screen, or `top: 0` would land under the
+              greeting/search row instead of at the top of the list). */}
+          <View style={styles.carouselsAnchor}>
+            {showCarousels ? carousels : grid}
+
+            {/* Floats ABOVE the scrollable content (position: absolute)
+                instead of sitting in normal flow next to it. It used to be
+                a normal sibling that grew/shrank the space above the list
+                on every auto-hide toggle (see ScrollChromeContext) --
+                collapsing/expanding a view directly adjacent to an
+                actively-scrolling list, even smoothly animated, was still
+                enough to visibly disturb that list's own scroll position on
+                Android (reported repeatedly as "scrolling acts up"/
+                flickering, and survived both an animation-timing fix and a
+                nestedScrollEnabled fix, which ruled those out as the actual
+                cause). Floating it instead -- the same pattern TabBar
+                already uses successfully for the bottom pill -- means the
+                list's own box never resizes when this hides/shows; hiding
+                it just slides/fades the overlay itself, full stop.
+                carouselsContent/grid's paddingTop reserves space so content
+                doesn't start out from under it while visible. */}
+            <View
+              style={[styles.catSliderWrap, !chromeVisible && styles.catSliderWrapHidden]}
+              pointerEvents={chromeVisible ? 'auto' : 'none'}
+            >
+              <ScrollView
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                style={styles.catSlider}
+                contentContainerStyle={styles.catSliderContent}
+              >
+                <Pressy onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
+                  <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
+                    <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
+                  </View>
+                  <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
+                    {t('common.all')}
+                  </Text>
+                </Pressy>
+                {categories.map((c) => (
+                  <CategoryCard key={c.id} category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
+                ))}
+              </ScrollView>
+            </View>
+          </View>
 
           <Modal visible={mobileFiltersOpen} animationType="slide" onRequestClose={() => setMobileFiltersOpen(false)}>
             <Screen edges={['top', 'left', 'right', 'bottom']}>
@@ -792,25 +811,39 @@ const styles = StyleSheet.create({
   // how tall the surrounding screen is.
   catSlider: { height: 80, flexGrow: 0, flexShrink: 0 },
   catSliderContent: { paddingHorizontal: 18, gap: 10, alignItems: 'flex-start' },
-  // Auto-hide wrapper (see ScrollChromeContext) -- carries both the
-  // marginBottom that used to live on catSlider itself (94 = 80 chip
-  // height + 14 spacing) and the collapse/slide transition, so hiding it
-  // closes the gap smoothly instead of just sliding the chips off-screen
-  // and leaving dead space behind. Web-only CSS transition props (same
-  // pattern as Pressy.tsx's press-scale) rather than RN's Animated API --
-  // this app is web-only and Animated's web fallback has real, previously
-  // -hit bugs (see Pressy.tsx's own comment on why it moved away from it).
+  // Positioning root shared by catSliderWrap (absolute) and the scrollable
+  // content it overlays -- see the render-side comment on carouselsAnchor.
+  carouselsAnchor: { flex: 1, position: 'relative' },
+  // Auto-hide overlay (see ScrollChromeContext and the render-side comment
+  // above) -- floats above carouselsAnchor's scrollable content instead of
+  // sitting in normal flow next to it, so hiding/showing it can never
+  // resize that content's own box. CAT_SLIDER_HEIGHT (94 = 80 chip height +
+  // 14 spacing) is also reserved as paddingTop on carouselsContent/grid
+  // below so content doesn't start out from under it while visible. Opaque
+  // background (matches the screen bg) since content now scrolls behind
+  // it, not just below it. Web-only CSS transition props still drive the
+  // fade/slide smoothly on the web build (react-native-web interprets
+  // them); on native, ScrollChromeContext's LayoutAnimation.configureNext
+  // call takes over for the same effect.
   catSliderWrap: {
-    maxHeight: 94,
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    // 94 = 80 chip height + 14 bottom breathing room before the overlaid
+    // content -- carouselsContent/grid's paddingTop matches this exactly so
+    // the first row of listings lines up right below the chips, not
+    // underneath them.
+    height: 94,
+    zIndex: 5,
+    backgroundColor: colors.bg,
     opacity: 1,
     transform: [{ translateY: 0 }],
-    overflow: 'hidden',
-    transitionProperty: 'max-height, opacity, transform',
+    transitionProperty: 'opacity, transform',
     transitionDuration: '220ms',
     transitionTimingFunction: 'ease-out',
   } as ViewStyle,
   catSliderWrapHidden: {
-    maxHeight: 0,
     opacity: 0,
     transform: [{ translateY: -16 }],
   },
@@ -895,12 +928,18 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   grid: { paddingHorizontal: 18, paddingBottom: 110 },
   gridDesktop: { paddingHorizontal: 0, paddingBottom: 60 },
+  // Mobile-only: `grid` is also used (unmodified) on desktop, which has no
+  // catSliderWrap overlay at all -- this reserves space for it only when
+  // actually needed. 94 matches catSliderWrap's height exactly.
+  gridMobileTopReserve: { paddingTop: 94 },
   empty: { alignItems: 'center', paddingTop: 60, gap: 4 },
   // Per-category carousels (mobile "all categories" home view) -- each
   // CategoryCarouselSection carries its own horizontal padding, so this
-  // only needs top/bottom breathing room plus the same tab-bar clearance
-  // the combined grid has.
-  carouselsContent: { paddingTop: 2, paddingBottom: 110 },
+  // only needs bottom breathing room (the same tab-bar clearance the
+  // combined grid has) plus catSliderWrap's reserved top space (94, see
+  // that style) since it now floats over this content instead of sitting
+  // beside it.
+  carouselsContent: { paddingTop: 94, paddingBottom: 110 },
 
   // Mobile filters modal.
   modalTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, height: 52 },
