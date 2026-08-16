@@ -36,7 +36,7 @@ export default function ListingCard({
   const { categoryById } = useSettings();
   const { isVerified, profile } = useAppStore();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { language } = useLanguage();
+  const { language, isRTL } = useLanguage();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const cat = categoryById(listing.cat);
   const widthPct = `${Math.floor((100 - (columns - 1) * 3) / columns)}%` as const;
@@ -88,7 +88,7 @@ export default function ListingCard({
       </View>
       <View style={styles.info}>
         <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
-        <Text style={styles.title} numberOfLines={1}>{listingTitle(listing, language)}</Text>
+        <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
         <View style={styles.metaRow}>
           <Icon name="location" size={12} color={colors.inkSoft} />
           <Text style={styles.district} numberOfLines={1}>{listing.district}</Text>
@@ -129,6 +129,11 @@ const styles = StyleSheet.create({
   info: { paddingHorizontal: 10, paddingVertical: 9 },
   price: { ...type.h3, marginBottom: 2 },
   title: { ...type.soft, marginBottom: 4 },
+  // theme.ts's `textAlign: 'auto'` doesn't actually right-align Arabic
+  // text on native (it resolves via I18nManager.isRTL, which this app
+  // never flips -- see ListingDetailScreen's rtlText comment for the full
+  // story). This explicit override is the real fix.
+  rtlText: { textAlign: 'right', writingDirection: 'rtl' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
   district: { ...type.tiny },
 });

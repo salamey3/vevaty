@@ -1005,9 +1005,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </View>
             )}
             <Text style={styles.price}>${price || '0'}</Text>
-            <Text style={styles.title}>{title || t('createListing.untitled')}</Text>
+            <Text style={[styles.title, isRTL && styles.rtlText]}>{title || t('createListing.untitled')}</Text>
             <Text style={[type.soft, { marginBottom: 8 }]}>{district || 'Lebanon'}</Text>
-            <Text style={type.body}>{description}</Text>
+            <Text style={[type.body, isRTL && styles.rtlText]}>{description}</Text>
             {resolvedAttrs.length > 0 && (
               <View style={styles.specsReview}>
                 {resolvedAttrs
@@ -1275,6 +1275,11 @@ const styles = StyleSheet.create({
   specsReviewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.line },
   // See ListingDetailScreen's specRowRTL comment -- same fix, same reason.
   specsReviewRowRTL: { flexDirection: 'row-reverse' },
+  // See ListingDetailScreen's rtlText comment -- theme.ts's textAlign:
+  // 'auto' resolves via I18nManager.isRTL on native (never flipped in
+  // this app), not per-string content detection, so it didn't actually
+  // right-align Arabic text on device. This explicit override does.
+  rtlText: { textAlign: 'right', writingDirection: 'rtl' },
   aiTag: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 16,

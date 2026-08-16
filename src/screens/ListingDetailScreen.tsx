@@ -302,7 +302,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
         {editButton}
       </View>
-      <Text style={styles.title}>{listingTitle(listing, language)}</Text>
+      <Text style={[styles.title, isRTL && styles.rtlText]}>{listingTitle(listing, language)}</Text>
       <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
         <Icon name="location" size={13} color={colors.inkSoft} />
         <Text style={type.soft}>{listing.district}</Text>
@@ -316,7 +316,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       )}
 
       <Text style={styles.sectionLabel}>{t('listingDetail.description')}</Text>
-      <Text style={styles.desc}>{listingDescription(listing, language) || t('listingDetail.noDescription')}</Text>
+      <Text style={[styles.desc, isRTL && styles.rtlText]}>{listingDescription(listing, language) || t('listingDetail.noDescription')}</Text>
 
       {specs.length > 0 && (
         <>
@@ -613,6 +613,17 @@ const styles = StyleSheet.create({
   // same pattern TabBar.tsx/Screen.tsx already use. Icon-then-text reads
   // backwards in Arabic; row-reverse puts the text first, icon trailing.
   metaRowRTL: { flexDirection: 'row-reverse' },
+  // Correction to the theme.ts `textAlign: 'auto'` fix: 'auto' turns out
+  // to resolve via I18nManager.isRTL on real native Android/iOS, NOT by
+  // inspecting the string's own Unicode script the way a browser's CSS
+  // engine does (that per-content detection only actually verified on
+  // the web build, via Playwright, since I18nManager.isRTL is never
+  // flipped in this app -- see LanguageContext's applyDocumentDirection,
+  // which is web-only). So 'auto' silently stayed 'left' on device
+  // regardless of Arabic content, which is exactly the "still LTR" bug
+  // reported after installing that fix. This explicit isRTL-driven
+  // override is what actually works on native.
+  rtlText: { textAlign: 'right', writingDirection: 'rtl' },
   aiTag: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 12,
