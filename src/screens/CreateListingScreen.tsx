@@ -82,7 +82,7 @@ function vehicleSlugKind(slug: string): 'brand' | 'model' | null {
 export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified } = useAppStore();
   const { categoryById, resolveAttributesForCategory, categoryMatches } = useSettings();
-  const { t, language } = useLanguage();
+  const { t, language, isRTL } = useLanguage();
   // Android's own gesture/nav bar sits right at the bottom of the screen --
   // without this, the fixed footer's Continue/Post listing button rendered
   // partly underneath it (same class of bug TabBar.tsx had). Padding the
@@ -1013,7 +1013,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 {resolvedAttrs
                   .filter((a) => attrHasValue(attrValues[a.slug]))
                   .map((a) => (
-                    <View key={a.id} style={styles.specsReviewRow}>
+                    <View key={a.id} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
                       <Text style={type.soft}>{language === 'ar' ? a.labelAr : a.labelEn}</Text>
                       <Text style={type.body}>{formatAttrValue(a, attrValues[a.slug], language)}</Text>
                     </View>
@@ -1273,6 +1273,8 @@ const styles = StyleSheet.create({
   title: { ...type.h2, marginTop: 2, marginBottom: 2 },
   specsReview: { marginTop: 18, gap: 8 },
   specsReviewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.line },
+  // See ListingDetailScreen's specRowRTL comment -- same fix, same reason.
+  specsReviewRowRTL: { flexDirection: 'row-reverse' },
   aiTag: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 16,

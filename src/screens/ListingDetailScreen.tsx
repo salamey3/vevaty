@@ -42,7 +42,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const { categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory } = useSettings();
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { t, language } = useLanguage();
+  const { t, language, isRTL } = useLanguage();
   // Same fixed-bottom-bar-over-Android's-nav-bar issue TabBar.tsx and
   // CreateListingScreen's footer had -- the mobile-only "Contact & Buy"
   // footer below is pinned to the bottom of the screen too.
@@ -303,7 +303,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {editButton}
       </View>
       <Text style={styles.title}>{listingTitle(listing, language)}</Text>
-      <View style={styles.metaRow}>
+      <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
         <Icon name="location" size={13} color={colors.inkSoft} />
         <Text style={type.soft}>{listing.district}</Text>
       </View>
@@ -323,7 +323,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <Text style={styles.sectionLabel}>{t('listingDetail.specs')}</Text>
           <View style={styles.specsGrid}>
             {specs.map((a) => (
-              <View key={a.id} style={styles.specRow}>
+              <View key={a.id} style={[styles.specRow, isRTL && styles.specRowRTL]}>
                 <Text style={type.soft}>{language === 'ar' ? a.labelAr : a.labelEn}</Text>
                 <Text style={type.body}>{formatAttrValue(a, listing.attributes[a.slug], language)}</Text>
               </View>
@@ -607,6 +607,12 @@ const styles = StyleSheet.create({
   price: { fontSize: 24, fontWeight: '700', color: colors.ink },
   title: { ...type.h2, marginTop: 4, marginBottom: 8 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  // This app doesn't do a global RTL flip (see LanguageContext's
+  // applyDocumentDirection, which is a web-only no-op on native) --
+  // instead, each row-based layout mirrors itself explicitly via isRTL,
+  // same pattern TabBar.tsx/Screen.tsx already use. Icon-then-text reads
+  // backwards in Arabic; row-reverse puts the text first, icon trailing.
+  metaRowRTL: { flexDirection: 'row-reverse' },
   aiTag: {
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 12,
@@ -619,6 +625,11 @@ const styles = StyleSheet.create({
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 9, borderBottomWidth: 1, borderBottomColor: colors.line,
   },
+  // Label first, value trailing -- correct in LTR (label left, value
+  // right) but backwards in Arabic, where the label should lead from the
+  // right. row-reverse swaps which side each Text renders on without
+  // touching justify-content: space-between.
+  specRowRTL: { flexDirection: 'row-reverse' },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
   sellerAvatar: {
     width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface,
