@@ -1,10 +1,12 @@
 import React from 'react';
 import { ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from './Pressy';
 import Button from './Button';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useIsDesktop } from '../hooks/useResponsive';
 
 // Photo collection for the Magic Listing path.
 //
@@ -27,6 +29,7 @@ export default function MagicListingModal({
   busy,
   error,
   onTakePhoto,
+  onGuidedCapture,
   onPickPhotos,
   onRemovePhoto,
   onAnalyze,
@@ -37,21 +40,31 @@ export default function MagicListingModal({
   busy: boolean;
   error: string | null;
   onTakePhoto: () => void;
+  onGuidedCapture?: () => void;
   onPickPhotos: () => void;
   onRemovePhoto: (uri: string) => void;
   onAnalyze: () => void;
   onClose: () => void;
 }) {
   const { t } = useLanguage();
+  // A Modal renders outside the screen's SafeAreaView, so it gets none of
+  // its insets -- which is why the primary button sat underneath Android's
+  // navigation bar. Reserve that strip here.
+  const insets = useSafeAreaInsets();
+  const isDesktop = useIsDesktop();
   const enough = photos.length >= MAGIC_MIN_PHOTOS;
-  // There is no camera to open in a browser tab, so the web build offers
-  // upload only rather than a button that can't do anything.
-  const canUseCamera = Platform.OS !== 'web';
+  // Native always has a camera. On the web it depends on the device: a
+  // phone browser has one and is exactly where someone would photograph
+  // the thing they're selling, while a desktop browser's webcam points at
+  // the person, not the item. So offer it on a small viewport and not on a
+  // large one -- the camera itself works in both (expo-camera uses
+  // getUserMedia on web), this is about whether it's any use.
+  const canUseCamera = Platform.OS !== 'web' || !isDesktop;
 
   return (
     <Modal visible={visible} animationType="slide" transparent onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.sheet}>
+        <View style={[styles.sheet, { paddingBottom: Math.max(18, insets.bottom + 12) }]}>
           <View style={styles.headerRow}>
             <View style={styles.titleRow}>
               <Icon name="wand" size={18} color={colors.ink} />
@@ -92,7 +105,7 @@ export default function MagicListingModal({
               {photos.length < MAGIC_MAX_PHOTOS && !busy && (
                 <>
                   {canUseCamera && (
-                    <Pressy onPress={onTakePhoto} style={styles.addTile}>
+                    <Pressy onPress={onGuidedCapture || onTakePhoto} style={styles.addTile}>
                       <Icon name="camera" size={20} color={colors.inkSoft} />
                       <Text style={[type.tiny, styles.addLabel]}>{t('createListing.takePhoto')}</Text>
                     </Pressy>
@@ -143,7 +156,6 @@ const styles = StyleSheet.create({
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     maxHeight: '90%',
-    paddingBottom: 18,
   },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

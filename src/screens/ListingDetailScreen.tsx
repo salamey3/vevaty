@@ -37,6 +37,19 @@ type ReportReason = (typeof REPORT_REASONS)[number];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
+// Posted date in the reader's own language, without pulling in a date
+// library for one line. Intl is present in both Hermes and every browser
+// this ships to.
+function formatPostedDate(ms: number, language: 'en' | 'ar'): string {
+  try {
+    return new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en-GB', {
+      day: 'numeric', month: 'short', year: 'numeric',
+    }).format(new Date(ms));
+  } catch {
+    return new Date(ms).toLocaleDateString();
+  }
+}
+
 export default function ListingDetailScreen({ route, navigation }: Props) {
   const { listings, profile, deleteListing, isVerified } = useAppStore();
   const { categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory } = useSettings();
@@ -307,9 +320,34 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {editButton}
       </View>
       <Text style={[styles.title, isRTL && styles.rtlText]}>{listingTitle(listing, language)}</Text>
-      <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
-        <Icon name="location" size={13} color={colors.inkSoft} />
-        <Text style={type.soft}>{listingDistrict(listing, language)}</Text>
+      {/* Category, area and age, in the body rather than only in the top
+          bar. The bar has the same chain in it, but it's one truncated line
+          competing with the back and share buttons, and it scrolls away --
+          so from inside a listing there was no reliable way to answer
+          "what section is this in?". These are also the three things a
+          buyer weighs before messaging: what it is filed under, how far
+          away it is, and whether it has been sitting unsold. */}
+      <View style={styles.metaBlock}>
+        {cat && (
+          <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+            <Icon name={(cat.icon as any) || 'bag'} size={13} color={colors.inkSoft} />
+            <Text style={type.soft}>
+              {[...catAncestors, cat].map((c) => (language === 'ar' ? c.nameAr : c.nameEn)).join(' › ')}
+            </Text>
+          </View>
+        )}
+        <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+          <Icon name="location" size={13} color={colors.inkSoft} />
+          <Text style={type.soft}>
+            {[listingDistrict(listing, language), listing.caza, listing.governorate]
+              .filter((v, i, arr) => !!v && arr.indexOf(v) === i)
+              .join(isRTL ? '، ' : ', ')}
+          </Text>
+        </View>
+        <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+          <Icon name="check" size={13} color={colors.inkSoft} />
+          <Text style={type.soft}>{t('listingDetail.postedOn', { date: formatPostedDate(listing.createdAt, language) })}</Text>
+        </View>
       </View>
 
       {listing.aiGenerated && (
@@ -628,6 +666,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center',
   },
   price: { fontSize: 24, fontWeight: '700', color: colors.ink },
+  metaBlock: { gap: 5, marginTop: 2 },
   title: { ...type.h2, marginTop: 4, marginBottom: 8 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   // This app doesn't do a global RTL flip (see LanguageContext's

@@ -28,7 +28,7 @@ import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById,
 import SuggestInput from '../components/SuggestInput';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
-import MagicListingModal, { MAGIC_MAX_PHOTOS } from '../components/MagicListingModal';
+import MagicListingModal, { MAGIC_MAX_PHOTOS, MAGIC_MIN_PHOTOS } from '../components/MagicListingModal';
 import { classifyListingPhotos } from '../lib/classifyPhotos';
 import LocationMapPicker from '../components/LocationMapPicker';
 
@@ -253,17 +253,42 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // after `cat` (and therefore stepKinds) has actually updated -- computing
   // the target step in the same tick would use the old category's steps.
   const [magicJumpPending, setMagicJumpPending] = useState(false);
+  // True while `title` holds the plain item name the classifier produced
+  // rather than something the seller wrote. The auto-suggestion below
+  // refuses to run when there is already a title -- the point being not to
+  // overwrite the seller's own words -- and a machine-written seed was
+  // tripping that guard, so the Magic path stopped one step short of the
+  // research it exists to do: it filled in "eufy camera" and then sat there
+  // until the seller found the AI button and pressed it themselves.
+  const [titleIsMagicSeed, setTitleIsMagicSeed] = useState(false);
+  // Guided in-app capture for the Magic path, reusing the same CameraView
+  // the 360 spin uses. The counter under the shutter is the point: the
+  // seller sees "one more to go" while still holding the camera up, rather
+  // than discovering afterwards that they were a photo short.
+  const [magicCameraVisible, setMagicCameraVisible] = useState(false);
+  // Set when a guided capture completes, so analysis starts by itself. The
+  // seller has just watched the counter reach 3/3 -- asking them to then
+  // find and press a button says nothing they don't already know.
+  const [magicAutoAnalyze, setMagicAutoAnalyze] = useState(false);
+
+  useEffect(() => {
+    if (!magicAutoAnalyze) return;
+    setMagicAutoAnalyze(false);
+    if (magicPhotos.length >= MAGIC_MIN_PHOTOS) runMagic(magicPhotos);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [magicAutoAnalyze, magicPhotos]);
 
   const closeMagic = () => {
     setMagicVisible(false);
     setMagicError(null);
   };
 
-  const runMagic = async () => {
+  const runMagic = async (override?: string[]) => {
+    const source = override ?? magicPhotos;
     setMagicBusy(true);
     setMagicError(null);
     const payload = (
-      await Promise.all(magicPhotos.slice(0, AI_VISION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+      await Promise.all(source.slice(0, AI_VISION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
     ).filter((p): p is { data: string; mediaType: string } => !!p);
     if (payload.length === 0) {
       setMagicBusy(false);
@@ -294,17 +319,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // worth keeping -- the seller picks the category by hand and the rest
       // of the flow (including the AI title/description pass) carries on
       // from there, so nothing they've done is wasted.
-      setPhotos((prev) => [...prev, ...magicPhotos].slice(0, MAGIC_MAX_PHOTOS));
+      setPhotos((prev) => [...prev, ...source].slice(0, MAGIC_MAX_PHOTOS));
       setMagicPhotos([]);
       closeMagic();
       Alert.alert(t('createListing.magicUnsureTitle'), t('createListing.magicUnsureMessage'));
       return;
     }
     setCategory(data.categoryId);
-    setPhotos((prev) => [...prev, ...magicPhotos].slice(0, MAGIC_MAX_PHOTOS));
+    setPhotos((prev) => [...prev, ...source].slice(0, MAGIC_MAX_PHOTOS));
     // A plain name for the item, which the AI suggestion pass then uses as
     // its seed and rewrites into a proper listing title.
-    if (data.itemName && !title.trim()) setTitle(data.itemName);
+    if (data.itemName && !title.trim()) {
+      setTitle(data.itemName);
+      setTitleIsMagicSeed(true);
+    }
     setMagicPhotos([]);
     setMagicJumpPending(true);
     closeMagic();
@@ -603,6 +631,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     setSuggesting(false);
     if (data) {
       setTitle(data.title);
+      setTitleIsMagicSeed(false);
       setDescription(data.description);
       setUsedDraft(true);
       setAiSources(data.sources);
@@ -677,13 +706,13 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [autoSuggestSignature, setAutoSuggestSignature] = useState<string | null>(null);
   useEffect(() => {
     const readyToFire = hasPhotoSignal || (hasSpecs && currentKind === 'details');
-    if (!readyToFire || suggesting || title.trim()) return;
+    if (!readyToFire || suggesting || (title.trim() && !titleIsMagicSeed)) return;
     const signature = hasPhotoSignal ? 'photos' : JSON.stringify({ attrValues });
     if (autoSuggestSignature === signature) return;
     setAutoSuggestSignature(signature);
     applyAiSuggestion({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKind, hasSpecs, hasPhotoSignal, title, suggesting, attrValues, autoSuggestSignature]);
+  }, [currentKind, hasSpecs, hasPhotoSignal, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
 
   const setAttrValue = (slug: string, value: AttributeValue) => setAttrValues((prev) => ({ ...prev, [slug]: value }));
   const toggleMultiselectValue = (slug: string, optionValue: string) => {
@@ -995,7 +1024,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <TextInput
               onFocus={onInputFocus}
               value={title}
-              onChangeText={(v) => { setTitle(v); setUsedDraft(false); setAiSources([]); }}
+              onChangeText={(v) => { setTitle(v); setTitleIsMagicSeed(false); setUsedDraft(false); setAiSources([]); }}
               placeholder={categoryTitlePlaceholder}
               style={styles.input}
             />
@@ -1229,12 +1258,38 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         }}
       />
 
+      <CameraCapture
+        visible={magicCameraVisible}
+        minFrames={MAGIC_MIN_PHOTOS}
+        maxFrames={MAGIC_MAX_PHOTOS}
+        instructions={t('createListing.magicCameraInstructions')}
+        progressHint={(count, min) =>
+          count === 0
+            ? t('createListing.magicCameraStart', { min })
+            : count < min
+              ? t('createListing.magicCameraMore', { count, min, remaining: min - count })
+              : t('createListing.magicCameraDone', { count })
+        }
+        autoFinishAtMin
+        onFinish={(uris) => {
+          setMagicCameraVisible(false);
+          if (uris.length === 0) return;
+          setMagicPhotos((prev) => [...prev, ...uris].slice(0, MAGIC_MAX_PHOTOS));
+          setMagicAutoAnalyze(true);
+        }}
+        onCancel={() => setMagicCameraVisible(false)}
+        onFallbackToLibrary={() => {
+          setMagicCameraVisible(false);
+          pickPhotosInto(setMagicPhotos, MAGIC_MAX_PHOTOS);
+        }}
+      />
       <MagicListingModal
         visible={magicVisible}
         photos={magicPhotos}
         busy={magicBusy}
         error={magicError}
         onTakePhoto={() => takePhotoInto(setMagicPhotos, MAGIC_MAX_PHOTOS)}
+        onGuidedCapture={() => setMagicCameraVisible(true)}
         onPickPhotos={() => pickPhotosInto(setMagicPhotos, MAGIC_MAX_PHOTOS)}
         onRemovePhoto={(uri) => setMagicPhotos((prev) => prev.filter((p) => p !== uri))}
         onAnalyze={runMagic}

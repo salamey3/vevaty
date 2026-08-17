@@ -13,6 +13,20 @@ type Props = {
   onFinish: (frameUris: string[]) => void;
   onCancel: () => void;
   onFallbackToLibrary: () => void;
+  // Replaces the spin-specific banner across the top of the viewfinder.
+  // The camera itself is identical for a 360 spin and for Magic Listing
+  // photos; only the instruction differs.
+  instructions?: string;
+  // Progress line under the viewfinder, given the shots taken so far.
+  // Lets the Magic path say "2 of 3 -- one more to go" while the spin
+  // path keeps its own wording.
+  progressHint?: (count: number, min: number) => string;
+  // Close and hand back the moment `minFrames` is reached, instead of
+  // waiting for a Done tap. For a fixed-size set (Magic Listing wants
+  // exactly three) the extra confirmation is a step with nothing in it --
+  // the seller has just watched the counter reach 3/3, so asking them to
+  // agree adds a tap and tells them nothing.
+  autoFinishAtMin?: boolean;
 };
 
 type CamState = 'idle' | 'requesting' | 'active' | 'denied';
@@ -38,6 +52,9 @@ export default function CameraCapture({
   onFinish,
   onCancel,
   onFallbackToLibrary,
+  instructions,
+  progressHint,
+  autoFinishAtMin = false,
 }: Props) {
   const { t } = useLanguage();
   const [permission, requestPermission] = useCameraPermissions();
@@ -76,7 +93,14 @@ export default function CameraCapture({
     try {
       const photo = await cameraRef.current.takePictureAsync({ quality: 0.85, skipProcessing: true });
       if (photo?.uri) {
-        setFrames((prev) => (prev.length >= maxFrames ? prev : [...prev, photo.uri]));
+        const next = framesRef.current.length >= maxFrames ? framesRef.current : [...framesRef.current, photo.uri];
+        framesRef.current = next;
+        setFrames(next);
+        // Hand back as soon as the set is complete. Read from the ref
+        // rather than waiting for the state round-trip -- the shot that
+        // completes the set is the one that should close the camera, and
+        // `frames` won't have caught up yet inside this handler.
+        if (autoFinishAtMin && next.length >= minFrames) onFinish(next);
       }
     } catch {
       // A single failed capture isn't worth interrupting the session for --
@@ -114,7 +138,7 @@ export default function CameraCapture({
           <View style={styles.videoWrap}>
             <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
             <View style={styles.instructionBanner} pointerEvents="none">
-              <Text style={styles.instructionText}>{t('createListing.cameraInstructions')}</Text>
+              <Text style={styles.instructionText}>{instructions || t('createListing.cameraInstructions')}</Text>
             </View>
           </View>
         )}
@@ -140,11 +164,13 @@ export default function CameraCapture({
 
         {camState === 'active' && (
           <View style={styles.bottomBar}>
-            {count < minFrames && (
-              <Text style={styles.hintText}>
-                {t('createListing.cameraMinFramesHint', { min: minFrames, count })}
-              </Text>
-            )}
+            <Text style={styles.hintText}>
+              {progressHint
+                ? progressHint(count, minFrames)
+                : count < minFrames
+                  ? t('createListing.cameraMinFramesHint', { min: minFrames, count })
+                  : ''}
+            </Text>
 
             {count > 0 && (
               <View style={styles.thumbStrip}>

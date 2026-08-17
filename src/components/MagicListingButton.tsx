@@ -1,5 +1,6 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import { LinearGradient } from 'expo-linear-gradient';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
@@ -9,96 +10,123 @@ import { useLanguage } from '../i18n/LanguageContext';
 // "what are you selling?" screen, visually separated from it, because it
 // isn't a category -- it's the alternative to picking one.
 //
-// The light sweep exists to make it read as the recommended path without
-// resorting to a "NEW!" badge or a colour that fights the rest of the UI.
-// It is deliberately restrained: one slow pass, low opacity, no bounce.
-// A stronger animation on a screen the seller sees every time they post
-// stops being a highlight and becomes something to endure.
+// The highlight is a light that travels around the button's outline,
+// rather than a sheen sweeping across its face. Done the way that effect
+// is normally done: a large gradient square spins behind the button, and
+// a solid inner panel covers all of it except a hairline at the edges --
+// so what you see is a bright arc chasing the perimeter, brightest at one
+// corner and fading away behind it.
+//
+// A face sweep was the first attempt and it reads as a loading bar: light
+// crossing the middle of a button says "wait", where light around the
+// edge says "look here". Same restraint applies either way -- one slow
+// revolution, low opacity, no bounce. This screen is seen on every post,
+// and a livelier animation stops being a highlight and becomes something
+// to endure.
 
-// One full pass of the sweep. Slow enough to read as a sheen rather than
-// a loading indicator -- anything under about a second reads as "busy".
-const SWEEP_DURATION_MS = 2600;
+// One full revolution. Slow enough to read as a drifting highlight rather
+// than a spinner; a spinner is what it becomes below about three seconds.
+const REVOLUTION_MS = 4200;
 
-// Pause between passes, so it draws the eye and then leaves it alone.
-const SWEEP_GAP_MS = 2200;
-
-// How wide the moving highlight is, as a fraction of the button's width.
-const SWEEP_WIDTH = 0.35;
+// Thickness of the glowing edge. Any more and it stops being an outline.
+const EDGE = 1.5;
 
 export default function MagicListingButton({ onPress }: { onPress: () => void }) {
-  const { t, isRTL } = useLanguage();
-  // 0 -> 1 drives the highlight from one edge to the other. Native driver
-  // is safe here: only transform and opacity are animated, never layout.
-  const sweep = useRef(new Animated.Value(0)).current;
-  const [width, setWidth] = React.useState(0);
+  const { t } = useLanguage();
+  const spin = useRef(new Animated.Value(0)).current;
+  const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
-    // No point animating before the button has been measured -- the
-    // translate distance is derived from its width.
-    if (width === 0) return;
+    if (size.width === 0) return;
     const loop = Animated.loop(
-      Animated.sequence([
-        Animated.timing(sweep, {
-          toValue: 1,
-          duration: SWEEP_DURATION_MS,
-          easing: Easing.inOut(Easing.ease),
-          useNativeDriver: true,
-        }),
-        Animated.delay(SWEEP_GAP_MS),
-        // Snap back invisibly: the highlight is off-screen at both ends,
-        // so resetting without animating is unnoticeable and avoids a
-        // second visible pass in the wrong direction.
-        Animated.timing(sweep, { toValue: 0, duration: 0, useNativeDriver: true }),
-      ])
+      Animated.timing(spin, {
+        toValue: 1,
+        duration: REVOLUTION_MS,
+        // Linear, deliberately: any easing makes the light appear to
+        // hesitate at the corners, which reads as a stutter rather than
+        // as motion.
+        easing: Easing.linear,
+        useNativeDriver: true,
+      })
     );
     loop.start();
     return () => loop.stop();
-  }, [sweep, width]);
+  }, [spin, size.width]);
 
-  const sweepWidth = Math.max(40, width * SWEEP_WIDTH);
-  const translateX = sweep.interpolate({
-    inputRange: [0, 1],
-    // Starts fully off one edge and ends fully off the other. Mirrored in
-    // Arabic so the sheen travels with the reading direction rather than
-    // against it.
-    outputRange: isRTL ? [width, -sweepWidth] : [-sweepWidth, width],
-  });
+  // The spinning gradient has to cover the button at every angle, so it's
+  // a square as wide as the button's diagonal.
+  const diagonal = Math.ceil(Math.sqrt(size.width ** 2 + size.height ** 2)) || 0;
+
+  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
 
   return (
-    <Pressy onPress={onPress} style={styles.button} onLayout={(e) => setWidth(e.nativeEvent.layout.width)}>
-      {/* Sits behind the label, clipped by the button's own overflow:hidden
-          so it disappears cleanly at the rounded corners. pointerEvents
-          none so it never intercepts the tap. */}
-      {width > 0 && (
+    <Pressy
+      onPress={onPress}
+      style={styles.shell}
+      onLayout={(e) => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
+    >
+      {diagonal > 0 && (
         <Animated.View
           pointerEvents="none"
-          style={[styles.sweep, { width: sweepWidth, transform: [{ translateX }, { skewX: '-20deg' }] }]}
-        />
+          style={[
+            styles.spinner,
+            {
+              width: diagonal,
+              height: diagonal,
+              left: (size.width - diagonal) / 2,
+              top: (size.height - diagonal) / 2,
+              transform: [{ rotate }],
+            },
+          ]}
+        >
+          {/* Most of the sweep is transparent, so only a short arc of the
+              perimeter is lit at any moment -- the light reads as one
+              travelling point rather than a rotating halo. */}
+          <LinearGradient
+            colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.9)']}
+            start={{ x: 0, y: 0 }}
+            end={{ x: 1, y: 1 }}
+            style={StyleSheet.absoluteFill}
+          />
+        </Animated.View>
       )}
-      <View style={styles.row}>
-        <Icon name="wand" size={20} color={colors.white} />
-        <Text style={styles.label}>{t('createListing.magicButton')}</Text>
+
+      {/* Covers the spinning gradient except for a hairline at the edge,
+          which is the whole trick. */}
+      <View style={styles.face} pointerEvents="none" />
+
+      <View style={styles.content}>
+        <View style={styles.row}>
+          <Icon name="wand" size={20} color={colors.white} />
+          <Text style={styles.label}>{t('createListing.magicButton')}</Text>
+        </View>
+        <Text style={styles.sub}>{t('createListing.magicButtonSub')}</Text>
       </View>
-      <Text style={styles.sub}>{t('createListing.magicButtonSub')}</Text>
     </Pressy>
   );
 }
 
 const styles = StyleSheet.create({
-  button: {
-    backgroundColor: colors.ink,
+  shell: {
     borderRadius: radius.md,
-    paddingVertical: 16,
-    paddingHorizontal: 18,
     overflow: 'hidden',
+    backgroundColor: colors.ink,
     width: '100%',
+    // Sized by its content, with the glowing edge added around it.
+    padding: EDGE,
   },
-  sweep: {
+  spinner: { position: 'absolute' },
+  face: {
     position: 'absolute',
-    top: -20,
-    bottom: -20,
-    backgroundColor: 'rgba(255,255,255,0.13)',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    margin: EDGE,
+    borderRadius: radius.md - EDGE,
+    backgroundColor: colors.ink,
   },
+  content: { paddingVertical: 16, paddingHorizontal: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   label: { ...type.h3, color: colors.white },
   sub: { ...type.tiny, color: 'rgba(255,255,255,0.7)', marginTop: 5 },
