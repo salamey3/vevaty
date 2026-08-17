@@ -8,6 +8,7 @@ import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import ListingCard from '../components/ListingCard';
 import CategoryCard from '../components/CategoryCard';
+import CarouselArrows from '../components/CarouselArrows';
 import CategoryCarouselSection from '../components/CategoryCarouselSection';
 import LanguageSwitch from '../components/LanguageSwitch';
 import FilterSection, { FilterOption } from '../components/FilterSection';
@@ -73,6 +74,12 @@ export default function HomeScreen() {
   const isDesktop = useIsDesktop();
   const columns = useGridColumns(2, 4);
   const catColumns = useGridColumns(3, 6);
+  // The desktop category strip, driven by its own arrows. The offset is
+  // tracked in a ref rather than state: it changes on every scroll frame
+  // and nothing renders from it, so putting it in state would re-render
+  // the whole screen sixty times a second for no visible reason.
+  const catRowRef = useRef<ScrollView>(null);
+  const catRowX = useRef(0);
   // Mobile-only auto-hide for the category slider below (see
   // ScrollChromeContext -- also drives the bottom tab bar in TabBar.tsx,
   // which can't see this screen's own scroll events directly).
@@ -657,16 +664,30 @@ export default function HomeScreen() {
                third row, which pushed the listings themselves below the
                fold on a laptop -- the categories are navigation, not the
                content, and they shouldn't cost half the first screen. */
-            <ScrollView
-              horizontal
-              showsHorizontalScrollIndicator={false}
+            <CarouselArrows
+              onScrollBy={(delta) => {
+                catRowX.current = Math.max(0, catRowX.current + delta);
+                catRowRef.current?.scrollTo({ x: catRowX.current, animated: true });
+              }}
+              // Roughly three chips a press: enough to feel like progress,
+              // little enough that nothing scrolls past unseen.
+              step={88 * 3}
               style={styles.catRowDesktop}
-              contentContainerStyle={styles.catRowDesktopContent}
             >
-              {categories.map((c) => (
-                <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
-              ))}
-            </ScrollView>
+              <ScrollView
+                ref={catRowRef}
+                horizontal
+                showsHorizontalScrollIndicator={false}
+                onScroll={(e) => { catRowX.current = e.nativeEvent.contentOffset.x; }}
+                scrollEventThrottle={16}
+                style={styles.catRowDesktopScroll}
+                contentContainerStyle={styles.catRowDesktopContent}
+              >
+                {categories.map((c) => (
+                  <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
+                ))}
+              </ScrollView>
+            </CarouselArrows>
           )
         ) : (
           <>
@@ -858,7 +879,8 @@ const styles = StyleSheet.create({
   catGridDesktop: { paddingHorizontal: 0 },
   // flexGrow:0 matters: a horizontal ScrollView with no height of its own
   // stretches to fill the parent and swallows the listings below it.
-  catRowDesktop: { flexGrow: 0, marginBottom: 6 },
+  catRowDesktop: { marginBottom: 6 },
+  catRowDesktopScroll: { flexGrow: 0 },
   catRowDesktopContent: { gap: 18, paddingHorizontal: 2, paddingBottom: 4 },
 
   // Mobile: compact horizontal category slider, always visible right

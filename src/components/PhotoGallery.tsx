@@ -3,6 +3,7 @@ import { Image, LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, Scro
 import Pressy from './Pressy';
 import Icon, { IconName } from '../icons/Icon';
 import PhotoLightbox from './PhotoLightbox';
+import CarouselArrows from './CarouselArrows';
 import { colors } from '../theme/theme';
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 
@@ -35,6 +36,17 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
   const scrollRef = useRef<ScrollView>(null);
 
   const onLayout = (e: LayoutChangeEvent) => setWidth(e.nativeEvent.layout.width);
+
+  // One press moves exactly one photo. `index` is tracked already for the
+  // dots, so paging is a clamp on it rather than an offset computation --
+  // which keeps the arrows, the dots and a manual swipe all agreeing on
+  // which photo is current.
+  const pageBy = (delta: number) => {
+    if (width <= 0) return;
+    const next = Math.min(photos.length - 1, Math.max(0, index + Math.sign(delta)));
+    setIndex(next);
+    scrollRef.current?.scrollTo({ x: next * width, animated: true });
+  };
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (width <= 0) return;
     const i = Math.round(e.nativeEvent.contentOffset.x / width);
@@ -69,6 +81,7 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
   }
 
   return (
+    <CarouselArrows onScrollBy={pageBy} step={1} style={styles.fill}>
     <View style={styles.fill} onLayout={onLayout}>
       <ScrollView
         ref={scrollRef}
@@ -105,6 +118,7 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
         onClose={() => setLightboxIndex(null)}
       />
     </View>
+    </CarouselArrows>
   );
 }
 
