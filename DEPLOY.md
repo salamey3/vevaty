@@ -7,13 +7,62 @@ automatically, so the checklist below is what keeps them together.
 
 ## Where the code lives
 
-- **GitHub is the source of truth.** Both the phone and any assistant working
-  on the repo clone from it.
-- **The phone (Termux, `~/vevaty-app`)** is the only place that can build:
-  it's the machine with EAS credentials and network access to vevaty.com.
+- **GitHub is the source of truth** (`github.com/salamey3/vevaty`, branch
+  `main`). Every machine clones from it; nothing is ever passed between
+  machines directly.
+- **The laptop and the phone (Termux, `~/vevaty-app`)** are both full working
+  copies. Either can edit, build the website, and run EAS builds.
 - A cloud assistant sandbox can read the repo and produce commits, but cannot
   push to GitHub, cannot reach vevaty.com, and is wiped between sessions.
-  Anything it produces must land on the phone and be pushed from there.
+  Anything it produces arrives as a bundle and is pushed from a real machine.
+
+## Working across two machines
+
+The whole point of the GitHub anchor: whichever machine you pick up, it
+catches up in one command. There is only one rule, and breaking it is the
+only way this gets painful:
+
+**Pull before you start. Push before you walk away.**
+
+```sh
+git pull            # first thing, every time you sit down
+# ...work...
+git add -A && git commit -m "what changed" && git push
+```
+
+If you forget and end up having committed on both machines, they've diverged
+and a plain `git pull` will complain. Recover with:
+
+```sh
+git pull --rebase   # replays your local commits on top of the remote's
+```
+
+### One-time laptop setup
+
+```sh
+git clone https://github.com/salamey3/vevaty.git
+cd vevaty
+npm install
+```
+
+Also needs **Node.js** (LTS), **Python 3** for `build:web`, and a GitHub
+Personal Access Token at the first `git push` prompt, same as the phone.
+
+On **Windows**, `npm run build:web` will fail because the script calls
+`python3`; either use WSL/Git Bash, or change that script to `python`.
+
+### Which machine for what
+
+- **Laptop** — the better default. Real editor, fast bundling, and reliable
+  cPanel uploads. Mobile browsers are unreliable at multi-megabyte uploads,
+  and cPanel's own error text ("over quota or you attempted to upload a
+  folder") is misleading when the real cause is usually the **Overwrite
+  existing files** checkbox being unticked.
+- **Phone** — fine for pulling a bundle, committing, kicking off an EAS
+  build, and reviewing the app on-device. Avoid it for the cPanel upload
+  step if a laptop is available.
+- Both produce **byte-identical** `dist/index.html` from the same commit,
+  which is the check that proves the environments actually agree.
 
 ## Receiving work from an assistant
 
@@ -53,7 +102,10 @@ npm run verify                # typecheck — never ship without this passing
 npm run build:web             # -> dist/index.html (self-contained, ~2.6MB)
 ```
 
-Then upload to cPanel (File Manager → public_html):
+Then upload to cPanel (File Manager). The document root for vevaty.com is
+`/home/yousifs1/vevaty.com` -- an addon domain, so NOT `public_html`, which
+belongs to a different site on the same account. Tick **Overwrite existing
+files** before selecting the file:
 
 - `dist/index.html` — the entire site, one file, all JS and assets inlined
 - `dist/.htaccess` — SPA fallback; without it any deep link 404s on refresh
