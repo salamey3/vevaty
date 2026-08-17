@@ -36,9 +36,19 @@ console.log(`  message: ${message}\n`);
 
 // npx rather than a global install, so this works on any machine that has
 // only run `npm install`.
+// --environment is passed explicitly so eas never stops to ask. Left
+// interactive, it prompts with `development` highlighted first, and picking
+// anything other than `preview` publishes to a channel the installed app
+// isn't listening on -- the update simply never arrives, with no error to
+// explain why. Not a decision worth re-making by keyboard each time.
 execFileSync(
   'npx',
-  ['--yes', 'eas-cli', 'update', '--channel', 'preview', '--message', `${message} (${commit})`],
+  [
+    '--yes', 'eas-cli', 'update',
+    '--channel', 'preview',
+    '--environment', 'preview',
+    '--message', `${message} (${commit})`,
+  ],
   { stdio: 'inherit', shell: process.platform === 'win32' },
 );
 
