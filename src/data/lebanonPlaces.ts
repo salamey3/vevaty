@@ -121,12 +121,28 @@ const freeTextCache = new Map<string, LebanonPlace | null>();
 
 // Resolves a free-text location string (however it was typed -- "Achrafieh,
 // Beirut", bare "Jounieh", extra punctuation, etc.) by finding every known
-// place name contained in it, preferring the LONGEST matching name (most
-// specific -- e.g. "Achrafieh" over a coincidental "Beirut" substring
-// elsewhere in the same string), then population as a tiebreak. Replaces
-// lebanonDistricts.ts's `lookupDistrictCoords`, which relied on a hand-
-// ordered 54-entry table for the same "more specific wins" behavior --
-// unnecessary here since we rank by match length instead of list order.
+// place name contained in it and ranking the hits by, in order:
+//
+//   1. EARLIEST position in the string. People write location narrowest
+//      first -- "Achrafieh, Beirut", "Hamra, Beirut", "Zouk Mosbeh,
+//      Keserwan" -- so whatever they put first is the place they mean, and
+//      the rest is context they added to help.
+//   2. Longest match, which settles ties at the same position: in
+//      "Bhamdoun el Mhatta" both "Bhamdoun" and "Bhamdoun el Mhatta" start
+//      at 0, and the fuller name is the more specific one.
+//   3. Population, for genuinely identical strings -- Lebanon has several
+//      same-named villages in different cazas (two El Achrafiye, one in
+//      Beirut and one in Saida), and the larger is the likelier meaning
+//      absent any other signal.
+//
+// Ranking by length alone (the previous rule) got "Achrafieh, Beirut"
+// right only by accident and got "Hamra, Beirut" wrong: "Beirut" is one
+// letter longer than "Hamra", so the general term beat the specific one
+// and the pin landed on the city centre instead of the neighbourhood.
+//
+// Replaces lebanonDistricts.ts's `lookupDistrictCoords`, which relied on a
+// hand-ordered 54-entry table to express the same "more specific wins"
+// idea -- unnecessary once the ranking is derived from the string itself.
 export function findPlaceByFreeText(freeText: string | null | undefined): LebanonPlace | null {
   if (!freeText) return null;
   if (freeTextCache.has(freeText)) return freeTextCache.get(freeText)!;
@@ -136,11 +152,19 @@ export function findPlaceByFreeText(freeText: string | null | undefined): Lebano
     return null;
   }
   let best: LebanonPlace | null = null;
+  let bestPos = Infinity;
   let bestLen = 0;
   for (const { key, place } of freeTextCandidates) {
-    if (!normalized.includes(key)) continue;
-    if (key.length > bestLen || (key.length === bestLen && best && place.population > best.population)) {
+    const pos = normalized.indexOf(key);
+    if (pos < 0) continue;
+    const better =
+      pos < bestPos ||
+      (pos === bestPos &&
+        (key.length > bestLen ||
+          (key.length === bestLen && best !== null && place.population > best.population)));
+    if (better) {
       best = place;
+      bestPos = pos;
       bestLen = key.length;
     }
   }

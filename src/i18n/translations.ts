@@ -201,7 +201,14 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.locationUnresolvedHint': "We couldn't match this to a known town — you can still post, just double-check the spelling if you'd like buyers to see the exact area.",
     'createListing.mapHint': 'Tap or drag the pin to set your exact location',
     'createListing.mapPinLabel': 'Your location',
-    'createListing.geonamesAttribution': 'Location data © GeoNames.org, © OpenStreetMap contributors',
+    // Credits the town/caza dataset only (GeoNames, CC-BY-4.0, which
+    // requires a visible credit). The MAP's own attribution is not this
+    // line's job and must not be hardcoded here: the web build draws CARTO
+    // + OpenStreetMap tiles and Leaflet renders their required credit in
+    // its own control, while Android draws Google tiles and carries
+    // Google's logo. This one string is shared by both, so naming
+    // OpenStreetMap in it printed a false credit under the Google map.
+    'createListing.geonamesAttribution': 'Location data © GeoNames.org',
     'createListing.useMyLocation': 'Use my current location',
     'createListing.vehicleBrandModelPlaceholder': 'Start typing to see suggestions',
     'createListing.locationCaptured': 'Location captured ✓',
@@ -562,7 +569,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.locationUnresolvedHint': 'لم نتمكن من مطابقة هذا مع بلدة معروفة — يمكنك المتابعة بالنشر؛ تحقق من التهجئة إذا أردت أن يرى المشترون المنطقة بدقة.',
     'createListing.mapHint': 'اضغط أو اسحب الدبوس لتحديد موقعك بدقة',
     'createListing.mapPinLabel': 'موقعك',
-    'createListing.geonamesAttribution': 'بيانات الموقع © GeoNames.org، © مساهمو OpenStreetMap',
+    'createListing.geonamesAttribution': 'بيانات المواقع © GeoNames.org',
     'createListing.useMyLocation': 'استخدم موقعي الحالي',
     'createListing.vehicleBrandModelPlaceholder': 'ابدأ الكتابة لرؤية الاقتراحات',
     'createListing.locationCaptured': 'تم تحديد الموقع ✓',

@@ -2,7 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View, ViewStyle } from 'react-native';
 import Pressy from './Pressy';
 import { colors, radius } from '../theme/theme';
-import { LebanonPlace, findPlaceByExactName, searchPlaces } from '../data/lebanonPlaces';
+import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, searchPlaces } from '../data/lebanonPlaces';
 
 // A variant of SuggestInput (see that file) specifically for the location
 // field: selection needs to carry back a whole LebanonPlace (governorate +
@@ -17,15 +17,14 @@ import { LebanonPlace, findPlaceByExactName, searchPlaces } from '../data/lebano
 // Deliberately non-blocking, matching SuggestInput's philosophy: the typed
 // text always reaches onChangeText verbatim regardless of whether it
 // matches anything, so a seller whose town isn't in the dataset can still
-// post -- onSelectPlace only fires on an explicit tap or an exact-name
-// match on blur.
+// post -- onSelectPlace only fires on an explicit tap or a blur resolve.
 const BLUR_HIDE_MS = 150;
 
 export default function PlaceSuggestInput({
   value,
   onChangeText,
   onSelectPlace,
-  onExactBlurMatch,
+  onBlurResolve,
   placeholder,
   style,
   testID,
@@ -33,7 +32,7 @@ export default function PlaceSuggestInput({
   value: string;
   onChangeText: (v: string) => void;
   onSelectPlace: (place: LebanonPlace) => void;
-  onExactBlurMatch?: (place: LebanonPlace | null) => void;
+  onBlurResolve?: (place: LebanonPlace | null) => void;
   placeholder?: string;
   style?: ViewStyle | ViewStyle[];
   testID?: string;
@@ -45,12 +44,22 @@ export default function PlaceSuggestInput({
   const showDropdown = focused && matches.length > 0;
 
   const handleBlur = () => {
-    // A seller who types the correct full name and tabs/clicks away
-    // (without using the dropdown) still gets resolved -- checked on blur
-    // so it doesn't fight the dropdown's own tap-to-select while focused.
-    if (onExactBlurMatch) {
-      const exact = findPlaceByExactName(value);
-      if (exact) onExactBlurMatch(exact);
+    // A seller who types a town and tabs/clicks away (without using the
+    // dropdown) still gets resolved -- checked on blur so it doesn't fight
+    // the dropdown's own tap-to-select while focused.
+    //
+    // Exact name first, then the free-text resolver. That second pass is
+    // what handles the shape people actually type: "Achrafieh, Beirut",
+    // "Jounieh - Kesrouan", a town with the governorate tacked on. Those
+    // are not exact names of anything, so an exact-only check reported
+    // "we couldn't match this to a known town" for a location the dataset
+    // knows perfectly well -- and silently dropped the caza/governorate
+    // for that listing. findPlaceByFreeText picks the longest known place
+    // name contained in the string, so the specific part ("Achrafieh")
+    // wins over the general one ("Beirut").
+    if (onBlurResolve) {
+      const match = findPlaceByExactName(value) || findPlaceByFreeText(value);
+      if (match) onBlurResolve(match);
     }
     hideTimer.current = setTimeout(() => setFocused(false), BLUR_HIDE_MS);
   };

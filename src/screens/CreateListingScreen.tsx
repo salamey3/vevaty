@@ -24,7 +24,7 @@ import { suggestListingFromWeb, AiSuggestSource, AiSuggestAttributeSchema } from
 import { uriToCompressedBase64 } from '../lib/imageToBase64';
 import { supabase } from '../lib/supabase';
 import { getVehicleBrandNames, getModelsForBrand } from '../data/vehicleBrands';
-import { LebanonPlace, findPlaceByExactName, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
+import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
 import SuggestInput from '../components/SuggestInput';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import LocationMapPicker from '../components/LocationMapPicker';
@@ -141,11 +141,24 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // The town/village resolved from either the map pin or the location text
   // search -- carries governorate + caza + coordinates. Seeded on edit by
   // geonameId first (survives town-name spelling drift across dataset
-  // refreshes), falling back to an exact-name match against the old
-  // freeform `district` for listings posted before this feature existed.
-  const [resolvedPlace, setResolvedPlace] = useState<LebanonPlace | null>(
-    () => findPlaceById(editingListing?.geonameId) || findPlaceByExactName(editingListing?.district || '')
-  );
+  // refreshes), then an exact-name match, then the free-text resolver
+  // against the old freeform `district` for listings posted before this
+  // feature existed.
+  //
+  // The free-text pass matters more than it looks: `district` is seeded
+  // from the seller's saved profile, which holds whatever they typed long
+  // before this field knew about towns -- typically "Achrafieh, Beirut"
+  // rather than a bare town name. Exact-match alone failed on every one of
+  // those, so the form opened already showing "we couldn't match this to a
+  // known town" and posted with no caza or governorate attached.
+  const [resolvedPlace, setResolvedPlace] = useState<LebanonPlace | null>(() => {
+    const seedText = editingListing?.district || profile.district || '';
+    return (
+      findPlaceById(editingListing?.geonameId) ||
+      findPlaceByExactName(seedText) ||
+      findPlaceByFreeText(seedText)
+    );
+  });
   // Precise coordinates -- from the map pin, "Use my current location", or
   // a resolved place's centroid. Takes priority over deriving an
   // approximate point from resolvedPlace at submit time. null means
@@ -160,15 +173,29 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [locating, setLocating] = useState(false);
 
   // Shared by the map pin-drop, "Use my location", and the text search's
-  // exact-match-on-blur -- keeps district/resolvedPlace/preciseCoords in
-  // sync from whichever input the seller used. `coords` is optional since
-  // a text-search tap-select already knows the place without a coordinate
+  // blur resolve -- keeps district/resolvedPlace/preciseCoords in sync from
+  // whichever input the seller used. `coords` is optional since a
+  // text-search tap-select already knows the place without a coordinate
   // round-trip.
-  const resolvePlace = (place: LebanonPlace | null, coords?: { lat: number; lng: number }) => {
+  //
+  // `keepTyped` is for the blur resolve specifically. Recognising that
+  // "Achrafieh, Beirut" means El Achrafiye is useful; rewriting the
+  // seller's field to read "El Achrafiye" because GeoNames happens to
+  // store it under that spelling is not -- it overwrites what they wrote
+  // with a less familiar name they never chose. So a blur resolve attaches
+  // the caza/governorate and leaves the text alone; only an explicit tap
+  // on a dropdown row (where the seller picked that exact label) replaces
+  // it. It also leaves an already-captured pin alone, so resolving the
+  // text doesn't drag a precisely-placed marker back to a town centroid.
+  const resolvePlace = (
+    place: LebanonPlace | null,
+    coords?: { lat: number; lng: number },
+    opts?: { keepTyped?: boolean }
+  ) => {
     setResolvedPlace(place);
     if (coords) setPreciseCoords(coords);
-    else if (place) setPreciseCoords({ lat: place.lat, lng: place.lng });
-    if (place) setDistrict(place.name);
+    else if (place && !(opts?.keepTyped && preciseCoords)) setPreciseCoords({ lat: place.lat, lng: place.lng });
+    if (place && !opts?.keepTyped) setDistrict(place.name);
   };
   const [posting, setPosting] = useState(false);
   const [usedDraft, setUsedDraft] = useState(false);
@@ -877,12 +904,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 // old "editing Area clears preciseCoords" behavior. Stays
                 // non-blocking: the typed text always saves verbatim even
                 // if it never resolves to a known place.
-                if (resolvedPlace && v.trim().toLowerCase() !== resolvedPlace.name.toLowerCase()) {
+                //
+                // Compared through findPlaceByFreeText rather than against
+                // the place's own name, because a blur resolve deliberately
+                // leaves the seller's wording in place: with a plain name
+                // comparison, "Achrafieh, Beirut" would resolve on blur and
+                // then clear itself on the very next keystroke, since the
+                // text never equals "El Achrafiye". Only text that no
+                // longer points at the same place drops the resolution.
+                if (resolvedPlace && findPlaceByFreeText(v)?.id !== resolvedPlace.id) {
                   setResolvedPlace(null);
                 }
               }}
               onSelectPlace={(place) => resolvePlace(place)}
-              onExactBlurMatch={(place) => { if (place) resolvePlace(place); }}
+              onBlurResolve={(place) => { if (place) resolvePlace(place, undefined, { keepTyped: true }); }}
               placeholder={t('createListing.locationPlaceholder')}
             />
             {resolvedPlace ? (
@@ -912,7 +947,13 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               value={preciseCoords}
               onChange={(coords) => resolvePlace(nearestPlace(coords), coords)}
               hint={t('createListing.mapHint')}
-              pinLabel={t('createListing.mapPinLabel')}
+              // Only label the pin once it actually stands for something.
+              // With no coordinates captured yet the marker sits on
+              // Lebanon's centroid purely as an invitation to tap, and
+              // calling that "Your location" asserted a location the
+              // seller had not set -- on a listing that would in fact post
+              // with no coordinates at all.
+              pinLabel={preciseCoords ? t('createListing.mapPinLabel') : undefined}
             />
             </View>
             <Text style={styles.geonamesAttribution}>{t('createListing.geonamesAttribution')}</Text>
