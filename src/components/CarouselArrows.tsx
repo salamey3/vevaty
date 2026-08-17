@@ -48,6 +48,7 @@ export default function CarouselArrows({
   canScrollBack = true,
   canScrollForward = true,
   style,
+  contentStyle,
   // How far one press moves the scroller. Callers know their own item
   // width -- a photo pages by its full width, a category strip by a few
   // chips -- so neither is guessed here.
@@ -60,6 +61,9 @@ export default function CarouselArrows({
   canScrollBack?: boolean;
   canScrollForward?: boolean;
   style?: ViewStyle | ViewStyle[];
+  // How the wrapped carousel sits inside the space between the gutters.
+  // The lightbox needs its image box centred there; the others fill it.
+  contentStyle?: ViewStyle | ViewStyle[];
   step: number;
 }) {
   const { isRTL } = useLanguage();
@@ -92,8 +96,8 @@ export default function CarouselArrows({
   } as any;
 
   return (
-    <View style={[styles.row, style]} {...hoverProps}>
-      <View style={styles.gutter}>
+    <View style={[styles.row, style]} pointerEvents="box-none" {...hoverProps}>
+      <View style={styles.gutter} pointerEvents="box-none">
         {canScrollBack && (
           <Animated.View style={{ opacity }}>
             <Pressy onPress={() => onScrollBy(backwards)} style={styles.button} accessibilityLabel="Previous">
@@ -103,9 +107,16 @@ export default function CarouselArrows({
         )}
       </View>
 
-      <View style={styles.content}>{children}</View>
+      {/* box-none, so this wrapper never intercepts a click meant for
+          whatever is behind it. The content cell is wider than what it
+          holds whenever the carousel has its own max width -- in the
+          lightbox that empty margin was swallowing the click-outside that
+          closes it. Children still receive their own clicks. */}
+      <View style={[styles.content, contentStyle]} pointerEvents="box-none">
+        {children}
+      </View>
 
-      <View style={styles.gutter}>
+      <View style={styles.gutter} pointerEvents="box-none">
         {canScrollForward && (
           <Animated.View style={{ opacity }}>
             <Pressy onPress={() => onScrollBy(forwards)} style={styles.button} accessibilityLabel="Next">

@@ -12,6 +12,7 @@ import {
 } from 'react-native';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
+import CarouselArrows from './CarouselArrows';
 import { colors, radius } from '../theme/theme';
 
 type Props = {
@@ -106,6 +107,21 @@ export default function PhotoLightbox({ photos, visible, initialIndex, onClose }
         <Pressy onPress={onClose} style={StyleSheet.absoluteFill} haptic={false} />
 
         <View style={styles.stage} pointerEvents="box-none">
+          {/* Arrows wrap the image box from outside, in the backdrop
+              margin either side -- the same rule as the listing page, and
+              it matters more here: this is the one view that shows the
+              photo uncropped, so covering any of it would defeat the
+              point of opening it. Same appear-only-when-there's-more
+              logic, so on the last photo the right arrow is gone rather
+              than present and inert. */}
+          <CarouselArrows
+            onScrollBy={(d) => goTo(index + Math.sign(d))}
+            step={1}
+            canScrollBack={index > 0}
+            canScrollForward={index < photos.length - 1}
+            style={styles.arrowRow}
+            contentStyle={styles.arrowContent}
+          >
           <View style={styles.imageBox} onLayout={onLayout}>
             <ScrollView
               ref={scrollRef}
@@ -139,6 +155,7 @@ export default function PhotoLightbox({ photos, visible, initialIndex, onClose }
               </View>
             )}
           </View>
+          </CarouselArrows>
         </View>
       </View>
     </Modal>
@@ -152,6 +169,11 @@ const styles = StyleSheet.create({
     width: '100%', maxWidth: 980, height: '100%', maxHeight: 720,
     borderRadius: radius.lg, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.03)',
   },
+  // The row fills the stage; the image box stays centred within it and
+  // keeps its own max width, so the arrows sit in the backdrop margin
+  // rather than pushing the photo off-centre.
+  arrowRow: { flex: 1, width: '100%' },
+  arrowContent: { alignItems: 'center' },
   scroll: { flex: 1 },
   page: { height: '100%', alignItems: 'center', justifyContent: 'center' },
   img: { width: '100%', height: '100%' },
