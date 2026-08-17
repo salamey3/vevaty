@@ -145,42 +145,62 @@ git push
 
 The `git push` is what saves it to the master copy. Don't skip it.
 
-### 2. Publish
-
-Always check first:
+### 2. Publish — one command
 
 ```sh
-npm run verify
+npm run ship
 ```
 
-If that reports an error, **stop and send it to Claude.** Do not publish.
+That's the whole thing. It refuses to ship unsaved work, checks the code
+compiles, pushes to GitHub, builds the website, then publishes the app
+update — in that order, stopping at the first problem. If it stops, nothing
+has been released yet, so there's nothing to undo.
 
-**To the phone app:**
+It finishes by printing the one step it can't do for you: uploading the
+website file. It deliberately doesn't hold your hosting password.
 
-```sh
-npm run publish:app
-```
-
-Then on the phone: fully close Vevaty (swipe it away) and open it **twice** —
-the first open downloads the update, the second runs it.
-
-**To the website:**
-
-```sh
-npm run build:web
-```
-
-Then:
+**Then upload the website file:**
 
 1. cPanel → **File Manager**
 2. Open the folder **`vevaty.com`** (full path `/home/yousifs1/vevaty.com`)
    ⚠️ **Not `public_html`** — that's a different website.
 3. Tick **"Overwrite existing files"** *before* choosing the file
 4. **Upload** → `dist/index.html` from your vevaty folder
-5. Open vevaty.com and confirm your change is there
 
-**Publish to both.** If you only do one, the app and the website drift apart —
-which is exactly how "it works on the website but not the app" happens.
+**Then prove it landed:**
+
+```sh
+npm run verify:web
+```
+
+`IN SYNC` means the live website is byte-for-byte the code you just built.
+`OUT OF SYNC` means the upload didn't take, and it lists the usual reasons.
+
+Don't skip this. Opening the site and thinking "that looks right" is not the
+same check — a stale upload looks right too, and you find out days later as
+a bug that exists on the website and nowhere else.
+
+**And on the phone:** fully close Vevaty and open it **twice** — the first
+open downloads the update, the second runs it. If it seems not to have
+landed, use Force stop (long-press the icon → ⓘ → **Force stop**) rather than
+swiping it away; swiping often leaves the app running, so it never gets the
+fresh start that swaps the update in.
+
+#### Doing it by hand
+
+`npm run ship` is just these, in order. Use them individually only if
+something is broken and you're working around it:
+
+```sh
+npm run verify        # does it compile?
+git push              # save to GitHub
+npm run build:web     # build the website file
+npm run publish:app   # send the update to the phone
+```
+
+**Whichever route, do both targets.** If you only do one, the app and the
+website drift apart — which is exactly how "it works on the website but not
+the app" happens.
 
 ### 3. Test on the phone
 
