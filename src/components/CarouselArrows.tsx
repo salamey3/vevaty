@@ -94,9 +94,17 @@ export default function CarouselArrows({
 }
 
 const styles = StyleSheet.create({
-  row: { flexDirection: 'row', alignItems: 'center', width: '100%' },
+  // 'stretch', not 'center'. Centring makes a flex row size its children
+  // to their own content height -- which, for a child that fills its
+  // parent, is nothing. That is what made the photo carousel vanish and
+  // leave two arrows floating in an empty box.
+  // alignSelf stretch rather than width:'100%'. This wraps two different
+  // shapes -- a full-width category strip and a fixed-width photo column
+  // -- and a hard 100% is wrong for the second: the column's width comes
+  // from this row's content, so asking for 100% of it is circular.
+  row: { flexDirection: 'row', alignItems: 'stretch', alignSelf: 'stretch' },
   gutter: { width: ARROW_GUTTER, alignItems: 'center', justifyContent: 'center' },
-  content: { flex: 1, overflow: 'hidden' },
+  content: { flex: 1 },
   button: {
     width: 28,
     height: 28,

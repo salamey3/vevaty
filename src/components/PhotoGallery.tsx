@@ -1,9 +1,8 @@
-import React, { useRef, useState } from 'react';
+import React, { forwardRef, useImperativeHandle, useRef, useState } from 'react';
 import { Image, LayoutChangeEvent, NativeScrollEvent, NativeSyntheticEvent, ScrollView, StyleSheet, View } from 'react-native';
 import Pressy from './Pressy';
 import Icon, { IconName } from '../icons/Icon';
 import PhotoLightbox from './PhotoLightbox';
-import CarouselArrows from './CarouselArrows';
 import { colors } from '../theme/theme';
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 
@@ -29,7 +28,13 @@ type Props = {
 // one. Tapping any photo opens PhotoLightbox, a full-screen swipeable
 // viewer showing the whole, uncropped photo (`resizeMode: 'contain'`) --
 // that's the only place a buyer sees the complete image.
-export default function PhotoGallery({ photos, fallbackIconName }: Props) {
+// Paging is exposed to the parent rather than handled by arrows inside
+// this component. The photo box is a fixed-size, overflow-hidden frame, so
+// anything rendered in here is necessarily ON the photo -- and arrows
+// belong beside it, not over it. Only the caller knows where "beside" is.
+export type PhotoGalleryHandle = { page: (direction: number) => void };
+
+function PhotoGalleryInner({ photos, fallbackIconName }: Props, ref: React.Ref<PhotoGalleryHandle>) {
   const [index, setIndex] = useState(0);
   const [width, setWidth] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -47,6 +52,8 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
     setIndex(next);
     scrollRef.current?.scrollTo({ x: next * width, animated: true });
   };
+
+  useImperativeHandle(ref, () => ({ page: pageBy }), [width, index, photos.length]);
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (width <= 0) return;
     const i = Math.round(e.nativeEvent.contentOffset.x / width);
@@ -81,7 +88,6 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
   }
 
   return (
-    <CarouselArrows onScrollBy={pageBy} step={1} style={styles.fill}>
     <View style={styles.fill} onLayout={onLayout}>
       <ScrollView
         ref={scrollRef}
@@ -118,7 +124,6 @@ export default function PhotoGallery({ photos, fallbackIconName }: Props) {
         onClose={() => setLightboxIndex(null)}
       />
     </View>
-    </CarouselArrows>
   );
 }
 
@@ -138,3 +143,6 @@ const styles = StyleSheet.create({
   dot: { width: 5, height: 5, borderRadius: 3, backgroundColor: 'rgba(255,255,255,0.55)' },
   dotActive: { width: 14, backgroundColor: colors.white },
 });
+
+const PhotoGallery = forwardRef(PhotoGalleryInner);
+export default PhotoGallery;

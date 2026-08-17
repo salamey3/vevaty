@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, Image, Modal, TextInput, Linking } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -7,7 +7,8 @@ import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import LanguageSwitch from '../components/LanguageSwitch';
 import ConfirmDialog from '../components/ConfirmDialog';
-import PhotoGallery from '../components/PhotoGallery';
+import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
+import CarouselArrows from '../components/CarouselArrows';
 import SpinViewer from '../components/SpinViewer';
 import ListingCard from '../components/ListingCard';
 import { colors, type, radius } from '../theme/theme';
@@ -441,6 +442,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // carrying the old flat spinPhotos shape) should never crash the render
   // -- see the normalizeListing comment in AppStore.tsx for the full story
   // on why this actually happened once.
+  const galleryRef = useRef<PhotoGalleryHandle>(null);
   const spinSets = listing.spinSets ?? [];
   const hasSpin = spinSets.length > 0;
   const activeSpinSet = spinSets.find((s) => s.id === viewMode);
@@ -478,15 +480,31 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     </ScrollView>
   );
 
-  const photoBox = (extraStyle: any) => (
-    <View style={extraStyle}>
-      {activeSpinSet ? (
-        <SpinViewer frames={activeSpinSet.frames} />
-      ) : (
-        <PhotoGallery photos={listing.photos} fallbackIconName={(cat?.icon as any) || 'bag'} />
-      )}
-    </View>
-  );
+  // Arrows wrap the photo box from OUTSIDE, so they sit in the page beside
+  // the frame rather than on top of the photograph. Putting them inside
+  // PhotoGallery was the obvious move and the wrong one: that box is
+  // fixed-size and overflow-hidden, so anything rendered within it is by
+  // definition over the image.
+  //
+  // Only for a real gallery -- a 360 spin is dragged, not paged, and there
+  // is nothing for a next/previous arrow to mean.
+  const photoBox = (extraStyle: any) => {
+    const inner = (
+      <View style={extraStyle}>
+        {activeSpinSet ? (
+          <SpinViewer frames={activeSpinSet.frames} />
+        ) : (
+          <PhotoGallery ref={galleryRef} photos={listing.photos} fallbackIconName={(cat?.icon as any) || 'bag'} />
+        )}
+      </View>
+    );
+    if (activeSpinSet || listing.photos.length < 2) return inner;
+    return (
+      <CarouselArrows onScrollBy={(d) => galleryRef.current?.page(d)} step={1}>
+        {inner}
+      </CarouselArrows>
+    );
+  };
 
   // Single CTA slot, reused by both the desktop and mobile layouts below.
   // Never shown to the listing's own owner -- there's nothing to contact
