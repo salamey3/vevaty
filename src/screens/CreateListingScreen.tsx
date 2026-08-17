@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking, KeyboardAvoidingView, Platform } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
@@ -137,22 +137,21 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [translateAttempted, setTranslateAttempted] = useState(!!(initialTargetTitle || initialTargetDescription));
   const [translateErrorMsg, setTranslateErrorMsg] = useState<string | null>(null);
   const [price, setPrice] = useState(editingListing ? String(editingListing.price) : '');
-  const [district, setDistrict] = useState(editingListing?.district || profile.district || '');
+  // Blank on a new listing. This used to prefill from the seller's saved
+  // profile district, on the theory that most people sell from where they
+  // live -- but a prefilled location is one nobody re-reads, so the wrong
+  // town rides along silently on every listing posted from somewhere else.
+  // An empty field asks the question; a filled one answers it for you.
+  const [district, setDistrict] = useState(editingListing?.district || '');
   // The town/village resolved from either the map pin or the location text
-  // search -- carries governorate + caza + coordinates. Seeded on edit by
-  // geonameId first (survives town-name spelling drift across dataset
+  // search -- carries governorate + caza + coordinates. Seeded when editing
+  // by geonameId first (survives town-name spelling drift across dataset
   // refreshes), then an exact-name match, then the free-text resolver
   // against the old freeform `district` for listings posted before this
-  // feature existed.
-  //
-  // The free-text pass matters more than it looks: `district` is seeded
-  // from the seller's saved profile, which holds whatever they typed long
-  // before this field knew about towns -- typically "Achrafieh, Beirut"
-  // rather than a bare town name. Exact-match alone failed on every one of
-  // those, so the form opened already showing "we couldn't match this to a
-  // known town" and posted with no caza or governorate attached.
+  // feature existed -- those hold text like "Achrafieh, Beirut", which is
+  // an exact match for nothing and needs the free-text pass to resolve.
   const [resolvedPlace, setResolvedPlace] = useState<LebanonPlace | null>(() => {
-    const seedText = editingListing?.district || profile.district || '';
+    const seedText = editingListing?.district || '';
     return (
       findPlaceById(editingListing?.geonameId) ||
       findPlaceByExactName(seedText) ||
@@ -730,7 +729,31 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         ))}
       </View>
 
-      <ScrollView contentContainerStyle={styles.scroll}>
+      {/* KeyboardAvoidingView shrinks the scroll area by the keyboard's
+          height, which is what lets ScrollView scroll the focused input
+          back into view -- without it the keyboard simply covers whatever
+          field you tapped. Android needs this explicitly for the same
+          reason ChatThreadScreen did: Expo's edge-to-edge mode stops the
+          window itself from resizing when the keyboard opens, so the old
+          "Android just handles it" assumption no longer holds.
+
+          keyboardVerticalOffset is 0 because this sits inside Screen's
+          SafeAreaView, so its frame already excludes the status bar and
+          nav bar insets that the offset would otherwise have to cancel. */}
+      <KeyboardAvoidingView
+        style={styles.fill}
+        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
+        keyboardVerticalOffset={0}
+      >
+      <ScrollView
+        contentContainerStyle={styles.scroll}
+        // Without this, the first tap on a suggestion row is swallowed by
+        // the keyboard dismissal and never reaches the row -- the field
+        // appeared to ignore the selection and snap back to the typed text.
+        // 'handled' lets a tap that a child will handle through, while a
+        // tap on empty space still dismisses the keyboard.
+        keyboardShouldPersistTaps="handled"
+      >
         {currentKind === 'category' && (
           <CategoryPicker value={category} onSelect={setCategory} />
         )}
@@ -1082,6 +1105,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           </View>
         )}
       </ScrollView>
+      </KeyboardAvoidingView>
 
       <View style={styles.footer}>
         {step < STEPS.length - 1 ? (
@@ -1233,6 +1257,7 @@ const fieldStyles = StyleSheet.create({
 });
 
 const styles = StyleSheet.create({
+  fill: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   progressRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 18, marginBottom: 14 },

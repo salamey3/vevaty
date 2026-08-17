@@ -23,19 +23,6 @@ export interface LebanonPlace {
 }
 
 const byId = new Map<number, LebanonPlace>(LEBANON_PLACES.map((p) => [p.id, p]));
-const byLowerName = new Map<string, LebanonPlace>();
-for (const p of LEBANON_PLACES) {
-  const keys = [p.name, ...(p.nameAr ? [p.nameAr] : []), ...p.altNames];
-  for (const k of keys) {
-    const lower = k.trim().toLowerCase();
-    // First place wins a given exact-name key (population-sorted data would
-    // be nicer, but LEBANON_PLACES isn't guaranteed sorted -- exact-name
-    // lookup is a convenience fallback for unambiguous names; genuinely
-    // ambiguous same-named villages in different cazas are why the search
-    // dropdown always shows "Town — Caza, Governorate", not just the name).
-    if (!byLowerName.has(lower)) byLowerName.set(lower, p);
-  }
-}
 
 export function getGovernorateNames(): string[] {
   return Array.from(new Set(LEBANON_PLACES.map((p) => p.governorate))).sort();
@@ -87,31 +74,68 @@ function placeRank(p: LebanonPlace): number {
   return (p.population > 0 ? 1_000_000 + p.population : 0) + (p.nameAr ? 1_000 : 0) + p.altNames.length;
 }
 
+// Exact-name index. Where several places answer to the same name, the
+// highest-ranked one wins the key -- this used to be "whichever came first
+// in the file", which is why typing "Broummana" in full and pressing the
+// keyboard's Go key resolved to the hamlet in Keserwan even after the
+// dropdown had been fixed to list the Matn one first. The two paths have to
+// agree, or the field contradicts the menu it just offered you.
+const byLowerName = new Map<string, LebanonPlace>();
+for (const p of LEBANON_PLACES) {
+  for (const k of [p.name, ...(p.nameAr ? [p.nameAr] : []), ...p.altNames]) {
+    const lower = k.trim().toLowerCase();
+    const held = byLowerName.get(lower);
+    if (!held || byRankThenId(p, held) < 0) byLowerName.set(lower, p);
+  }
+}
+
 function byRankThenId(a: LebanonPlace, b: LebanonPlace): number {
   return placeRank(b) - placeRank(a) || a.id - b.id;
 }
 
-// Matches `query` against name/nameAr/altNames -- prefix matches first, then
-// anywhere-in-string, each group ranked by placeRank so recognisable towns
-// outrank obscure hamlets/cadastral zones on an ambiguous prefix.
+// How well a place answers `q`, independent of how prominent it is.
+// Higher wins; 0 means no match at all.
+//
+// The distinction between matching on the displayed name and matching on a
+// buried alternate spelling is what stops a prominence score from running
+// away with the results. "Hamra" used to return a village in Jezzine
+// first: it is really called Mrah Abou Chdid, but it carries five
+// alternate spellings -- two of which happen to begin "Hamra Abou..." --
+// and those five spellings outscored Hamra in Beirut, which has one. A
+// place whose actual name IS what you typed must come before a place that
+// merely has a nickname starting the same way, however well-documented the
+// second one is. Prominence only settles matches of equal quality.
+const MATCH_NAME_EXACT = 4;
+const MATCH_ALT_EXACT = 3;
+const MATCH_NAME_PREFIX = 2;
+const MATCH_ALT_PREFIX = 1;
+const MATCH_ANYWHERE = 0.5;
+
+function matchQuality(p: LebanonPlace, q: string): number {
+  const primary = [p.name, ...(p.nameAr ? [p.nameAr] : [])].map((s) => s.toLowerCase());
+  const alts = p.altNames.map((s) => s.toLowerCase());
+  if (primary.some((h) => h === q)) return MATCH_NAME_EXACT;
+  if (alts.some((h) => h === q)) return MATCH_ALT_EXACT;
+  if (primary.some((h) => h.startsWith(q))) return MATCH_NAME_PREFIX;
+  if (alts.some((h) => h.startsWith(q))) return MATCH_ALT_PREFIX;
+  if (primary.some((h) => h.includes(q)) || alts.some((h) => h.includes(q))) return MATCH_ANYWHERE;
+  return 0;
+}
+
+// Matches `query` against name/nameAr/altNames, ordered by how well each
+// place matches and then by placeRank, so recognisable towns outrank
+// obscure hamlets/cadastral zones on an ambiguous prefix.
 // Mirrors SuggestInput's rankSuggestions ordering philosophy.
 export function searchPlaces(query: string, limit = 8): LebanonPlace[] {
   const q = query.trim().toLowerCase();
   if (!q) return [];
-  const starts: LebanonPlace[] = [];
-  const contains: LebanonPlace[] = [];
-  const seen = new Set<number>();
+  const hits: { p: LebanonPlace; quality: number }[] = [];
   for (const p of LEBANON_PLACES) {
-    if (seen.has(p.id)) continue;
-    const haystacks = [p.name, ...(p.nameAr ? [p.nameAr] : []), ...p.altNames].map((s) => s.toLowerCase());
-    const startsHit = haystacks.some((h) => h.startsWith(q));
-    const containsHit = !startsHit && haystacks.some((h) => h.includes(q));
-    if (startsHit) { starts.push(p); seen.add(p.id); }
-    else if (containsHit) { contains.push(p); seen.add(p.id); }
+    const quality = matchQuality(p, q);
+    if (quality > 0) hits.push({ p, quality });
   }
-  starts.sort(byRankThenId);
-  contains.sort(byRankThenId);
-  return [...starts, ...contains].slice(0, limit);
+  hits.sort((a, b) => b.quality - a.quality || byRankThenId(a.p, b.p));
+  return hits.slice(0, limit).map((h) => h.p);
 }
 
 export function findPlaceByExactName(name: string): LebanonPlace | null {
