@@ -40,7 +40,7 @@
     "ios": "expo start --ios",
     "web": "expo start --web",
     "verify": "tsc --noEmit",
-    "build:web": "expo export --platform web && python3 build_standalone.py",
+    "build:web": "expo export --platform web && node build-standalone.mjs",
     "build:android": "eas build --platform android --profile preview",
     "release:web": "npm run verify && npm run build:web",
     "release": "npm run verify && npm run build:web && npm run build:android"

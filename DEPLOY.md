@@ -45,11 +45,9 @@ cd vevaty
 npm install
 ```
 
-Also needs **Node.js** (LTS), **Python 3** for `build:web`, and a GitHub
-Personal Access Token at the first `git push` prompt, same as the phone.
-
-On **Windows**, `npm run build:web` will fail because the script calls
-`python3`; either use WSL/Git Bash, or change that script to `python`.
+Also needs **Node.js** (LTS) and a GitHub Personal Access Token at the first
+`git push` prompt, same as the phone. Nothing else -- the build runs on Node
+alone, identically on Windows, macOS and Linux.
 
 ### Which machine for what
 
@@ -84,12 +82,16 @@ Then publish so everything re-syncs:
 git push origin main
 ```
 
-## Prerequisites on the phone
+## Prerequisites (either machine)
 
 ```sh
-pkg install python    # build_standalone.py needs it
-npm install           # devDependencies include the typescript used by `verify`
+npm install     # devDependencies include the typescript that `verify` runs
 ```
+
+Node is the only runtime needed. The website bundler is
+`build-standalone.mjs` (Node); it used to be a Python script, which meant
+installing Python separately on every machine and calling it `python3` on
+macOS/Linux but `python` on Windows.
 
 ## Release checklist
 
@@ -127,7 +129,7 @@ git tag -a v-$(date +%Y%m%d) -m "web + android" && git push origin --tags
 ## Notes
 
 - `dist/` is gitignored. Build output is never committed.
-- `build_standalone.py` inlines the entry JS bundle and all assets as data
+- `build-standalone.mjs` inlines the entry JS bundle and all assets as data
   URIs, then overwrites `dist/index.html` with the result, so whichever of
   the two files gets uploaded as `index.html` works identically.
 - Expo may emit extra lazily-loaded chunks (currently expo-camera's barcode
