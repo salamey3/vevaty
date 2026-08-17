@@ -44,6 +44,7 @@
     "build:web": "expo export --platform web && node build-standalone.mjs",
     "build:android": "npx --yes eas-cli build --platform android --profile preview",
     "publish:app": "node publish-app.mjs",
+    "deploy:web": "node deploy-web.mjs",
     "ship": "node ship.mjs",
     "verify:web": "node verify-web.mjs"
   },

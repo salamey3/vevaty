@@ -152,29 +152,86 @@ npm run ship
 ```
 
 That's the whole thing. It refuses to ship unsaved work, checks the code
-compiles, pushes to GitHub, builds the website, then publishes the app
-update — in that order, stopping at the first problem. If it stops, nothing
-has been released yet, so there's nothing to undo.
+compiles, pushes to GitHub, builds and uploads the website, confirms the
+live page matches, and then publishes the app update — stopping at the
+first problem.
 
-It finishes by printing the one step it can't do for you: uploading the
-website file. It deliberately doesn't hold your hosting password.
+**The app goes last on purpose.** It's the only step that can't be repeated
+cheaply: every publish is one you have to force-stop and reopen the app for.
+So everything that might fail happens before it. If the website upload
+breaks, the app hasn't shipped and nothing is half-released. Re-running
+`npm run ship` after a failure is always safe — every step overwrites rather
+than piling up.
 
-**Then upload the website file:**
+The website is verified, not assumed: after uploading it fetches the live
+page and compares fingerprints with what you built. You'll see `IN SYNC`.
 
-1. cPanel → **File Manager**
-2. Open the folder **`vevaty.com`** (full path `/home/yousifs1/vevaty.com`)
-   ⚠️ **Not `public_html`** — that's a different website.
-3. Tick **"Overwrite existing files"** *before* choosing the file
-4. **Upload** → `dist/index.html` from your vevaty folder
+**Then on the phone:** fully close Vevaty and open it **twice** — the first
+open downloads the update, the second runs it. If it seems not to have
+landed, use Force stop (long-press the icon → ⓘ → **Force stop**) rather
+than swiping it away; swiping often leaves the app running, so it never
+gets the fresh start that swaps the update in.
 
-**Then prove it landed:**
+---
+
+### Automatic website upload — one-time setup
+
+Until you do this, `npm run ship` does everything except the website and
+tells you to upload `dist/index.html` through cPanel by hand. Fifteen
+minutes now removes that step forever.
+
+**1. Make an SSH key on this Mac** (skip if `ls ~/.ssh/id_ed25519.pub`
+already shows a file):
 
 ```sh
-npm run verify:web
+ssh-keygen -t ed25519 -C "vevaty-deploy"
 ```
 
-`IN SYNC` means the live website is byte-for-byte the code you just built.
-`OUT OF SYNC` means the upload didn't take, and it lists the usual reasons.
+Press Enter at all three prompts. The passphrase can be blank — the key
+never leaves this Mac.
+
+**2. Show yourself the public half:**
+
+```sh
+cat ~/.ssh/id_ed25519.pub
+```
+
+Copy the whole line, starting `ssh-ed25519`. This half is safe to share.
+The other file, `id_ed25519` with no `.pub`, is the private half — never
+copy, send, or paste that one anywhere.
+
+**3. Give it to the host:** cPanel → **SSH Access** → **Manage SSH Keys** →
+**Import Key**. Paste it into the *public key* box, leave the private key
+box empty, Import. Then click **Manage** next to it and **Authorize**.
+
+**4. Tell the script where to put files:**
+
+```sh
+cp deploy.config.example.json deploy.config.json
+```
+
+Open `deploy.config.json` and check the values match your account. `port` is
+usually 22; ChemiCloud sometimes uses a different one, shown on the same SSH
+Access page.
+
+`deploy.config.json` is gitignored — it stays on this Mac and never reaches
+the public repo. **No password goes in it.** The SSH key is what proves it's
+you.
+
+**5. Test it:**
+
+```sh
+npm run build:web && npm run deploy:web && npm run verify:web
+```
+
+`IN SYNC` means it worked, and from then on `npm run ship` does the whole
+job by itself.
+
+If step 5 asks for a password, the key isn't authorized yet — redo step 3.
+If it says `Permission denied`, check `user` and `remoteDir` in the config.
+If SSH isn't available on your hosting plan at all, nothing is lost: keep
+uploading by hand, and `npm run verify:web` still tells you whether it
+worked.
 
 Don't skip this. Opening the site and thinking "that looks right" is not the
 same check — a stale upload looks right too, and you find out days later as
@@ -195,6 +252,8 @@ something is broken and you're working around it:
 npm run verify        # does it compile?
 git push              # save to GitHub
 npm run build:web     # build the website file
+npm run deploy:web    # upload it to vevaty.com
+npm run verify:web    # confirm the live site matches
 npm run publish:app   # send the update to the phone
 ```
 

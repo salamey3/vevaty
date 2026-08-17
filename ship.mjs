@@ -4,34 +4,41 @@
 // website -- and they are updated by three unrelated mechanisms. Doing them
 // one at a time by hand is how they drift apart, which has already cost real
 // time on this project: a fix live on the phone and missing from the site
-// reads exactly like a fix that didn't work.
+// reads exactly like a fix that didn't work, and twice the `git push` was
+// the step that got skipped, stranding commits on one laptop.
 //
-// This runs them in the only order that is safe:
+// Order matters here, and it isn't the obvious one:
 //
 //   1. refuse to ship uncommitted work
-//   2. typecheck  -- catch it here, not after it's live
-//   3. push to GitHub  -- so the code exists somewhere other than this laptop
-//   4. build the website bundle
-//   5. publish the app update
+//   2. typecheck            -- catch it here, not after it's live
+//   3. push to GitHub       -- the code now exists off this laptop
+//   4. build the website
+//   5. upload the website, then check the live page matches
+//   6. publish the app update
 //
-// Step 5 is last on purpose. If anything earlier fails, nothing has been
-// released yet and you can fix it and re-run with nothing to undo.
+// The app goes LAST. It's the only step that can't be repeated cheaply --
+// every publish is one your testers have to force-stop and reopen for -- so
+// everything that might fail happens before it. If step 5 breaks, the app
+// hasn't shipped yet and you fix the website with nothing half-released.
 //
-// The website upload itself is still yours to do: it is a drag-and-drop into
-// cPanel, and this script has no business holding hosting credentials. It
-// prints the fingerprint of what you should end up with, and
-// `npm run verify:web` checks the live site against it afterwards.
+// Website upload needs deploy.config.json (see WORKFLOW.md). Without it,
+// this still does everything else and tells you what to upload by hand.
 import { execFileSync, execSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { readFileSync } from 'node:fs';
+import { deployConfig, deployWeb } from './deploy-web.mjs';
 
 const run = (cmd) => execSync(cmd, { encoding: 'utf8' }).trim();
-const step = (n, what) => console.log(`\n[${n}/5] ${what}`);
 const loud = (cmd, args) =>
   execFileSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' });
 
-// --- 1. nothing unsaved -------------------------------------------------
-step(1, 'Checking for unsaved work');
+const auto = deployConfig() !== null;
+const TOTAL = auto ? 6 : 5;
+let n = 0;
+const step = (what) => console.log(`\n[${++n}/${TOTAL}] ${what}`);
+
+// --- nothing unsaved ----------------------------------------------------
+step('Checking for unsaved work');
 const dirty = run('git status --porcelain');
 if (dirty) {
   console.error('\nThese files have changes that are not committed:\n');
@@ -41,10 +48,10 @@ if (dirty) {
   console.error('Then run "npm run ship" again.\n');
   process.exit(1);
 }
-console.log('      clean');
+console.log('       clean');
 
-// --- 2. typecheck -------------------------------------------------------
-step(2, 'Checking the code compiles');
+// --- typecheck ----------------------------------------------------------
+step('Checking the code compiles');
 try {
   loud('npx', ['--yes', 'tsc', '--noEmit']);
 } catch {
@@ -52,10 +59,10 @@ try {
   console.error('Fix the errors above and run "npm run ship" again.\n');
   process.exit(1);
 }
-console.log('      ok');
+console.log('       ok');
 
-// --- 3. GitHub ----------------------------------------------------------
-step(3, 'Pushing to GitHub');
+// --- GitHub -------------------------------------------------------------
+step('Pushing to GitHub');
 try {
   loud('git', ['push']);
 } catch {
@@ -65,16 +72,34 @@ try {
   process.exit(1);
 }
 
-// --- 4. website bundle --------------------------------------------------
-step(4, 'Building the website');
+// --- build the website --------------------------------------------------
+step('Building the website');
 loud('npm', ['run', 'build:web']);
 const fingerprint = createHash('sha256').update(readFileSync('dist/index.html')).digest('hex');
 
-// --- 5. app update ------------------------------------------------------
-step(5, 'Publishing the app update');
+// --- upload the website, and confirm it took ----------------------------
+let websiteDone = false;
+if (auto) {
+  step('Uploading the website');
+  try {
+    deployWeb();
+    loud('npm', ['run', 'verify:web']);
+    websiteDone = true;
+  } catch {
+    console.error('\nThe website upload or verification failed, so the APP UPDATE');
+    console.error('was NOT published -- the two would have drifted apart, which is');
+    console.error('the exact problem this command exists to prevent.\n');
+    console.error('Fix the error above and run "npm run ship" again. Repeating it is');
+    console.error('safe: every step overwrites rather than accumulating.\n');
+    process.exit(1);
+  }
+}
+
+// --- publish the app ----------------------------------------------------
+step('Publishing the app update');
 loud('npm', ['run', 'publish:app']);
 
-// --- what's left for you ------------------------------------------------
+// --- what's left --------------------------------------------------------
 const commit = run('git rev-parse --short HEAD');
 const message = run('git log -1 --pretty=%s');
 
@@ -82,14 +107,20 @@ console.log(`\n${'='.repeat(64)}`);
 console.log(`Shipped ${commit} -- ${message}`);
 console.log('='.repeat(64));
 console.log('\n  GitHub   done');
+console.log(`  Website  ${websiteDone ? 'done, and verified byte-for-byte' : 'NOT DONE -- see below'}`);
 console.log('  App      done -- force stop the app on the phone, open it, force');
 console.log('           stop again, open it. First open downloads, second runs.');
-console.log('\n  Website  ONE STEP LEFT, do this now or the site falls behind:');
-console.log('             1. cPanel -> File Manager');
-console.log('             2. open the vevaty.com folder (NOT public_html)');
-console.log('             3. tick "Overwrite existing files" BEFORE choosing the file');
-console.log('             4. upload dist/index.html');
-console.log('\n           then check it actually landed:');
-console.log('             npm run verify:web');
-console.log(`\n           it should report this fingerprint:`);
-console.log(`             ${fingerprint}\n`);
+
+if (!websiteDone) {
+  console.log('\n  The website is still on the old code. Upload it by hand:');
+  console.log('    1. cPanel -> File Manager');
+  console.log('    2. open the vevaty.com folder (NOT public_html)');
+  console.log('    3. tick "Overwrite existing files" BEFORE choosing the file');
+  console.log('    4. upload dist/index.html');
+  console.log('    5. npm run verify:web');
+  console.log(`\n  It should report this fingerprint:`);
+  console.log(`    ${fingerprint}`);
+  console.log('\n  To stop doing this by hand, see "Automatic website upload"');
+  console.log('  in WORKFLOW.md -- it is a one-time setup.');
+}
+console.log('');

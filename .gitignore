@@ -33,6 +33,11 @@ yarn-error.*
 # local env files
 .env*.local
 
+# hosting details for the automatic website upload -- describes one
+# person's account, and this repo is public. Copy deploy.config.example.json
+# to create it. No password lives in it; scp uses your SSH key.
+deploy.config.json
+
 # typescript
 *.tsbuildinfo
 

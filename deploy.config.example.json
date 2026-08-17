@@ -1,0 +1,7 @@
+{
+  "_comment": "Copy this file to deploy.config.json and fill in your own values. deploy.config.json is gitignored so it never reaches the public repo. No password goes in here -- scp authenticates with your SSH key.",
+  "host": "vevaty.com",
+  "user": "yousifs1",
+  "port": 22,
+  "remoteDir": "/home/yousifs1/vevaty.com"
+}
