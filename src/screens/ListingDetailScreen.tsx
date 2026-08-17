@@ -329,12 +329,26 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           away it is, and whether it has been sitting unsold. */}
       <View style={styles.metaBlock}>
         {cat && (
-          <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+          // Tappable: seeing what section something is in immediately
+          // raises "what else is in there?", and the answer was three
+          // navigations away. Goes to the top-level category page, which is
+          // what HomeCategory takes -- the leaf shows up as its
+          // subcategory filter once you're there.
+          <Pressy
+            onPress={() =>
+              navigation.navigate('MainTabs', {
+                screen: 'HomeTab',
+                params: { screen: 'HomeCategory', params: { cat: catAncestors[0]?.id ?? listing.cat } },
+              } as any)
+            }
+            style={[styles.metaRow, isRTL && styles.metaRowRTL]}
+          >
             <Icon name={(cat.icon as any) || 'bag'} size={13} color={colors.inkSoft} />
-            <Text style={type.soft}>
+            <Text style={[type.soft, styles.categoryLink]}>
               {[...catAncestors, cat].map((c) => (language === 'ar' ? c.nameAr : c.nameEn)).join(' › ')}
             </Text>
-          </View>
+            <Icon name="chevronRight" size={12} color={colors.inkSoft} />
+          </Pressy>
         )}
         <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
           <Icon name="location" size={13} color={colors.inkSoft} />
@@ -667,6 +681,7 @@ const styles = StyleSheet.create({
   },
   price: { fontSize: 24, fontWeight: '700', color: colors.ink },
   metaBlock: { gap: 5, marginTop: 2 },
+  categoryLink: { textDecorationLine: 'underline' },
   title: { ...type.h2, marginTop: 4, marginBottom: 8 },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 5 },
   // This app doesn't do a global RTL flip (see LanguageContext's

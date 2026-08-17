@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { StyleSheet, Text, View, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,6 +12,8 @@ import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle, listingDistrict } from '../lib/listingText';
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
+import { relativeTimeFrom } from '../lib/relativeTime';
+import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { RootStackParamList } from '../navigation/types';
 
 export default function ListingCard({
@@ -34,7 +36,7 @@ export default function ListingCard({
   width?: number;
   showFavorite?: boolean;
 }) {
-  const { categoryById } = useSettings();
+  const { categoryById, resolveAttributesForCategory } = useSettings();
   const { isVerified, profile } = useAppStore();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { language, isRTL } = useLanguage();
@@ -46,6 +48,22 @@ export default function ListingCard({
   // Nothing to save about your own listing -- same reasoning as
   // ListingDetailScreen hiding its contact CTA from the owner.
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
+
+  // The two specs most worth knowing before you open the listing -- screen
+  // size on a TV, year and mileage on a car, storage on a phone. Required
+  // attributes come first because a category's admin marked them required
+  // precisely by asking "what would you refuse to list this without?",
+  // which is close enough to "what does a buyer scan for" to be a good
+  // default without a second field to maintain.
+  //
+  // Two, not more: a browse card is a glance, and a third line of specs
+  // starts competing with the price and title for the same attention.
+  const topSpecs = useMemo(() => {
+    if (!listing.attributes) return [];
+    const attrs = resolveAttributesForCategory(listing.cat).filter((a) => attrHasValue(listing.attributes[a.slug]));
+    const ordered = [...attrs.filter((a) => a.required), ...attrs.filter((a) => !a.required)];
+    return ordered.slice(0, 2).map((a) => formatAttrValue(a, listing.attributes[a.slug], language));
+  }, [listing.cat, listing.attributes, resolveAttributesForCategory, language]);
 
   const handleFavoritePress = async () => {
     if (!isVerified) {
@@ -93,10 +111,21 @@ export default function ListingCard({
       <View style={styles.info}>
         <Text style={[styles.price, isRTL && styles.rtlText]}>${listing.price.toLocaleString()}</Text>
         <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
+        {topSpecs.length > 0 && (
+          <Text style={[styles.specs, isRTL && styles.rtlText]} numberOfLines={1}>
+            {topSpecs.join(' · ')}
+          </Text>
+        )}
         <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
           <Icon name="location" size={12} color={colors.inkSoft} />
           <Text style={styles.district} numberOfLines={1}>{listingDistrict(listing, language)}</Text>
         </View>
+        {/* Relative, not a date: on a grid the question is "is this still
+            going?", and "3 days ago" answers it without the reader first
+            working out what today is. */}
+        <Text style={[styles.posted, isRTL && styles.rtlText]} numberOfLines={1}>
+          {relativeTimeFrom(listing.createdAt, language)}
+        </Text>
       </View>
     </Pressy>
   );
@@ -140,6 +169,8 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(20,20,22,0.4)', alignItems: 'center', justifyContent: 'center',
   },
   info: { paddingHorizontal: 10, paddingVertical: 9 },
+  specs: { ...type.tiny, color: colors.ink, marginBottom: 3 },
+  posted: { ...type.tiny, color: colors.inkSoft, marginTop: 3 },
   price: { ...type.h3, marginBottom: 2 },
   title: { ...type.soft, marginBottom: 4 },
   // theme.ts's `textAlign: 'auto'` doesn't actually right-align Arabic

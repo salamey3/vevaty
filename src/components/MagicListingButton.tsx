@@ -28,8 +28,14 @@ import { useLanguage } from '../i18n/LanguageContext';
 // than a spinner; a spinner is what it becomes below about three seconds.
 const REVOLUTION_MS = 4200;
 
-// Thickness of the glowing edge. Any more and it stops being an outline.
-const EDGE = 1.5;
+// Thickness of the glowing edge.
+//
+// This started at 1.5px and was effectively invisible on a phone: a
+// hairline of a mostly-transparent gradient, over a dark button, on a
+// screen held at arm's length. The effect was rendering exactly as
+// written and still could not be seen, which is the same thing as not
+// working. 2.5 is enough to read as a lit edge without becoming a frame.
+const EDGE = 2.5;
 
 export default function MagicListingButton({ onPress }: { onPress: () => void }) {
   const { t } = useLanguage();
@@ -83,7 +89,13 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
               perimeter is lit at any moment -- the light reads as one
               travelling point rather than a rotating halo. */}
           <LinearGradient
-            colors={['rgba(255,255,255,0)', 'rgba(255,255,255,0)', 'rgba(255,255,255,0.55)', 'rgba(255,255,255,0.9)']}
+            colors={[
+              'rgba(255,255,255,0)',
+              'rgba(255,255,255,0)',
+              'rgba(255,255,255,0.35)',
+              'rgba(255,255,255,1)',
+            ]}
+            locations={[0, 0.45, 0.75, 1]}
             start={{ x: 0, y: 0 }}
             end={{ x: 1, y: 1 }}
             style={StyleSheet.absoluteFill}
@@ -110,7 +122,10 @@ const styles = StyleSheet.create({
   shell: {
     borderRadius: radius.md,
     overflow: 'hidden',
-    backgroundColor: colors.ink,
+    // The ring's resting colour, visible wherever the travelling light
+    // isn't. Without it the edge vanishes for most of each revolution and
+    // the button looks like it's flickering rather than glowing.
+    backgroundColor: 'rgba(255,255,255,0.22)',
     width: '100%',
     // Sized by its content, with the glowing edge added around it.
     padding: EDGE,
