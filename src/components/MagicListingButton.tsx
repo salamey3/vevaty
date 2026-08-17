@@ -1,5 +1,6 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
+import Svg, { Rect } from 'react-native-svg';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
@@ -9,39 +10,40 @@ import { useLanguage } from '../i18n/LanguageContext';
 // "what are you selling?" screen, visually separated from it, because it
 // isn't a category -- it's the alternative to picking one.
 //
-// The highlight is a bright dot that travels around the button's border,
-// leaving a lit trail, over a permanently visible outline.
+// The highlight is four coloured arcs chasing each other around the
+// button's outline, in the manner of the Google TV logo animation.
 //
-// This is the third attempt and the first that can actually be seen, so
-// the two dead ends are worth recording. A gradient sheen sweeping across
-// the button's FACE reads as a loading bar -- light crossing the middle of
-// a control says "wait", where light at the edge says "look here". Then a
-// rotating conic-style gradient behind a solid panel, which is how this
-// effect is usually built on the web: it rendered correctly and was still
-// invisible on a phone, because what it produces is a hairline of
-// part-transparent white on a dark button seen at arm's length.
+// Fourth attempt, and the technique changed each time for a reason worth
+// recording, because two of the three failures were invisible rather than
+// wrong. (1) A gradient sheen across the button's FACE: light crossing the
+// middle of a control reads as a loading bar. (2) A rotating gradient
+// behind a solid panel, which is how this is normally built on the web: it
+// rendered exactly as written and could not be seen, because what it
+// produces is a hairline of part-transparent white on a dark button at
+// arm's length. (3) Solid dots travelling the perimeter: visible at last,
+// but dots are not arcs -- they read as something orbiting the button
+// rather than the button's own edge lighting up.
 //
-// So this drops gradients entirely. Discrete views with solid colours,
-// moved along the perimeter by interpolating translateX and translateY
-// through the four corners. Nothing depends on gradient support, on
-// overflow clipping a rotated child, or on a 2px band being legible.
-// Position is unambiguous, and brightness is a number you can raise.
+// This draws the border as a real SVG stroke and animates strokeDashoffset,
+// which is how the effect is actually done. Each colour is the same
+// rounded rectangle with a dash pattern of one short segment and one long
+// gap, offset by a quarter-perimeter from the one before, so four arcs
+// travel the outline in convoy. It is the outline itself that moves, at
+// full colour, which is what makes it legible where the earlier attempts
+// were not.
+const BRAND_ARCS = ['#7c3aed', '#ffffff', '#4f46e5', '#ff5757'];
 
-// One full circuit. Slow enough to read as a drifting highlight rather
-// than a spinner -- below about three seconds it starts to look busy.
-const CIRCUIT_MS = 3800;
+// One full lap. Slow enough to read as a drift rather than a spinner.
+const LAP_MS = 3600;
 
-// The lit dot, and the fainter ones trailing behind it. Each is offset
-// slightly earlier in the circuit, which is what makes it read as motion
-// with a tail rather than as four separate dots.
-const TRAIL = [
-  { lag: 0, opacity: 1, size: 26 },
-  { lag: 0.035, opacity: 0.55, size: 22 },
-  { lag: 0.07, opacity: 0.28, size: 18 },
-  { lag: 0.11, opacity: 0.12, size: 14 },
-];
+const STROKE = 2.5;
 
-const BORDER = 1.5;
+// Each arc covers this share of the perimeter. Short enough that the four
+// stay separate with dark between them, long enough to read as an arc of
+// the edge rather than a dash.
+const ARC_SHARE = 0.13;
+
+const AnimatedRect = Animated.createAnimatedComponent(Rect);
 
 export default function MagicListingButton({ onPress }: { onPress: () => void }) {
   const { t } = useLanguage();
@@ -53,39 +55,32 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
     const loop = Animated.loop(
       Animated.timing(progress, {
         toValue: 1,
-        duration: CIRCUIT_MS,
-        // Linear on purpose: easing makes the dot appear to hesitate at
-        // the corners, which reads as a stutter rather than as motion.
+        duration: LAP_MS,
+        // Linear: easing makes the arcs visibly slow at the corners, which
+        // reads as a stutter rather than as motion.
         easing: Easing.linear,
-        useNativeDriver: true,
+        // SVG attributes can't go through the native driver -- there is no
+        // native shadow-node property to hand them to. One driving value
+        // updating four dash offsets is cheap enough, and this button is
+        // static on screen while it plays.
+        useNativeDriver: false,
       })
     );
     loop.start();
     return () => loop.stop();
   }, [progress, size.width]);
 
-  // Trace the rectangle: across the top, down the right, back along the
-  // bottom, up the left. Interpolation is linear between the corner stops,
-  // so each quarter of `progress` covers one edge.
-  const dotAt = (lag: number, dotSize: number) => {
-    const w = Math.max(0, size.width - dotSize);
-    const h = Math.max(0, size.height - dotSize);
-    // Subtracting the lag and wrapping with modulo isn't possible inside
-    // an interpolation, so instead each trailing dot runs the same path on
-    // an input range shifted forward by its lag -- same effect, and it
-    // stays on the native driver.
-    const shift = (v: number) => Math.min(1, Math.max(0, v + lag));
-    const input = [0, 0.25, 0.5, 0.75, 1].map(shift);
-    // A shifted range can collapse duplicate stops at the end, which
-    // interpolate rejects; nudge any duplicate forward by a hair.
-    for (let i = 1; i < input.length; i++) {
-      if (input[i] <= input[i - 1]) input[i] = input[i - 1] + 0.0001;
-    }
-    return {
-      translateX: progress.interpolate({ inputRange: input, outputRange: [0, w, w, 0, 0] }),
-      translateY: progress.interpolate({ inputRange: input, outputRange: [0, 0, h, h, 0] }),
-    };
-  };
+  const { width, height } = size;
+  const r = radius.md;
+  // Perimeter of a rounded rectangle: the straight runs, plus one full
+  // circle's worth of corner. The dash pattern is measured in user units
+  // along this path, so it has to be right or the arcs drift out of step
+  // with the corners.
+  const inset = STROKE / 2;
+  const w = Math.max(0, width - STROKE);
+  const h = Math.max(0, height - STROKE);
+  const perimeter = 2 * (w + h) - 8 * r + 2 * Math.PI * r;
+  const arc = perimeter * ARC_SHARE;
 
   return (
     <Pressy
@@ -93,31 +88,6 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
       style={styles.shell}
       onLayout={(e) => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
     >
-      {size.width > 0 &&
-        TRAIL.map((dot, i) => {
-          const { translateX, translateY } = dotAt(dot.lag, dot.size);
-          return (
-            <Animated.View
-              key={i}
-              pointerEvents="none"
-              style={[
-                styles.dot,
-                {
-                  width: dot.size,
-                  height: dot.size,
-                  borderRadius: dot.size / 2,
-                  opacity: dot.opacity,
-                  transform: [{ translateX }, { translateY }],
-                },
-              ]}
-            />
-          );
-        })}
-
-      {/* Sits above the dots and below the text, so the trail glows from
-          behind the button's own surface rather than over the words. */}
-      <View style={styles.face} pointerEvents="none" />
-
       <View style={styles.content}>
         <View style={styles.row}>
           <Icon name="wand" size={20} color={colors.white} />
@@ -125,6 +95,50 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
         </View>
         <Text style={styles.sub}>{t('createListing.magicButtonSub')}</Text>
       </View>
+
+      {width > 0 && perimeter > 0 && (
+        <View style={StyleSheet.absoluteFill} pointerEvents="none">
+          <Svg width={width} height={height}>
+            {/* A permanent faint outline underneath, so the button always
+                has an edge and the arcs read as light running along
+                something rather than appearing out of nothing. */}
+            <Rect
+              x={inset}
+              y={inset}
+              width={w}
+              height={h}
+              rx={r}
+              ry={r}
+              fill="none"
+              stroke="rgba(255,255,255,0.16)"
+              strokeWidth={STROKE}
+            />
+            {BRAND_ARCS.map((color, i) => (
+              <AnimatedRect
+                key={color}
+                x={inset}
+                y={inset}
+                width={w}
+                height={h}
+                rx={r}
+                ry={r}
+                fill="none"
+                stroke={color}
+                strokeWidth={STROKE}
+                strokeLinecap="round"
+                strokeDasharray={`${arc},${perimeter - arc}`}
+                // Negative offset moves the dash forward along the path.
+                // Each colour starts a quarter-lap behind the last, so they
+                // stay evenly spaced the whole way round.
+                strokeDashoffset={progress.interpolate({
+                  inputRange: [0, 1],
+                  outputRange: [-i * (perimeter / BRAND_ARCS.length), -i * (perimeter / BRAND_ARCS.length) - perimeter],
+                })}
+              />
+            ))}
+          </Svg>
+        </View>
+      )}
     </Pressy>
   );
 }
@@ -132,29 +146,12 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
 const styles = StyleSheet.create({
   shell: {
     borderRadius: radius.md,
-    overflow: 'hidden',
     backgroundColor: colors.ink,
     width: '100%',
+    // No overflow:hidden -- the stroke is drawn inside the bounds and
+    // clipping a rounded SVG against a rounded parent only ever costs a
+    // half-pixel of the outline on Android.
     position: 'relative',
-  },
-  dot: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    backgroundColor: '#ffffff',
-  },
-  // Translucent rather than opaque: the dots pass underneath it, so the
-  // light reads as coming through the surface near the edge instead of
-  // being a white ball sliding across a button.
-  face: {
-    position: 'absolute',
-    top: 0,
-    left: 0,
-    right: 0,
-    bottom: 0,
-    margin: BORDER,
-    borderRadius: radius.md - BORDER,
-    backgroundColor: 'rgba(20,20,22,0.86)',
   },
   content: { paddingVertical: 16, paddingHorizontal: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
