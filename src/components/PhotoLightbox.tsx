@@ -12,7 +12,7 @@ import {
 } from 'react-native';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
-import CarouselArrows from './CarouselArrows';
+import CarouselArrows, { ARROW_GUTTER } from './CarouselArrows';
 import { colors, radius } from '../theme/theme';
 
 type Props = {
@@ -169,11 +169,19 @@ const styles = StyleSheet.create({
     width: '100%', maxWidth: 980, height: '100%', maxHeight: 720,
     borderRadius: radius.lg, overflow: 'hidden', backgroundColor: 'rgba(255,255,255,0.03)',
   },
-  // The row fills the stage; the image box stays centred within it and
-  // keeps its own max width, so the arrows sit in the backdrop margin
-  // rather than pushing the photo off-centre.
-  arrowRow: { flex: 1, width: '100%' },
-  arrowContent: { alignItems: 'center' },
+  // Capped at the image box's own max width plus the two gutters, and
+  // centred. That makes the row exactly as wide as the photo plus its
+  // arrows, so the arrows hug the picture's edges instead of drifting out
+  // to the far sides of the window -- the same relationship they have on
+  // the listing page, which is where people first meet them.
+  //
+  // Below that width the cap does nothing, the row fills the stage, and
+  // the box fills the space between the gutters -- so the arrows still sit
+  // exactly against the photo on a narrow window.
+  arrowRow: { flex: 1, width: '100%', maxWidth: 980 + ARROW_GUTTER * 2, alignSelf: 'center' },
+  // The stage used to centre the image box vertically; with the row
+  // between them that job moves here.
+  arrowContent: { justifyContent: 'center' },
   scroll: { flex: 1 },
   page: { height: '100%', alignItems: 'center', justifyContent: 'center' },
   img: { width: '100%', height: '100%' },
