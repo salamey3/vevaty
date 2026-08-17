@@ -195,7 +195,21 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
 
       <KeyboardAvoidingView
         style={{ flex: 1 }}
-        behavior={Platform.OS === 'ios' ? 'padding' : undefined}
+      // behavior is 'padding' on BOTH platforms, deliberately.
+      //
+      // The usual advice -- and what this used to do -- is to leave Android
+      // undefined, because Android historically resized the whole window
+      // when the keyboard appeared and the view came along for free. Expo
+      // now enables edge-to-edge by default, and under edge-to-edge the
+      // window does NOT resize: the keyboard is drawn over the app. With
+      // behavior undefined, KeyboardAvoidingView then does nothing at all,
+      // which is why the chat composer sat underneath the keyboard with no
+      // way to see what was being typed.
+      //
+      // 'padding' doesn't depend on the window resizing -- it listens for
+      // keyboard show/hide events and pads by the reported keyboard height,
+      // so it works whether or not the window moves.
+        behavior="padding"
         keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
       >
         {!loading && messages.length === 0 ? (

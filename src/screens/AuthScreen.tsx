@@ -1,5 +1,5 @@
 import React, { useState } from 'react';
-import { StyleSheet, Text, View, TextInput, Image, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View, TextInput, Image, KeyboardAvoidingView } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
@@ -181,7 +181,11 @@ export default function AuthScreen({ navigation, route }: Props) {
 
   return (
     <Screen maxWidth={480}>
-      <KeyboardAvoidingView behavior={Platform.OS === 'ios' ? 'padding' : undefined} style={{ flex: 1 }}>
+      {/* behavior='padding' on both platforms -- see the long note in
+          ChatThreadScreen: under Expo's edge-to-edge default the Android
+          window no longer resizes for the keyboard, so leaving Android
+          undefined makes KeyboardAvoidingView a no-op. */}
+      <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.topBar}>
           <Pressy
             onPress={() => {
