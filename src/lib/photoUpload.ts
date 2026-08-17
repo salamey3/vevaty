@@ -1,16 +1,18 @@
 import { Platform } from 'react-native';
 import { File, UploadType } from 'expo-file-system';
 import { resizePhotoForUpload } from './imageToBase64';
+import { getUploadTicket, clearUploadTicket } from './uploadTicket';
 import { Alert } from './alertShim';
 
 // Listing photos are hosted on the same ChemiCloud domain the app itself is
 // served from (vevaty.com/upload.php), not Supabase Storage —
 // keeps photo storage off the shared Supabase project's limits entirely.
 const UPLOAD_URL = 'https://vevaty.com/upload.php';
-const UPLOAD_TOKEN = 'myazar_upload_9f2c7a1d';
 
-// upload.php expects the image under the field name `photo` and the shared
-// secret as a plain form field named `token`.
+// upload.php expects the image under the field name `photo`, plus the two
+// fields of a signed ticket (`expires` and `signature`) obtained from the
+// sign-upload function. No shared secret is stored in the app -- see
+// uploadTicket.ts for why the old baked-in token had to go.
 const FILE_FIELD = 'photo';
 
 // How many characters of the server's reply to quote back in an error.
@@ -54,7 +56,7 @@ function urlFromResponse(status: number, body: string): string {
 // a URL.
 //
 // expo-file-system's File.upload() does the multipart request natively,
-// avoiding JS FormData entirely, and takes the extra `token` field through
+// avoiding JS FormData entirely, and carries the ticket fields through
 // `parameters`.
 //
 // Web keeps fetch + FormData, which is correct there: browsers have always
@@ -66,9 +68,12 @@ export async function uploadPhoto(localUri: string): Promise<string> {
   // fails (see resizePhotoForUpload).
   const uri = await resizePhotoForUpload(localUri);
 
+  const ticket = await getUploadTicket();
+
   if (Platform.OS === 'web') {
     const form = new FormData();
-    form.append('token', UPLOAD_TOKEN);
+    form.append('expires', String(ticket.expires));
+    form.append('signature', ticket.signature);
     const blob = await (await fetch(uri)).blob();
     form.append(FILE_FIELD, blob, 'photo.jpg');
 
@@ -91,7 +96,7 @@ export async function uploadPhoto(localUri: string): Promise<string> {
       uploadType: UploadType.MULTIPART,
       fieldName: FILE_FIELD,
       mimeType: 'image/jpeg',
-      parameters: { token: UPLOAD_TOKEN },
+      parameters: { expires: String(ticket.expires), signature: ticket.signature },
     });
   } catch (e: any) {
     // Rejects only when the file can't be read or the request itself fails;
@@ -120,6 +125,26 @@ export async function uploadPhotos(localUris: string[]): Promise<string[]> {
       urls.push(await uploadPhoto(uri));
     } catch (e: any) {
       const detail = e?.message || String(e);
+
+      // A 403 from upload.php means the ticket was refused -- almost always
+      // because it expired mid-post (a slow connection, or the seller left
+      // the screen open a while). Throw the cached ticket away and try this
+      // photo once more with a fresh one, rather than reusing credentials
+      // the server has already rejected and failing every remaining photo
+      // for the same stale reason.
+      if (detail.includes('HTTP 403')) {
+        clearUploadTicket();
+        try {
+          urls.push(await uploadPhoto(uri));
+          continue;
+        } catch (retryErr: any) {
+          const retryDetail = retryErr?.message || String(retryErr);
+          failures.push(retryDetail);
+          console.warn('[photoUpload] failed after ticket refresh:', retryDetail);
+          continue;
+        }
+      }
+
       failures.push(detail);
       console.warn('[photoUpload] failed:', detail);
     }
