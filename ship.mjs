@@ -14,7 +14,8 @@
 //   3. push to GitHub       -- the code now exists off this laptop
 //   4. build the website
 //   5. upload the website, then check the live page matches
-//   6. publish the app update
+//   6. check the update can actually reach the installed app
+//   7. publish the app update
 //
 // The app goes LAST. It's the only step that can't be repeated cheaply --
 // every publish is one your testers have to force-stop and reopen for -- so
@@ -33,7 +34,7 @@ const loud = (cmd, args) =>
   execFileSync(cmd, args, { stdio: 'inherit', shell: process.platform === 'win32' });
 
 const auto = deployConfig() !== null;
-const TOTAL = auto ? 6 : 5;
+const TOTAL = auto ? 7 : 6;
 let n = 0;
 const step = (what) => console.log(`\n[${++n}/${TOTAL}] ${what}`);
 
@@ -93,6 +94,60 @@ if (auto) {
     console.error('safe: every step overwrites rather than accumulating.\n');
     process.exit(1);
   }
+}
+
+// --- will the update actually reach the installed app? ------------------
+//
+// An over-the-air update is only delivered to an installed app whose
+// "runtime version" matches it. That runtime is a fingerprint of everything
+// native: app.json, package.json, eas.json, the assets, the native config
+// of every Expo plugin -- and .gitignore, which is where this bit me.
+//
+// When they diverge, nothing fails. `eas update` reports success, the
+// update appears in `eas update:list`, and the phone quietly never sees it,
+// because it is asking for a runtime nobody is publishing to. You are left
+// force-quitting the app over and over wondering why a change that is
+// plainly live on the website refuses to appear.
+//
+// So: compute the fingerprint of what we are about to publish, ask EAS what
+// the last Android build was compiled with, and say so plainly if they
+// don't match. Best-effort -- if either lookup fails, ship rather than
+// block on a diagnostic.
+function runtimeCheck() {
+  const quiet = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  try {
+    const fpOut = quiet('npx', ['--yes', 'expo-updates', 'fingerprint:generate', '--platform', 'android']);
+    const local = JSON.parse(fpOut.trim().split('\n').pop()).hash;
+    const buildsOut = quiet('npx', ['--yes', 'eas-cli', 'build:list', '--platform', 'android', '--limit', '1', '--json', '--non-interactive']);
+    const installed = JSON.parse(buildsOut)[0]?.runtimeVersion;
+    if (!local || !installed) return null;
+    return { local, installed, match: local === installed };
+  } catch {
+    return null;
+  }
+}
+
+step('Checking the update can reach the installed app');
+const rt = runtimeCheck();
+if (!rt) {
+  console.log('       skipped (could not read the build list -- not fatal)');
+} else if (rt.match) {
+  console.log(`       ok -- runtime ${rt.local.slice(0, 12)}`);
+} else {
+  console.log('\n  ' + '!'.repeat(62));
+  console.log('  THIS UPDATE CANNOT REACH THE APP THAT IS INSTALLED.');
+  console.log('  ' + '!'.repeat(62));
+  console.log(`\n    installed app was built with : ${rt.installed}`);
+  console.log(`    this update publishes as     : ${rt.local}`);
+  console.log('\n  Something native changed -- app.json, package.json, eas.json,');
+  console.log('  the assets, or .gitignore. Over-the-air updates only reach an');
+  console.log('  app whose runtime matches, so this will publish successfully');
+  console.log('  and silently never arrive on the phone.');
+  console.log('\n  A new build is required:');
+  console.log('    npm run build:android');
+  console.log('\n  Install the APK it produces, and updates resume as normal.');
+  console.log('  Publishing anyway -- it is harmless, and it is what the next');
+  console.log('  build will carry.\n');
 }
 
 // --- publish the app ----------------------------------------------------
