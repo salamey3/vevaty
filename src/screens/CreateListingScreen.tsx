@@ -172,6 +172,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   );
   const [locating, setLocating] = useState(false);
 
+  // Whether preciseCoords represents a point the SELLER chose -- geolocated
+  // themselves, or tapped/dragged on the map -- as opposed to one derived
+  // from their town. Both end up in the same field and both are worth
+  // saving, but only one of them is "your location", and the UI should not
+  // claim otherwise: with the location text now resolving on open, the
+  // form would otherwise greet a seller who has touched nothing with
+  // "Location captured" and a pin labelled "Your location" sitting on the
+  // centre of their town. On edit, a stored lat/lng came from a seller
+  // doing exactly that, so it counts.
+  const [coordsFromSeller, setCoordsFromSeller] = useState(
+    editingListing?.lat != null && editingListing?.lng != null
+  );
+
   // Shared by the map pin-drop, "Use my location", and the text search's
   // blur resolve -- keeps district/resolvedPlace/preciseCoords in sync from
   // whichever input the seller used. `coords` is optional since a
@@ -193,7 +206,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     opts?: { keepTyped?: boolean }
   ) => {
     setResolvedPlace(place);
-    if (coords) setPreciseCoords(coords);
+    // Explicit `coords` only ever come from the two seller-driven paths
+    // (the map's onChange, and "Use my current location"); a place centroid
+    // reached through `place` alone never does.
+    if (coords) { setPreciseCoords(coords); setCoordsFromSeller(true); }
     else if (place && !(opts?.keepTyped && preciseCoords)) setPreciseCoords({ lat: place.lat, lng: place.lng });
     if (place && !opts?.keepTyped) setDistrict(place.name);
   };
@@ -939,7 +955,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <Pressy onPress={useMyLocation} style={styles.locationBtn} disabled={locating}>
               <Icon name="location" size={16} color={colors.ink} />
               <Text style={styles.locationBtnText}>
-                {locating ? t('common.loading') : preciseCoords ? t('createListing.locationCaptured') : t('createListing.useMyLocation')}
+                {locating
+                  ? t('common.loading')
+                  : coordsFromSeller
+                    ? t('createListing.locationCaptured')
+                    : t('createListing.useMyLocation')}
               </Text>
             </Pressy>
             <View style={styles.mapWrap}>
@@ -947,13 +967,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               value={preciseCoords}
               onChange={(coords) => resolvePlace(nearestPlace(coords), coords)}
               hint={t('createListing.mapHint')}
-              // Only label the pin once it actually stands for something.
-              // With no coordinates captured yet the marker sits on
-              // Lebanon's centroid purely as an invitation to tap, and
-              // calling that "Your location" asserted a location the
-              // seller had not set -- on a listing that would in fact post
-              // with no coordinates at all.
-              pinLabel={preciseCoords ? t('createListing.mapPinLabel') : undefined}
+              // Only label the pin when it stands for a point the seller
+              // actually chose. Unlabelled it reads as a suggestion to
+              // adjust, which is what a town centroid or an untouched
+              // default is; labelled "Your location" it asserts a position
+              // nobody set.
+              pinLabel={coordsFromSeller ? t('createListing.mapPinLabel') : undefined}
             />
             </View>
             <Text style={styles.geonamesAttribution}>{t('createListing.geonamesAttribution')}</Text>

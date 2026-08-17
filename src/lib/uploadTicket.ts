@@ -2,8 +2,11 @@ import { supabase } from './supabase';
 
 // A short-lived permission slip for uploading photos to vevaty.com.
 //
-// The app used to carry a fixed shared token (`myazar_upload_9f2c7a1d`)
-// straight to upload.php. That token shipped inside the public website
+// The app used to carry a fixed shared token straight to upload.php. (The
+// token itself is deliberately not written out here: it is retired and the
+// server rejects it, but a repo is not the place to keep a credential
+// legible, and quoting a dead one teaches the habit of quoting a live
+// one.) That token shipped inside the public website
 // bundle, the public GitHub repo and the Android APK, so anyone who opened
 // vevaty.com could read it and post images to the hosting account
 // indefinitely -- an anonymous image host on someone else's domain, with

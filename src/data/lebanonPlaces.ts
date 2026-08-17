@@ -60,9 +60,40 @@ export function getAllTowns(): string[] {
   return Array.from(new Set(LEBANON_PLACES.map((p) => p.name))).sort();
 }
 
+// How prominent a place is, for ordering search results and for settling
+// ties between same-named places. Higher wins.
+//
+// Population alone -- the previous rule -- does not work on this dataset:
+// GeoNames carries a population figure for 42 of the 3,712 Lebanese places
+// and zero for the other 3,670, so "sort by population descending" was a
+// no-op for 98.9% of rows and search results came back in whatever order
+// the generator happened to emit them. That is how searching "Broummana"
+// offered an obscure hamlet in Keserwan ahead of the Brummana in Matn that
+// everyone means.
+//
+// The two fields that DO separate them are already in the data. GeoNames
+// records an Arabic name and a spread of alternate spellings for places
+// that are actually written about, and neither for cadastral sub-localities
+// -- Brummana/Matn has an Arabic name and six spellings, its Keserwan
+// namesake has none and two. Across the 222 names shared by more than one
+// place, that decides 156 outright; the rest are genuinely
+// indistinguishable generic names ("Haret et Tahta", the lower quarter,
+// exists in sixteen cazas) where any order is as good as another, so `id`
+// keeps it at least deterministic.
+//
+// Population still leads where it exists, since those 42 are the real
+// cities and no proxy should outrank a known figure.
+function placeRank(p: LebanonPlace): number {
+  return (p.population > 0 ? 1_000_000 + p.population : 0) + (p.nameAr ? 1_000 : 0) + p.altNames.length;
+}
+
+function byRankThenId(a: LebanonPlace, b: LebanonPlace): number {
+  return placeRank(b) - placeRank(a) || a.id - b.id;
+}
+
 // Matches `query` against name/nameAr/altNames -- prefix matches first, then
-// anywhere-in-string, each group ranked by population descending so major
-// towns outrank obscure hamlets/cadastral zones on an ambiguous prefix.
+// anywhere-in-string, each group ranked by placeRank so recognisable towns
+// outrank obscure hamlets/cadastral zones on an ambiguous prefix.
 // Mirrors SuggestInput's rankSuggestions ordering philosophy.
 export function searchPlaces(query: string, limit = 8): LebanonPlace[] {
   const q = query.trim().toLowerCase();
@@ -78,8 +109,8 @@ export function searchPlaces(query: string, limit = 8): LebanonPlace[] {
     if (startsHit) { starts.push(p); seen.add(p.id); }
     else if (containsHit) { contains.push(p); seen.add(p.id); }
   }
-  starts.sort((a, b) => b.population - a.population);
-  contains.sort((a, b) => b.population - a.population);
+  starts.sort(byRankThenId);
+  contains.sort(byRankThenId);
   return [...starts, ...contains].slice(0, limit);
 }
 
@@ -130,10 +161,10 @@ const freeTextCache = new Map<string, LebanonPlace | null>();
 //   2. Longest match, which settles ties at the same position: in
 //      "Bhamdoun el Mhatta" both "Bhamdoun" and "Bhamdoun el Mhatta" start
 //      at 0, and the fuller name is the more specific one.
-//   3. Population, for genuinely identical strings -- Lebanon has several
+//   3. placeRank, for genuinely identical strings -- Lebanon has many
 //      same-named villages in different cazas (two El Achrafiye, one in
-//      Beirut and one in Saida), and the larger is the likelier meaning
-//      absent any other signal.
+//      Beirut and one in Saida; two Broummanas), and the more prominent is
+//      the likelier meaning absent any other signal.
 //
 // Ranking by length alone (the previous rule) got "Achrafieh, Beirut"
 // right only by accident and got "Hamra, Beirut" wrong: "Beirut" is one
@@ -161,7 +192,7 @@ export function findPlaceByFreeText(freeText: string | null | undefined): Lebano
       pos < bestPos ||
       (pos === bestPos &&
         (key.length > bestLen ||
-          (key.length === bestLen && best !== null && place.population > best.population)));
+          (key.length === bestLen && best !== null && byRankThenId(place, best) < 0)));
     if (better) {
       best = place;
       bestPos = pos;

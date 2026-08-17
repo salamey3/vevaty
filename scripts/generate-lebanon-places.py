@@ -71,9 +71,21 @@ OUT_PATH = Path(__file__).resolve().parent.parent / "src" / "data" / "lebanonPla
 
 def fetch_geoboundaries_adm2():
     meta = requests.get(GEOBOUNDARIES_ADM2_API, timeout=30).json()
+    # Full-resolution geometry, NOT simplifiedGeometryGeoJSON. Simplifying a
+    # caza outline moves its border by up to a few hundred metres, which is
+    # irrelevant for drawing a map and decisive for a point-in-polygon test:
+    # a village sitting close to a caza line lands on whichever side the
+    # simplification happened to put it. Re-running both layers over the
+    # 3,712 places puts twelve of them in a different caza -- Bsifrin and
+    # Zahriye reading Baabda instead of Matn, El Fradis reading Zgharta
+    # instead of Bcharre, and so on -- plus one village that the simplified
+    # outlines placed outside Lebanon entirely. The full file is 337 KB
+    # against 145 KB and is downloaded once by this script, never shipped to
+    # a client, so the smaller file buys nothing here.
+    #
     # gjDownloadURL points at a git-lfs pointer via raw.githubusercontent.com;
     # media.githubusercontent.com resolves the actual LFS-backed content.
-    url = meta["simplifiedGeometryGeoJSON"].replace(
+    url = meta["gjDownloadURL"].replace(
         "https://github.com/wmgeolab/geoBoundaries/raw/",
         "https://media.githubusercontent.com/media/wmgeolab/geoBoundaries/",
     )
