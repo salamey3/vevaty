@@ -34,7 +34,12 @@ export default function CategoryCard({
           <Icon name={category.icon as any} size={24} color={selected ? colors.white : colors.ink} />
         )}
       </View>
-      <Text style={[styles.label, selected && styles.labelSelected]} numberOfLines={1}>{label}</Text>
+      {/* Two lines, centred under the icon. On one line "Electronics &
+          Appliances" either shrank to nothing or truncated to
+          "Electronics & Appli..." -- in a row of chips the label is how you
+          tell them apart, so losing the second half of it defeats the
+          chip. */}
+      <Text style={[styles.label, selected && styles.labelSelected]} numberOfLines={2}>{label}</Text>
     </Pressy>
   );
 }
@@ -52,6 +57,10 @@ const styles = StyleSheet.create({
     justifyContent: 'flex-start',
     marginBottom: 12,
     gap: 8,
+    // Reserve both label lines whether or not this particular name needs
+    // them, so a row of chips lines its icons up instead of stepping up
+    // and down with the length of each word.
+    minHeight: 44 + 8 + 28,
   },
   iconWrap: {
     width: 44,
@@ -66,6 +75,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.ink,
   },
   iconImg: { width: '100%', height: '100%' },
-  label: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center' },
+  label: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center', lineHeight: 14 },
   labelSelected: { fontWeight: '700' },
 });

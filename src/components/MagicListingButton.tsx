@@ -1,6 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Easing, StyleSheet, Text, View } from 'react-native';
-import { LinearGradient } from 'expo-linear-gradient';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
@@ -10,60 +9,83 @@ import { useLanguage } from '../i18n/LanguageContext';
 // "what are you selling?" screen, visually separated from it, because it
 // isn't a category -- it's the alternative to picking one.
 //
-// The highlight is a light that travels around the button's outline,
-// rather than a sheen sweeping across its face. Done the way that effect
-// is normally done: a large gradient square spins behind the button, and
-// a solid inner panel covers all of it except a hairline at the edges --
-// so what you see is a bright arc chasing the perimeter, brightest at one
-// corner and fading away behind it.
+// The highlight is a bright dot that travels around the button's border,
+// leaving a lit trail, over a permanently visible outline.
 //
-// A face sweep was the first attempt and it reads as a loading bar: light
-// crossing the middle of a button says "wait", where light around the
-// edge says "look here". Same restraint applies either way -- one slow
-// revolution, low opacity, no bounce. This screen is seen on every post,
-// and a livelier animation stops being a highlight and becomes something
-// to endure.
-
-// One full revolution. Slow enough to read as a drifting highlight rather
-// than a spinner; a spinner is what it becomes below about three seconds.
-const REVOLUTION_MS = 4200;
-
-// Thickness of the glowing edge.
+// This is the third attempt and the first that can actually be seen, so
+// the two dead ends are worth recording. A gradient sheen sweeping across
+// the button's FACE reads as a loading bar -- light crossing the middle of
+// a control says "wait", where light at the edge says "look here". Then a
+// rotating conic-style gradient behind a solid panel, which is how this
+// effect is usually built on the web: it rendered correctly and was still
+// invisible on a phone, because what it produces is a hairline of
+// part-transparent white on a dark button seen at arm's length.
 //
-// This started at 1.5px and was effectively invisible on a phone: a
-// hairline of a mostly-transparent gradient, over a dark button, on a
-// screen held at arm's length. The effect was rendering exactly as
-// written and still could not be seen, which is the same thing as not
-// working. 2.5 is enough to read as a lit edge without becoming a frame.
-const EDGE = 2.5;
+// So this drops gradients entirely. Discrete views with solid colours,
+// moved along the perimeter by interpolating translateX and translateY
+// through the four corners. Nothing depends on gradient support, on
+// overflow clipping a rotated child, or on a 2px band being legible.
+// Position is unambiguous, and brightness is a number you can raise.
+
+// One full circuit. Slow enough to read as a drifting highlight rather
+// than a spinner -- below about three seconds it starts to look busy.
+const CIRCUIT_MS = 3800;
+
+// The lit dot, and the fainter ones trailing behind it. Each is offset
+// slightly earlier in the circuit, which is what makes it read as motion
+// with a tail rather than as four separate dots.
+const TRAIL = [
+  { lag: 0, opacity: 1, size: 26 },
+  { lag: 0.035, opacity: 0.55, size: 22 },
+  { lag: 0.07, opacity: 0.28, size: 18 },
+  { lag: 0.11, opacity: 0.12, size: 14 },
+];
+
+const BORDER = 1.5;
 
 export default function MagicListingButton({ onPress }: { onPress: () => void }) {
   const { t } = useLanguage();
-  const spin = useRef(new Animated.Value(0)).current;
+  const progress = useRef(new Animated.Value(0)).current;
   const [size, setSize] = useState({ width: 0, height: 0 });
 
   useEffect(() => {
     if (size.width === 0) return;
     const loop = Animated.loop(
-      Animated.timing(spin, {
+      Animated.timing(progress, {
         toValue: 1,
-        duration: REVOLUTION_MS,
-        // Linear, deliberately: any easing makes the light appear to
-        // hesitate at the corners, which reads as a stutter rather than
-        // as motion.
+        duration: CIRCUIT_MS,
+        // Linear on purpose: easing makes the dot appear to hesitate at
+        // the corners, which reads as a stutter rather than as motion.
         easing: Easing.linear,
         useNativeDriver: true,
       })
     );
     loop.start();
     return () => loop.stop();
-  }, [spin, size.width]);
+  }, [progress, size.width]);
 
-  // The spinning gradient has to cover the button at every angle, so it's
-  // a square as wide as the button's diagonal.
-  const diagonal = Math.ceil(Math.sqrt(size.width ** 2 + size.height ** 2)) || 0;
-
-  const rotate = spin.interpolate({ inputRange: [0, 1], outputRange: ['0deg', '360deg'] });
+  // Trace the rectangle: across the top, down the right, back along the
+  // bottom, up the left. Interpolation is linear between the corner stops,
+  // so each quarter of `progress` covers one edge.
+  const dotAt = (lag: number, dotSize: number) => {
+    const w = Math.max(0, size.width - dotSize);
+    const h = Math.max(0, size.height - dotSize);
+    // Subtracting the lag and wrapping with modulo isn't possible inside
+    // an interpolation, so instead each trailing dot runs the same path on
+    // an input range shifted forward by its lag -- same effect, and it
+    // stays on the native driver.
+    const shift = (v: number) => Math.min(1, Math.max(0, v + lag));
+    const input = [0, 0.25, 0.5, 0.75, 1].map(shift);
+    // A shifted range can collapse duplicate stops at the end, which
+    // interpolate rejects; nudge any duplicate forward by a hair.
+    for (let i = 1; i < input.length; i++) {
+      if (input[i] <= input[i - 1]) input[i] = input[i - 1] + 0.0001;
+    }
+    return {
+      translateX: progress.interpolate({ inputRange: input, outputRange: [0, w, w, 0, 0] }),
+      translateY: progress.interpolate({ inputRange: input, outputRange: [0, 0, h, h, 0] }),
+    };
+  };
 
   return (
     <Pressy
@@ -71,40 +93,29 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
       style={styles.shell}
       onLayout={(e) => setSize({ width: e.nativeEvent.layout.width, height: e.nativeEvent.layout.height })}
     >
-      {diagonal > 0 && (
-        <Animated.View
-          pointerEvents="none"
-          style={[
-            styles.spinner,
-            {
-              width: diagonal,
-              height: diagonal,
-              left: (size.width - diagonal) / 2,
-              top: (size.height - diagonal) / 2,
-              transform: [{ rotate }],
-            },
-          ]}
-        >
-          {/* Most of the sweep is transparent, so only a short arc of the
-              perimeter is lit at any moment -- the light reads as one
-              travelling point rather than a rotating halo. */}
-          <LinearGradient
-            colors={[
-              'rgba(255,255,255,0)',
-              'rgba(255,255,255,0)',
-              'rgba(255,255,255,0.35)',
-              'rgba(255,255,255,1)',
-            ]}
-            locations={[0, 0.45, 0.75, 1]}
-            start={{ x: 0, y: 0 }}
-            end={{ x: 1, y: 1 }}
-            style={StyleSheet.absoluteFill}
-          />
-        </Animated.View>
-      )}
+      {size.width > 0 &&
+        TRAIL.map((dot, i) => {
+          const { translateX, translateY } = dotAt(dot.lag, dot.size);
+          return (
+            <Animated.View
+              key={i}
+              pointerEvents="none"
+              style={[
+                styles.dot,
+                {
+                  width: dot.size,
+                  height: dot.size,
+                  borderRadius: dot.size / 2,
+                  opacity: dot.opacity,
+                  transform: [{ translateX }, { translateY }],
+                },
+              ]}
+            />
+          );
+        })}
 
-      {/* Covers the spinning gradient except for a hairline at the edge,
-          which is the whole trick. */}
+      {/* Sits above the dots and below the text, so the trail glows from
+          behind the button's own surface rather than over the words. */}
       <View style={styles.face} pointerEvents="none" />
 
       <View style={styles.content}>
@@ -122,24 +133,28 @@ const styles = StyleSheet.create({
   shell: {
     borderRadius: radius.md,
     overflow: 'hidden',
-    // The ring's resting colour, visible wherever the travelling light
-    // isn't. Without it the edge vanishes for most of each revolution and
-    // the button looks like it's flickering rather than glowing.
-    backgroundColor: 'rgba(255,255,255,0.22)',
+    backgroundColor: colors.ink,
     width: '100%',
-    // Sized by its content, with the glowing edge added around it.
-    padding: EDGE,
+    position: 'relative',
   },
-  spinner: { position: 'absolute' },
+  dot: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    backgroundColor: '#ffffff',
+  },
+  // Translucent rather than opaque: the dots pass underneath it, so the
+  // light reads as coming through the surface near the edge instead of
+  // being a white ball sliding across a button.
   face: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
     bottom: 0,
-    margin: EDGE,
-    borderRadius: radius.md - EDGE,
-    backgroundColor: colors.ink,
+    margin: BORDER,
+    borderRadius: radius.md - BORDER,
+    backgroundColor: 'rgba(20,20,22,0.86)',
   },
   content: { paddingVertical: 16, paddingHorizontal: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },

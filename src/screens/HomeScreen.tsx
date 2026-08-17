@@ -536,9 +536,17 @@ export default function HomeScreen() {
     </>
   );
 
-  const grid = (
+  // `header` rides inside the list rather than above it. On the web a
+  // FlatList is its own scroll container, so the trackpad only scrolls
+  // while the pointer is over it -- move the cursor onto the category row
+  // or the page margin and the wheel does nothing, which is what made
+  // scrolling the site feel broken unless you kept the pointer over the
+  // cards. Anything that should scroll with the page has to be inside the
+  // one scrollable, not a sibling of it.
+  const renderGrid = (header?: React.ReactNode) => (
     <FlatList
       key={columns}
+      ListHeaderComponent={header ? <>{header}</> : null}
       data={filtered}
       keyExtractor={(item) => item.id}
       numColumns={columns}
@@ -558,6 +566,8 @@ export default function HomeScreen() {
       )}
     />
   );
+
+  const grid = renderGrid();
 
   // Mobile-only "all categories" home view: a vertical stack of per-
   // category carousels (see categoryCarousels above) instead of the
@@ -641,14 +651,23 @@ export default function HomeScreen() {
         // left sidebar of facet filters once a category is picked. Plenty
         // of vertical room there already -- this redesign is mobile-only.
         topCat === 'all' ? (
-          <>
-            <View style={[styles.catGrid, styles.catGridDesktop]}>
+          renderGrid(
+            /* One scrollable row, same as mobile, rather than a wrapping
+               grid. Thirteen categories over six columns spilled onto a
+               third row, which pushed the listings themselves below the
+               fold on a laptop -- the categories are navigation, not the
+               content, and they shouldn't cost half the first screen. */
+            <ScrollView
+              horizontal
+              showsHorizontalScrollIndicator={false}
+              style={styles.catRowDesktop}
+              contentContainerStyle={styles.catRowDesktopContent}
+            >
               {categories.map((c) => (
-                <CategoryCard key={c.id} category={c} columns={catColumns} onPress={() => chooseTopCategory(c.id)} />
+                <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
               ))}
-            </View>
-            {grid}
-          </>
+            </ScrollView>
+          )
         ) : (
           <>
             <View style={[styles.categoryBar, styles.categoryBarDesktop]}>
@@ -837,6 +856,10 @@ const styles = StyleSheet.create({
   // Browse tab). Mobile uses the horizontal catSlider below instead.
   catGrid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between', paddingHorizontal: 18, marginBottom: 6 },
   catGridDesktop: { paddingHorizontal: 0 },
+  // flexGrow:0 matters: a horizontal ScrollView with no height of its own
+  // stretches to fill the parent and swallows the listings below it.
+  catRowDesktop: { flexGrow: 0, marginBottom: 6 },
+  catRowDesktopContent: { gap: 18, paddingHorizontal: 2, paddingBottom: 4 },
 
   // Mobile: compact horizontal category slider, always visible right
   // under the search bar (an "All" chip + every top-level category),

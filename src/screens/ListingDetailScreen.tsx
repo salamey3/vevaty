@@ -21,6 +21,7 @@ import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingTitle, listingDescription, listingDistrict } from '../lib/listingText';
+import { absoluteDate, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 
 // Phase 4 item 16 -- "Member since Month Year", derived from the seller's
@@ -36,19 +37,6 @@ const REPORT_REASONS = ['spam', 'prohibited', 'scam', 'other'] as const;
 type ReportReason = (typeof REPORT_REASONS)[number];
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
-
-// Posted date in the reader's own language, without pulling in a date
-// library for one line. Intl is present in both Hermes and every browser
-// this ships to.
-function formatPostedDate(ms: number, language: 'en' | 'ar'): string {
-  try {
-    return new Intl.DateTimeFormat(language === 'ar' ? 'ar' : 'en-GB', {
-      day: 'numeric', month: 'short', year: 'numeric',
-    }).format(new Date(ms));
-  } catch {
-    return new Date(ms).toLocaleDateString();
-  }
-}
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
   const { listings, profile, deleteListing, isVerified } = useAppStore();
@@ -360,7 +348,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         </View>
         <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
           <Icon name="check" size={13} color={colors.inkSoft} />
-          <Text style={type.soft}>{t('listingDetail.postedOn', { date: formatPostedDate(listing.createdAt, language) })}</Text>
+          <Text style={type.soft}>{t('listingDetail.postedOn', { date: absoluteDate(listing.createdAt, language) })} · {relativeTimeFrom(listing.createdAt, language)}</Text>
         </View>
       </View>
 
