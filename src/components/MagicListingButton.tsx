@@ -29,6 +29,24 @@ import { useLanguage } from '../i18n/LanguageContext';
 
 const ARC_COLORS = ['#7c3aed', '#4f46e5', '#ff5757'];
 
+// Light grey face, dark contents. The button was charcoal, and charcoal was
+// working against the one thing it exists to show: violet and indigo are
+// dark colours, so on a dark panel the arcs had to fight the background for
+// every bit of separation, and the moment they landed on the stars -- the
+// payoff of the whole sequence -- the coloured stars were darker than the
+// white outline they replaced, so the icon appeared to dim rather than
+// light up. On light grey the same three colours read at full strength and
+// the stars get visibly more saturated, not less.
+//
+// Not colors.surface (#f0f0ee): against a #f5f5f3 page that is a 5-value
+// difference, which is a seam rather than a shape. This is a deliberate
+// step darker so the button reads as its own object, while still being
+// light enough for ink text to sit at roughly 11:1.
+const FACE = '#e7e7e2';
+// The permanent outline the arcs run along. Dark now, for the same reason
+// everything else on the button is: white on light grey is invisible.
+const EDGE = 'rgba(43,43,47,0.14)';
+
 // Which colour each of the wand's stars ends up. The top star takes the
 // primary violet because it's the one that glows last, so the sequence
 // finishes on the brand's own colour.
@@ -145,15 +163,16 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
             <Svg width={22} height={22} viewBox="0 0 24 24">
               <Path
                 d={WAND_SHAFT}
-                stroke={colors.white}
+                stroke={colors.ink}
                 strokeWidth={1.6}
                 strokeLinecap="round"
                 strokeLinejoin="round"
                 fill="none"
               />
-              {/* Each star is drawn white first and then over-painted by
-                  its coloured twin as that twin fades in, so the icon
-                  reads normally before the sequence reaches it. */}
+              {/* Each star is drawn in plain ink first and then
+                  over-painted by its coloured twin as that twin fades in,
+                  so the icon reads normally before the sequence reaches
+                  it, and visibly gains colour when it does. */}
               {[
                 { d: WAND_STAR_UPPER_LEFT, color: STAR_UPPER_LEFT, order: 0 },
                 { d: WAND_STAR_LOWER_RIGHT, color: STAR_LOWER_RIGHT, order: 1 },
@@ -162,7 +181,7 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
                 <React.Fragment key={star.d}>
                   <Path
                     d={star.d}
-                    stroke={colors.white}
+                    stroke={colors.ink}
                     strokeWidth={1.6}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -202,7 +221,7 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
               rx={r}
               ry={r}
               fill="none"
-              stroke="rgba(255,255,255,0.16)"
+              stroke={EDGE}
               strokeWidth={STROKE}
             />
             {ARC_COLORS.map((color, i) => {
@@ -243,13 +262,13 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
 const styles = StyleSheet.create({
   shell: {
     borderRadius: radius.md,
-    backgroundColor: colors.ink,
+    backgroundColor: FACE,
     width: '100%',
     position: 'relative',
   },
   content: { paddingVertical: 16, paddingHorizontal: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   wand: { width: 22, height: 22 },
-  label: { ...type.h3, color: colors.white },
-  sub: { ...type.tiny, color: 'rgba(255,255,255,0.7)', marginTop: 5 },
+  label: { ...type.h3, color: colors.ink },
+  sub: { ...type.tiny, color: colors.inkSoft, marginTop: 5 },
 });
