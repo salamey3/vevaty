@@ -9,7 +9,7 @@ export type IconName =
   | 'card' | 'diamond' | 'chevronRight' | 'sparkle' | 'camera' | 'close'
   | 'edit' | 'trophy' | 'globe' | 'trash' | 'grip'
   | 'building' | 'tv' | 'factory' | 'paw' | 'baby' | 'dumbbell' | 'briefcase' | 'wrench' | 'flag' | 'lock' | 'fingerprint'
-  | 'image' | 'expand' | 'heart' | 'share';
+  | 'image' | 'expand' | 'heart' | 'share' | 'wand';
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean };
 
@@ -149,6 +149,19 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
       )}
       {name === 'sparkle' && (
         <Path d="M12 3.5 13.6 9 19 10.5 13.6 12 12 17.5 10.4 12 5 10.5 10.4 9 Z" {...common} />
+      )}
+      {/* Magic wand: a diagonal shaft with a four-point sparkle at the tip
+          and two smaller ones trailing it. Reads as "do this for me",
+          which is what the Magic Listing entry point needs it to say --
+          the existing lone `sparkle` reads as decoration, and a gear or
+          wrench would read as settings. */}
+      {name === 'wand' && (
+        <>
+          <Path d="M4.5 19.5 13.5 10.5" {...common} />
+          <Path d="M17.5 3 18.5 6 21.5 7 18.5 8 17.5 11 16.5 8 13.5 7 16.5 6 Z" {...common} />
+          <Path d="M8.5 3.5 9 5 10.5 5.5 9 6 8.5 7.5 8 6 6.5 5.5 8 5 Z" {...common} />
+          <Path d="M19.5 14 19.9 15.1 21 15.5 19.9 15.9 19.5 17 19.1 15.9 18 15.5 19.1 15.1 Z" {...common} />
+        </>
       )}
       {name === 'camera' && (
         <>

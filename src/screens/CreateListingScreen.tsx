@@ -28,6 +28,8 @@ import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById,
 import SuggestInput from '../components/SuggestInput';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
+import MagicListingModal, { MAGIC_MAX_PHOTOS } from '../components/MagicListingModal';
+import { classifyListingPhotos } from '../lib/classifyPhotos';
 import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
@@ -81,7 +83,7 @@ function vehicleSlugKind(slug: string): 'brand' | 'model' | null {
 
 export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified } = useAppStore();
-  const { categoryById, resolveAttributesForCategory, categoryMatches } = useSettings();
+  const { categoryById, resolveAttributesForCategory, categoryMatches, allCategories, childrenOf } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
   const editingListing = editListingId ? listings.find((l) => l.id === editListingId) : undefined;
@@ -236,6 +238,78 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // any listing posted before this field existed.
   const [contactMethod, setContactMethod] = useState<'phone' | 'chat' | 'both'>(editingListing?.contactMethod || 'both');
 
+  // --- Magic Listing -----------------------------------------------------
+  // The photo-first path: instead of picking a category and filling a form,
+  // the seller shows the app the item and the app works out the rest. This
+  // state is only the photo-collection step; once a category comes back the
+  // seller rejoins the normal wizard, which is deliberate -- the AI's answer
+  // lands in an editable form they walk through, never straight into a
+  // published listing.
+  const [magicVisible, setMagicVisible] = useState(false);
+  const [magicPhotos, setMagicPhotos] = useState<string[]>([]);
+  const [magicBusy, setMagicBusy] = useState(false);
+  const [magicError, setMagicError] = useState<string | null>(null);
+  // Set once a category comes back, so the jump to the next step happens
+  // after `cat` (and therefore stepKinds) has actually updated -- computing
+  // the target step in the same tick would use the old category's steps.
+  const [magicJumpPending, setMagicJumpPending] = useState(false);
+
+  const closeMagic = () => {
+    setMagicVisible(false);
+    setMagicError(null);
+  };
+
+  const runMagic = async () => {
+    setMagicBusy(true);
+    setMagicError(null);
+    const payload = (
+      await Promise.all(magicPhotos.slice(0, AI_VISION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+    ).filter((p): p is { data: string; mediaType: string } => !!p);
+    if (payload.length === 0) {
+      setMagicBusy(false);
+      setMagicError(t('createListing.magicPhotoReadFailed'));
+      return;
+    }
+    // Leaves only: those are the only categories a listing can actually be
+    // filed under, so offering "Vehicles" alongside "Cars for Sale" would
+    // just let the model answer with something the form can't accept.
+    const options = allCategories
+      .filter((c) => c.active && childrenOf(c.id).length === 0)
+      .map((c) => {
+        const parent = c.parentId ? categoryById(c.parentId) : undefined;
+        return {
+          id: c.id,
+          name: language === 'ar' ? c.nameAr : c.nameEn,
+          parent: parent ? (language === 'ar' ? parent.nameAr : parent.nameEn) : undefined,
+        };
+      });
+    const { data, error } = await classifyListingPhotos(payload, options, language);
+    setMagicBusy(false);
+    if (error) {
+      setMagicError(error.message);
+      return;
+    }
+    if (!data?.categoryId) {
+      // An explicit "I can't tell" from the qualifier. The photos are still
+      // worth keeping -- the seller picks the category by hand and the rest
+      // of the flow (including the AI title/description pass) carries on
+      // from there, so nothing they've done is wasted.
+      setPhotos((prev) => [...prev, ...magicPhotos].slice(0, MAGIC_MAX_PHOTOS));
+      setMagicPhotos([]);
+      closeMagic();
+      Alert.alert(t('createListing.magicUnsureTitle'), t('createListing.magicUnsureMessage'));
+      return;
+    }
+    setCategory(data.categoryId);
+    setPhotos((prev) => [...prev, ...magicPhotos].slice(0, MAGIC_MAX_PHOTOS));
+    // A plain name for the item, which the AI suggestion pass then uses as
+    // its seed and rewrites into a proper listing title.
+    if (data.itemName && !title.trim()) setTitle(data.itemName);
+    setMagicPhotos([]);
+    setMagicJumpPending(true);
+    closeMagic();
+  };
+
   // Keeps whichever field has focus above the keyboard. See the hook for
   // why KeyboardAvoidingView alone left fields half-covered on Android.
   const { scrollRef, onScroll, onInputFocus, keyboardHeight } = useKeyboardAwareScroll();
@@ -270,6 +344,18 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     ],
     [hasSpecs, cat?.supports3d]
   );
+
+  useEffect(() => {
+    if (!magicJumpPending || !cat) return;
+    // Land on whatever comes after the photos step for this category --
+    // spin, specs, or details. The AI title/description pass fires on its
+    // own from the photos we just set (see the auto-trigger effect below),
+    // so by the time the seller reaches Details it is usually filled in.
+    const next = stepKinds.indexOf('photos') + 1;
+    setStep(Math.min(next, stepKinds.length - 1));
+    setMagicJumpPending(false);
+  }, [magicJumpPending, cat, stepKinds]);
+
   const STEP_LABELS: Record<StepKind, string> = {
     category: t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
@@ -755,7 +841,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         {currentKind === 'category' && (
-          <CategoryPicker value={category} onSelect={setCategory} />
+          <CategoryPicker
+            value={category}
+            onSelect={setCategory}
+            onMagicPress={() => { setMagicError(null); setMagicVisible(true); }}
+          />
         )}
 
         {currentKind === 'photos' && (
@@ -1139,6 +1229,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         }}
       />
 
+      <MagicListingModal
+        visible={magicVisible}
+        photos={magicPhotos}
+        busy={magicBusy}
+        error={magicError}
+        onTakePhoto={() => takePhotoInto(setMagicPhotos, MAGIC_MAX_PHOTOS)}
+        onPickPhotos={() => pickPhotosInto(setMagicPhotos, MAGIC_MAX_PHOTOS)}
+        onRemovePhoto={(uri) => setMagicPhotos((prev) => prev.filter((p) => p !== uri))}
+        onAnalyze={runMagic}
+        onClose={closeMagic}
+      />
       <SpinPreviewModal
         visible={spinPreviewOpen}
         frames={draftSpinFrames}

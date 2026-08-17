@@ -3,6 +3,7 @@ import { StyleSheet, Text, View, ScrollView } from 'react-native';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import CategoryCard from './CategoryCard';
+import MagicListingButton from './MagicListingButton';
 import { colors, radius, type } from '../theme/theme';
 import { useSettings } from '../store/SettingsStore';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -33,9 +34,15 @@ import { useIsDesktop } from '../hooks/useResponsive';
 export default function CategoryPicker({
   value,
   onSelect,
+  onMagicPress,
 }: {
   value: CategoryId | null;
   onSelect: (id: CategoryId) => void;
+  // When set, the entry screen offers the Magic Listing path above the
+  // grid. Optional because this same picker is also the browse entry
+  // point, where "start from photos" makes no sense -- there's nothing to
+  // photograph when you're looking for something to buy.
+  onMagicPress?: () => void;
 }) {
   const { categories, categoryById, childrenOf, ancestorsOf } = useSettings();
   const { language, t } = useLanguage();
@@ -64,13 +71,30 @@ export default function CategoryPicker({
 
   const reset = () => setPath([]);
 
-  // Screen 1: the entry grid.
+  // Screen 1: the entry grid, with the Magic Listing path above it when
+  // this picker is being used to post rather than to browse.
   if (path.length === 0) {
     return (
-      <View style={styles.grid}>
-        {categories.map((c) => (
-          <CategoryCard key={c.id} category={c} onPress={() => choose(c, 0)} />
-        ))}
+      <View>
+        {onMagicPress && (
+          <View style={styles.magicBlock}>
+            <MagicListingButton onPress={onMagicPress} />
+            {/* A rule with the alternative written into it, rather than a
+                plain divider. The button above is not another category, and
+                without a sentence saying so it reads as one more tile that
+                happens to be dark. */}
+            <View style={styles.magicDivider}>
+              <View style={styles.magicDividerLine} />
+              <Text style={styles.magicDividerText}>{t('createListing.magicOrChooseCategory')}</Text>
+              <View style={styles.magicDividerLine} />
+            </View>
+          </View>
+        )}
+        <View style={styles.grid}>
+          {categories.map((c) => (
+            <CategoryCard key={c.id} category={c} onPress={() => choose(c, 0)} />
+          ))}
+        </View>
       </View>
     );
   }
@@ -228,6 +252,12 @@ function MobileRow({
 }
 
 const styles = StyleSheet.create({
+  magicBlock: { marginBottom: 4 },
+  magicDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18, marginBottom: 14 },
+  magicDividerLine: { flex: 1, height: 1, backgroundColor: colors.line },
+  // Wraps to two lines on a narrow phone, which is fine -- shortening it
+  // to "or pick a category" loses the instruction that this is a choice.
+  magicDividerText: { ...type.tiny, color: colors.inkSoft, flexShrink: 1, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
 
   breadcrumbRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
