@@ -12,6 +12,7 @@ import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
+import { useGoBack } from '../hooks/useGoBack';
 
 // Same coarse "Month Year" formatting as the member-since line on
 // ListingDetailScreen's seller panel -- kept as its own local copy rather
@@ -28,6 +29,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SellerProfile'>;
 // they currently have live, a grid of those listings, and a Share button.
 // Reached by tapping the (now-tappable) seller panel on ListingDetail.
 export default function SellerProfileScreen({ route, navigation }: Props) {
+  const goBack = useGoBack();
   const { sellerId } = route.params;
   const { listings } = useAppStore();
   const { t, language } = useLanguage();
@@ -140,7 +142,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
 
   const header = (
     <View style={styles.header}>
-      <Pressy onPress={() => navigation.goBack()} style={styles.backBtn}>
+      <Pressy onPress={goBack} style={styles.backBtn}>
         <Icon name="back" size={18} />
       </Pressy>
       <Text style={type.title}>{t('sellerProfile.title')}</Text>

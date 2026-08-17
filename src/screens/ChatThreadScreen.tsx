@@ -13,6 +13,7 @@ import { RootStackParamList } from '../navigation/types';
 import { ChatMessage } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle } from '../lib/listingText';
+import { useGoBack } from '../hooks/useGoBack';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChatThread'>;
 
@@ -34,6 +35,7 @@ const QUICK_REPLY_KEYS = [
 ] as const;
 
 export default function ChatThreadScreen({ route, navigation }: Props) {
+  const goBack = useGoBack();
   const { threadId } = route.params;
   const { t, language } = useLanguage();
   const insets = useSafeAreaInsets();
@@ -181,7 +183,7 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
   return (
     <Screen maxWidth={720}>
       <View style={styles.topBar}>
-        <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
+        <Pressy onPress={goBack} style={styles.iconBtn}>
           <Icon name="back" size={18} />
         </Pressy>
         <View style={{ flex: 1 }}>

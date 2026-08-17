@@ -9,6 +9,7 @@ import LanguageSwitch from '../components/LanguageSwitch';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
 import CarouselArrows from '../components/CarouselArrows';
+import { useGoBack } from '../hooks/useGoBack';
 import SpinViewer from '../components/SpinViewer';
 import ListingCard from '../components/ListingCard';
 import { colors, type, radius } from '../theme/theme';
@@ -442,6 +443,19 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // carrying the old flat spinPhotos shape) should never crash the render
   // -- see the normalizeListing comment in AppStore.tsx for the full story
   // on why this actually happened once.
+  // Refreshing on a listing leaves no history to go back to, so the arrow
+  // falls back to the category this listing sits in -- the screen it would
+  // have come from, and more useful than dropping someone at the home
+  // feed with their place lost.
+  const goBack = useGoBack(
+    listing
+      ? () =>
+          navigation.navigate('MainTabs', {
+            screen: 'HomeTab',
+            params: { screen: 'HomeCategory', params: { cat: ancestorsOf(listing.cat)[0]?.id ?? listing.cat } },
+          } as any)
+      : undefined
+  );
   const galleryRef = useRef<PhotoGalleryHandle>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const spinSets = listing.spinSets ?? [];
@@ -576,7 +590,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
   const topBar = (
     <View style={styles.topBar}>
-      <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
+      <Pressy onPress={goBack} style={styles.iconBtn}>
         <Icon name="back" size={18} />
       </Pressy>
       <Text style={styles.topBarTitle} numberOfLines={1}>

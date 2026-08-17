@@ -16,6 +16,7 @@ import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from '../navigation/types';
 import { SavedSearch } from '../types';
+import { useGoBack } from '../hooks/useGoBack';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Favorites'>;
 
@@ -31,6 +32,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Favorites'>;
 // bookmarked for later", and it keeps a single entry point off
 // ProfileScreen instead of two nearly-identical rows.
 export default function FavoritesScreen({ navigation }: Props) {
+  const goBack = useGoBack();
   const { t, language } = useLanguage();
   const { listings, isVerified } = useAppStore();
   const { favoriteIds, loading, loaded, loadFavorites } = useFavorites();
@@ -65,7 +67,7 @@ export default function FavoritesScreen({ navigation }: Props) {
 
   const header = (
     <View style={styles.header}>
-      <Pressy onPress={() => navigation.goBack()} style={styles.backBtn}>
+      <Pressy onPress={goBack} style={styles.backBtn}>
         <Icon name="back" size={18} />
       </Pressy>
       <Text style={type.title}>{t('favorites.title')}</Text>

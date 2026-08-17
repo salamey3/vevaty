@@ -38,17 +38,23 @@ function AdminActivityListener() {
   return null;
 }
 
-// The browser draws its own focus ring on the <input> that every
-// TextInput becomes on the web -- a hard black rounded rectangle sitting
-// inside our own rounded search field, which looks like a second box
-// nested in the first. The native app has no equivalent, so the two
-// platforms disagreed on what a focused field looks like.
+// Kills the focus ring the browser draws inside text fields on the web.
 //
-// Replaced rather than removed. Deleting the outline outright is the easy
-// fix and it strips keyboard users of the only signal telling them where
-// they are on the page; :focus-visible only matches keyboard focus, so
-// clicking a field is quiet while tabbing to it still shows a ring -- in
-// the app's own colour instead of the browser's.
+// A TextInput becomes an <input>, and the browser outlines it when
+// focused: a hard rectangle sitting inside our own rounded search pill,
+// which reads as a box nested in a box. The native app has no equivalent.
+//
+// My first attempt swapped the browser's outline for one in the app's
+// colour, reasoning that :focus-visible matches only keyboard focus and so
+// a mouse user would never see it. That reasoning was wrong: per spec a
+// text field ALWAYS matches :focus-visible when focused, however focus was
+// gained, because it accepts keyboard input. The "compromise" was
+// therefore no compromise at all -- it just recoloured the box.
+//
+// Text fields are the one control that needs no ring: the caret is already
+// an unambiguous focus indicator and appears only in the focused field.
+// Buttons and links have no such signal, so they keep one for keyboard
+// users, which is where the accessibility concern actually bites.
 function WebFocusStyles() {
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof document === 'undefined') return;
@@ -57,11 +63,17 @@ function WebFocusStyles() {
     const el = document.createElement('style');
     el.id = id;
     el.textContent = [
-      'input:focus, textarea:focus, [contenteditable]:focus { outline: none; }',
-      'input:focus-visible, textarea:focus-visible {',
+      // Text entry: no ring, in any state. The caret does this job.
+      'input:focus, input:focus-visible, textarea:focus, textarea:focus-visible,',
+      '[contenteditable]:focus, [contenteditable]:focus-visible {',
+      '  outline: none !important;',
+      '  box-shadow: none !important;',
+      '}',
+      // Everything else keyboard-reachable keeps a ring, and only when
+      // actually reached by keyboard.
+      '[role="button"]:focus-visible, button:focus-visible, a:focus-visible {',
       '  outline: 2px solid var(--vevaty-primary, #2b2b2f);',
       '  outline-offset: 2px;',
-      '  border-radius: 6px;',
       '}',
     ].join('\n');
     document.head.appendChild(el);

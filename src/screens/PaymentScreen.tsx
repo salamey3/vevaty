@@ -11,10 +11,12 @@ import { RootStackParamList } from '../navigation/types';
 import { PaymentMethod } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle } from '../lib/listingText';
+import { useGoBack } from '../hooks/useGoBack';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Payment'>;
 
 export default function PaymentScreen({ route, navigation }: Props) {
+  const goBack = useGoBack();
   const { listings } = useAppStore();
   const { t, language } = useLanguage();
   const listing = useMemo(() => listings.find((l) => l.id === route.params.listingId), [listings, route.params.listingId]);
@@ -49,7 +51,7 @@ export default function PaymentScreen({ route, navigation }: Props) {
   return (
     <Screen maxWidth={560}>
       <View style={styles.topBar}>
-        <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
+        <Pressy onPress={goBack} style={styles.iconBtn}>
           <Icon name="back" size={18} />
         </Pressy>
         <Text style={type.h3}>{t('payment.title')}</Text>

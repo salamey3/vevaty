@@ -1021,7 +1021,14 @@ const styles = StyleSheet.create({
   fixedTitle: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 10, color: colors.ink },
   priceBoxRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
   priceBox: {
-    flex: 1, height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
+    // minWidth 0 is what makes `flex: 1` actually mean "share the row".
+    // On the web a TextInput is an <input>, and an input's default
+    // min-content width is about 198px -- with min-width:auto a flex item
+    // refuses to shrink below that, so two of them plus the dash needed
+    // ~410px inside a 240px sidebar. The overflow ran under the listings
+    // grid, which is why the filters looked half-eaten.
+    flex: 1, minWidth: 0,
+    height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.card, paddingHorizontal: 10, fontSize: 13, color: colors.ink,
   },
   priceDash: { color: colors.inkSoft },

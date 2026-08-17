@@ -26,6 +26,22 @@ const LABEL_KEYS: Record<string, string> = {
 };
 
 export default function TabBar({ state, navigation }: BottomTabBarProps) {
+  // Resets one tab's nested stack to its first screen, with a new key so
+  // the screen remounts rather than being restored with its old state.
+  // Only HomeTab has a nested stack today; the others are single screens,
+  // where popToTop is a no-op and this stays harmless.
+  const resetTabToTop = (routeName: string) => {
+    navigation.navigate(routeName as never);
+    navigation.reset({
+      ...navigation.getState(),
+      routes: navigation.getState().routes.map((r: any) =>
+        r.name === routeName
+          ? { name: r.name, key: `${r.name}-${Date.now()}`, state: undefined, params: undefined }
+          : r
+      ),
+    } as any);
+  };
+
   const isDesktop = useIsDesktop();
   const { t, isRTL } = useLanguage();
   // On native Android, the system nav bar (3-button or gesture pill) sits
@@ -71,9 +87,21 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
             const isSell = route.name === 'SellTab';
             const onPress = () => {
               const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-              if (!focused && !event.defaultPrevented) {
-                navigation.navigate(route.name as never);
+              if (event.defaultPrevented) return;
+              if (focused) {
+                // Tapping the tab you're already on should take you to the
+                // top of it. Home in particular is the "start again"
+                // button -- from inside a category, with filters set and
+                // something typed in the search box, tapping Home did
+                // nothing at all, because navigate() to the tab you're on
+                // is a no-op. Resetting the nested stack with a fresh key
+                // remounts the screen, which clears the search text and
+                // filters along with it; keeping the old key would restore
+                // the very state you were trying to leave.
+                resetTabToTop(route.name);
+                return;
               }
+              navigation.navigate(route.name as never);
             };
             return (
               <Pressy
@@ -123,9 +151,21 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
             const isSell = route.name === 'SellTab';
             const onPress = () => {
               const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-              if (!focused && !event.defaultPrevented) {
-                navigation.navigate(route.name as never);
+              if (event.defaultPrevented) return;
+              if (focused) {
+                // Tapping the tab you're already on should take you to the
+                // top of it. Home in particular is the "start again"
+                // button -- from inside a category, with filters set and
+                // something typed in the search box, tapping Home did
+                // nothing at all, because navigate() to the tab you're on
+                // is a no-op. Resetting the nested stack with a fresh key
+                // remounts the screen, which clears the search text and
+                // filters along with it; keeping the old key would restore
+                // the very state you were trying to leave.
+                resetTabToTop(route.name);
+                return;
               }
+              navigation.navigate(route.name as never);
             };
             if (isSell) {
               return (
