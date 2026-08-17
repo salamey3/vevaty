@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking, KeyboardAvoidingView, Platform } from 'react-native';
+import { StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
@@ -27,6 +27,7 @@ import { getVehicleBrandNames, getModelsForBrand } from '../data/vehicleBrands';
 import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
 import SuggestInput from '../components/SuggestInput';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
+import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
 import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
@@ -234,6 +235,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // page. Defaults to 'both' (existing behavior) for new listings and for
   // any listing posted before this field existed.
   const [contactMethod, setContactMethod] = useState<'phone' | 'chat' | 'both'>(editingListing?.contactMethod || 'both');
+
+  // Keeps whichever field has focus above the keyboard. See the hook for
+  // why KeyboardAvoidingView alone left fields half-covered on Android.
+  const { scrollRef, onScroll, onInputFocus, keyboardHeight } = useKeyboardAwareScroll();
 
   const cat = categoryById(category || '');
   const resolvedAttrs = useMemo(() => (category ? resolveAttributesForCategory(category) : []), [category, resolveAttributesForCategory]);
@@ -729,24 +734,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         ))}
       </View>
 
-      {/* KeyboardAvoidingView shrinks the scroll area by the keyboard's
-          height, which is what lets ScrollView scroll the focused input
-          back into view -- without it the keyboard simply covers whatever
-          field you tapped. Android needs this explicitly for the same
-          reason ChatThreadScreen did: Expo's edge-to-edge mode stops the
-          window itself from resizing when the keyboard opens, so the old
-          "Android just handles it" assumption no longer holds.
-
-          keyboardVerticalOffset is 0 because this sits inside Screen's
-          SafeAreaView, so its frame already excludes the status bar and
-          nav bar insets that the offset would otherwise have to cancel. */}
-      <KeyboardAvoidingView
-        style={styles.fill}
-        behavior={Platform.OS === 'ios' ? 'padding' : 'height'}
-        keyboardVerticalOffset={0}
-      >
+      {/* KeyboardAvoidingView was not enough on its own here. It shrinks the
+          scroll area, but shrinking is only half the job -- something still
+          has to scroll the focused field up into what's left, and on
+          Android nothing does (see useKeyboardAwareScroll). The result was
+          a form that shifted a little and left the tapped field still half
+          under the keyboard. The hook measures the field and scrolls by the
+          exact overlap instead; the extra bottom padding below is what
+          gives it room to scroll into. */}
       <ScrollView
-        contentContainerStyle={styles.scroll}
+        ref={scrollRef}
+        onScroll={onScroll}
+        scrollEventThrottle={16}
+        contentContainerStyle={[styles.scroll, { paddingBottom: SCROLL_BOTTOM_PAD + keyboardHeight }]}
         // Without this, the first tap on a suggestion row is swallowed by
         // the keyboard dismissal and never reaches the row -- the field
         // appeared to ignore the selection and snap back to the typed text.
@@ -857,6 +857,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                   <View key={a.id}>
                     <Text style={fieldStyles.fieldLabel}>{fieldLabel}</Text>
                     <SuggestInput
+                      onFocus={onInputFocus}
                       value={value === undefined ? '' : String(value)}
                       onChangeText={(v) => setAttrValue(a.slug, v)}
                       suggestions={suggestions}
@@ -868,6 +869,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               return (
                 <AttributeField
                   key={a.id}
+                  onFocus={onInputFocus}
                   attribute={a}
                   language={language}
                   value={attrValues[a.slug]}
@@ -901,6 +903,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             )}
             <Text style={styles.fieldLabel}>{t('createListing.title')}</Text>
             <TextInput
+              onFocus={onInputFocus}
               value={title}
               onChangeText={(v) => { setTitle(v); setUsedDraft(false); setAiSources([]); }}
               placeholder={categoryTitlePlaceholder}
@@ -908,6 +911,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             />
             <Text style={styles.fieldLabel}>{t('createListing.description')}</Text>
             <TextInput
+              onFocus={onInputFocus}
               value={description}
               onChangeText={(v) => { setDescription(v); setUsedDraft(false); setAiSources([]); }}
               placeholder={categoryDescriptionPlaceholder}
@@ -926,6 +930,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             )}
             <Text style={styles.fieldLabel}>{t('createListing.price')}</Text>
             <TextInput
+              onFocus={onInputFocus}
               value={price}
               onChangeText={(v) => { setPrice(v); setAiPriceFilled(false); }}
               placeholder="0"
@@ -936,6 +941,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             {aiAttributesFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiAttributesFilledNotice')}</Text>}
             <Text style={styles.fieldLabel}>{t('createListing.location')}</Text>
             <PlaceSuggestInput
+              onFocus={onInputFocus}
               value={district}
               onChangeText={(v) => {
                 setDistrict(v);
@@ -1040,6 +1046,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               <>
                 <Text style={styles.fieldLabel}>{t('createListing.translateTitleLabel', { lang: targetLangName })}</Text>
                 <TextInput
+                  onFocus={onInputFocus}
                   value={targetTitle}
                   onChangeText={setTargetTitle}
                   placeholder={t('createListing.translateTitlePlaceholder')}
@@ -1047,6 +1054,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 />
                 <Text style={styles.fieldLabel}>{t('createListing.translateDescriptionLabel', { lang: targetLangName })}</Text>
                 <TextInput
+                  onFocus={onInputFocus}
                   value={targetDescription}
                   onChangeText={setTargetDescription}
                   placeholder={t('createListing.translateDescriptionPlaceholder')}
@@ -1105,7 +1113,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           </View>
         )}
       </ScrollView>
-      </KeyboardAvoidingView>
 
       <View style={styles.footer}>
         {step < STEPS.length - 1 ? (
@@ -1171,12 +1178,16 @@ function AttributeField({
   value,
   onChangeValue,
   onToggleMultiselect,
+  onFocus,
 }: {
   attribute: CategoryAttribute;
   language: 'en' | 'ar';
   value: AttributeValue | undefined;
   onChangeValue: (v: AttributeValue) => void;
   onToggleMultiselect: (optionValue: string) => void;
+  // Spec fields sit at the bottom of their step, so they are the ones most
+  // likely to be under the keyboard when tapped.
+  onFocus?: () => void;
 }) {
   const label = language === 'ar' ? attribute.labelAr : attribute.labelEn;
   const unit = language === 'ar' ? attribute.unitAr : attribute.unitEn;
@@ -1222,6 +1233,7 @@ function AttributeField({
     <View>
       <Text style={fieldStyles.fieldLabel}>{fieldLabel}</Text>
       <TextInput
+        onFocus={onFocus}
         value={value === undefined ? '' : String(value)}
         onChangeText={(v) => onChangeValue(attribute.type === 'number' ? (v === '' ? '' : Number(v) || 0) : v)}
         keyboardType={attribute.type === 'number' ? 'numeric' : 'default'}
@@ -1256,14 +1268,18 @@ const fieldStyles = StyleSheet.create({
   optPillTextActive: { color: colors.white },
 });
 
+// Bottom padding of the form when the keyboard is closed; the keyboard's
+// height is added on top of it while it's open, so there is always room to
+// scroll the focused field clear of it.
+const SCROLL_BOTTOM_PAD = 20;
+
 const styles = StyleSheet.create({
-  fill: { flex: 1 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   progressRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 18, marginBottom: 14 },
   progressDot: { flex: 1, height: 3, borderRadius: 2, backgroundColor: colors.line },
   progressDotActive: { backgroundColor: colors.ink },
-  scroll: { paddingHorizontal: 18, paddingBottom: 20 },
+  scroll: { paddingHorizontal: 18 },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
   photoThumb: { width: 84, height: 84, borderRadius: radius.sm },
   addPhoto: {

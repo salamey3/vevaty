@@ -49,6 +49,7 @@ export default function SuggestInput({
   onChangeText,
   suggestions,
   placeholder,
+  onFocus,
   style,
   testID,
 }: {
@@ -56,6 +57,7 @@ export default function SuggestInput({
   onChangeText: (v: string) => void;
   suggestions: string[];
   placeholder?: string;
+  onFocus?: () => void;
   style?: ViewStyle | ViewStyle[];
   testID?: string;
 }) {
@@ -79,7 +81,7 @@ export default function SuggestInput({
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
+        onFocus={() => { setFocused(true); onFocus?.(); }}
         onBlur={handleBlur}
         placeholder={placeholder}
         autoCorrect={false}

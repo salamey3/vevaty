@@ -26,6 +26,7 @@ export default function PlaceSuggestInput({
   onSelectPlace,
   onBlurResolve,
   placeholder,
+  onFocus,
   style,
   testID,
 }: {
@@ -34,6 +35,7 @@ export default function PlaceSuggestInput({
   onSelectPlace: (place: LebanonPlace) => void;
   onBlurResolve?: (place: LebanonPlace | null) => void;
   placeholder?: string;
+  onFocus?: () => void;
   style?: ViewStyle | ViewStyle[];
   testID?: string;
 }) {
@@ -75,7 +77,7 @@ export default function PlaceSuggestInput({
       <TextInput
         value={value}
         onChangeText={onChangeText}
-        onFocus={() => setFocused(true)}
+        onFocus={() => { setFocused(true); onFocus?.(); }}
         onBlur={handleBlur}
         placeholder={placeholder}
         autoCorrect={false}
