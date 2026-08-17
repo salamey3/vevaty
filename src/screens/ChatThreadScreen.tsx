@@ -1,6 +1,7 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -35,6 +36,7 @@ const QUICK_REPLY_KEYS = [
 export default function ChatThreadScreen({ route, navigation }: Props) {
   const { threadId } = route.params;
   const { t, language } = useLanguage();
+  const insets = useSafeAreaInsets();
   const { profile, listings } = useAppStore();
   const { threads, messagesByThread, loadMessages, sendMessage, sendOffer, respondToOffer, subscribeToThread, loadThreads } = useChat();
   const [otherName, setOtherName] = useState<string | null>(null);
@@ -210,7 +212,16 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
       // keyboard show/hide events and pads by the reported keyboard height,
       // so it works whether or not the window moves.
         behavior="padding"
-        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : 0}
+        // On Android the offset is the bottom safe-area inset, not 0.
+        //
+        // Screen reserves that inset as padding so nothing sits under the
+        // system navigation bar. KeyboardAvoidingView pads by the keyboard
+        // height measured from the bottom of the screen, without knowing
+        // that its own container already stops short of that edge -- so it
+        // lifts the composer by exactly one nav-bar height too little, and
+        // the input ends up clipped by the top of the keyboard. Feeding the
+        // inset in as the offset closes precisely that gap.
+        keyboardVerticalOffset={Platform.OS === 'ios' ? 90 : insets.bottom}
       >
         {!loading && messages.length === 0 ? (
           <View style={styles.empty}>
