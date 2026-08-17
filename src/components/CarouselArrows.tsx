@@ -19,10 +19,21 @@ import { useIsDesktop } from '../hooks/useResponsive';
 // The arrows sit in their own gutters either side, never over the
 // content. Overlaying them would cover part of a photo, and on a category
 // strip would cover the first and last chip, which are exactly the ones
-// you reach for. They are always present -- a control that appears only
-// on hover can't be discovered by someone who never hovers there -- but
-// faint until the pointer is over the carousel, at which point they come
-// up to full strength.
+// you reach for.
+//
+// Each arrow shows only when there is something in that direction, so the
+// pair doubles as a position indicator: right-only means "more this way",
+// both means "you're in the middle", left-only means "you've reached the
+// end". An arrow that is always visible and sometimes does nothing
+// teaches people to stop trusting it.
+//
+// The gutters stay reserved either way. Removing the space along with the
+// button would shift the photo sideways every time you reached either
+// end, which is a far worse artefact than an empty 34px margin.
+//
+// Visible arrows are faint until the pointer is over the carousel, then
+// come up to full strength -- present enough to be discovered without
+// hovering, quiet enough not to compete with the photograph.
 const IDLE_OPACITY = 0.22;
 const HOVER_OPACITY = 1;
 const FADE_MS = 160;
@@ -34,6 +45,8 @@ export const ARROW_GUTTER = 34;
 export default function CarouselArrows({
   children,
   onScrollBy,
+  canScrollBack = true,
+  canScrollForward = true,
   style,
   // How far one press moves the scroller. Callers know their own item
   // width -- a photo pages by its full width, a category strip by a few
@@ -42,6 +55,10 @@ export default function CarouselArrows({
 }: {
   children: React.ReactNode;
   onScrollBy: (delta: number) => void;
+  // Whether there is anything left to reach in each direction. Both
+  // default true so a caller that can't cheaply know still gets arrows.
+  canScrollBack?: boolean;
+  canScrollForward?: boolean;
   style?: ViewStyle | ViewStyle[];
   step: number;
 }) {
@@ -76,19 +93,27 @@ export default function CarouselArrows({
 
   return (
     <View style={[styles.row, style]} {...hoverProps}>
-      <Animated.View style={[styles.gutter, { opacity }]}>
-        <Pressy onPress={() => onScrollBy(backwards)} style={styles.button} accessibilityLabel="Previous">
-          <Icon name="back" size={16} color={colors.ink} />
-        </Pressy>
-      </Animated.View>
+      <View style={styles.gutter}>
+        {canScrollBack && (
+          <Animated.View style={{ opacity }}>
+            <Pressy onPress={() => onScrollBy(backwards)} style={styles.button} accessibilityLabel="Previous">
+              <Icon name="back" size={16} color={colors.ink} />
+            </Pressy>
+          </Animated.View>
+        )}
+      </View>
 
       <View style={styles.content}>{children}</View>
 
-      <Animated.View style={[styles.gutter, { opacity }]}>
-        <Pressy onPress={() => onScrollBy(forwards)} style={styles.button} accessibilityLabel="Next">
-          <Icon name="chevronRight" size={16} color={colors.ink} />
-        </Pressy>
-      </Animated.View>
+      <View style={styles.gutter}>
+        {canScrollForward && (
+          <Animated.View style={{ opacity }}>
+            <Pressy onPress={() => onScrollBy(forwards)} style={styles.button} accessibilityLabel="Next">
+              <Icon name="chevronRight" size={16} color={colors.ink} />
+            </Pressy>
+          </Animated.View>
+        )}
+      </View>
     </View>
   );
 }

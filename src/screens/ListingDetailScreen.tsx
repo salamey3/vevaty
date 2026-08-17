@@ -443,6 +443,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // -- see the normalizeListing comment in AppStore.tsx for the full story
   // on why this actually happened once.
   const galleryRef = useRef<PhotoGalleryHandle>(null);
+  const [photoIndex, setPhotoIndex] = useState(0);
   const spinSets = listing.spinSets ?? [];
   const hasSpin = spinSets.length > 0;
   const activeSpinSet = spinSets.find((s) => s.id === viewMode);
@@ -494,13 +495,23 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {activeSpinSet ? (
           <SpinViewer frames={activeSpinSet.frames} />
         ) : (
-          <PhotoGallery ref={galleryRef} photos={listing.photos} fallbackIconName={(cat?.icon as any) || 'bag'} />
+          <PhotoGallery
+            ref={galleryRef}
+            photos={listing.photos}
+            fallbackIconName={(cat?.icon as any) || 'bag'}
+            onIndexChange={setPhotoIndex}
+          />
         )}
       </View>
     );
     if (activeSpinSet || listing.photos.length < 2) return inner;
     return (
-      <CarouselArrows onScrollBy={(d) => galleryRef.current?.page(d)} step={1}>
+      <CarouselArrows
+        onScrollBy={(d) => galleryRef.current?.page(d)}
+        step={1}
+        canScrollBack={photoIndex > 0}
+        canScrollForward={photoIndex < listing.photos.length - 1}
+      >
         {inner}
       </CarouselArrows>
     );

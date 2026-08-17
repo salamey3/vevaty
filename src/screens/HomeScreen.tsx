@@ -80,6 +80,21 @@ export default function HomeScreen() {
   // the whole screen sixty times a second for no visible reason.
   const catRowRef = useRef<ScrollView>(null);
   const catRowX = useRef(0);
+  // The strip scrolls freely rather than by pages, so "is there more that
+  // way?" is a comparison of offset against content width, not an index.
+  // These three are state rather than refs because the arrows render from
+  // them -- but they're only written when the answer actually changes (see
+  // the setter below), so a scroll doesn't re-render on every frame.
+  const [catRowEnds, setCatRowEnds] = useState({ back: false, forward: false });
+  const catRowMetrics = useRef({ x: 0, viewport: 0, content: 0 });
+  const updateCatRowEnds = useCallback(() => {
+    const { x, viewport, content } = catRowMetrics.current;
+    // A pixel of slack: sub-pixel layout means an offset that has reached
+    // the end often lands a fraction short, which would leave a forward
+    // arrow that does nothing.
+    const next = { back: x > 1, forward: content - viewport - x > 1 };
+    setCatRowEnds((prev) => (prev.back === next.back && prev.forward === next.forward ? prev : next));
+  }, []);
   // Mobile-only auto-hide for the category slider below (see
   // ScrollChromeContext -- also drives the bottom tab bar in TabBar.tsx,
   // which can't see this screen's own scroll events directly).
@@ -672,13 +687,27 @@ export default function HomeScreen() {
               // Roughly three chips a press: enough to feel like progress,
               // little enough that nothing scrolls past unseen.
               step={88 * 3}
+              canScrollBack={catRowEnds.back}
+              canScrollForward={catRowEnds.forward}
               style={styles.catRowDesktop}
             >
               <ScrollView
                 ref={catRowRef}
                 horizontal
                 showsHorizontalScrollIndicator={false}
-                onScroll={(e) => { catRowX.current = e.nativeEvent.contentOffset.x; }}
+                onScroll={(e) => {
+                  catRowX.current = e.nativeEvent.contentOffset.x;
+                  catRowMetrics.current.x = catRowX.current;
+                  updateCatRowEnds();
+                }}
+                onLayout={(e) => {
+                  catRowMetrics.current.viewport = e.nativeEvent.layout.width;
+                  updateCatRowEnds();
+                }}
+                onContentSizeChange={(w) => {
+                  catRowMetrics.current.content = w;
+                  updateCatRowEnds();
+                }}
                 scrollEventThrottle={16}
                 style={styles.catRowDesktopScroll}
                 contentContainerStyle={styles.catRowDesktopContent}

@@ -9,6 +9,10 @@ import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 type Props = {
   photos: string[];
   fallbackIconName?: IconName;
+  // Which photo is showing. Reported upward because the arrows live
+  // outside this component (see the handle below) and need to know when
+  // they've run out of photos in one direction.
+  onIndexChange?: (index: number) => void;
 };
 
 // Fills its parent container -- callers wrap it in whatever sized box they
@@ -34,7 +38,7 @@ type Props = {
 // belong beside it, not over it. Only the caller knows where "beside" is.
 export type PhotoGalleryHandle = { page: (direction: number) => void };
 
-function PhotoGalleryInner({ photos, fallbackIconName }: Props, ref: React.Ref<PhotoGalleryHandle>) {
+function PhotoGalleryInner({ photos, fallbackIconName, onIndexChange }: Props, ref: React.Ref<PhotoGalleryHandle>) {
   const [index, setIndex] = useState(0);
   const [width, setWidth] = useState(0);
   const [lightboxIndex, setLightboxIndex] = useState<number | null>(null);
@@ -50,6 +54,7 @@ function PhotoGalleryInner({ photos, fallbackIconName }: Props, ref: React.Ref<P
     if (width <= 0) return;
     const next = Math.min(photos.length - 1, Math.max(0, index + Math.sign(delta)));
     setIndex(next);
+    onIndexChange?.(next);
     scrollRef.current?.scrollTo({ x: next * width, animated: true });
   };
 
@@ -57,7 +62,12 @@ function PhotoGalleryInner({ photos, fallbackIconName }: Props, ref: React.Ref<P
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (width <= 0) return;
     const i = Math.round(e.nativeEvent.contentOffset.x / width);
-    setIndex(Math.max(0, Math.min(photos.length - 1, i)));
+    const next = Math.max(0, Math.min(photos.length - 1, i));
+    setIndex(next);
+    // A swipe or trackpad scroll moves the gallery without going through
+    // pageBy, so the arrows would otherwise keep showing the state from
+    // whenever one was last pressed.
+    onIndexChange?.(next);
   };
 
   if (photos.length === 0) {
