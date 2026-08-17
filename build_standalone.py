@@ -11,9 +11,30 @@ html_path = os.path.join(DIST, "index.html")
 with open(html_path, "r", encoding="utf-8") as f:
     html = f.read()
 
-js_files = glob.glob(os.path.join(DIST, "_expo", "static", "js", "web", "*.js"))
-assert len(js_files) == 1, js_files
-js_path = js_files[0]
+# Expo doesn't always emit exactly one web bundle. Alongside the entry
+# bundle it code-splits dynamically-imported modules into their own chunks --
+# right now that's expo-camera's ZXing barcode scanner, which nothing in
+# src/ ever invokes (the camera is used for photo capture only). The old
+# `assert len(js_files) == 1` turned the mere existence of such a chunk into
+# a hard build failure, which is why this script stopped working.
+#
+# Pick the *entry* bundle the same way the browser does -- by reading the
+# <script src> out of index.html -- rather than assuming there's only one
+# file in the directory, and report any remaining chunks instead of dying on
+# them.
+entry_match = re.search(r'<script src="(/_expo/static/js/web/[^"]+)"[^>]*></script>', html)
+assert entry_match, "could not find the entry <script src> in dist/index.html"
+js_path = os.path.join(DIST, entry_match.group(1).lstrip("/"))
+_extra_chunks = [
+    p for p in sorted(glob.glob(os.path.join(DIST, "_expo", "static", "js", "web", "*.js")))
+    if os.path.abspath(p) != os.path.abspath(js_path)
+]
+if _extra_chunks:
+    print(f"NOTE: {len(_extra_chunks)} lazily-loaded chunk(s) are not inlined into the single-file build:")
+    for p in _extra_chunks:
+        print(f"  - {os.path.basename(p)} ({os.path.getsize(p)} bytes)")
+    print("  They are only fetched if the app dynamically imports them at runtime.")
+    print("  Nothing in src/ does today. If that ever changes, upload dist/_expo/ next to index.html.")
 with open(js_path, "r", encoding="utf-8") as f:
     js = f.read()
 
@@ -46,7 +67,12 @@ match = script_pattern.search(html)
 assert match, "could not find script tag to inline"
 html = script_pattern.sub(lambda m, j=js: f"<script>{j}</script>", html, count=1)
 
-out_path = "/tmp/vevaty-app-standalone.html"
+# Repo-relative, not /tmp. Termux -- where the real builds actually run --
+# has no writable /tmp, so the old hardcoded "/tmp/vevaty-app-standalone.html"
+# made this script die on the phone before writing anything. dist/ is
+# gitignored, so this never ends up committed. Override with
+# STANDALONE_OUT=/some/path to put the copy elsewhere.
+out_path = os.environ.get("STANDALONE_OUT", os.path.join(DIST, "vevaty-standalone.html"))
 with open(out_path, "w", encoding="utf-8") as f:
     f.write(html)
 
