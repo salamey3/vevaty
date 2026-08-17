@@ -23,6 +23,13 @@ Vevaty ships to two places, **both built from that same copy**:
 **Work on the laptop.** The phone is your test device, not a work machine.
 Everything below is typed on the laptop.
 
+> **`npm run publish:app` only works on the laptop.** It compiles the code
+> into Hermes bytecode locally before uploading, and that compiler is not
+> available for Android, so on the phone it fails with "Unsupported host
+> platform for Hermes compiler: android". The phone can still `git pull`,
+> `git push`, and run `npm run build:android` -- that one bundles on Expo's
+> servers rather than on your device.
+
 ---
 
 ## Which account is which
@@ -214,6 +221,11 @@ git add -A && git commit -m "what changed" && git push
 ```
 
 then publish again.
+
+**"Unsupported host platform for Hermes compiler: android"**
+You ran `npm run publish:app` on the phone. It can only run on the laptop
+(see the note at the top). Nothing is broken -- `git push` from the phone,
+then `git pull` and publish on the laptop.
 
 **The phone doesn't show the update**
 Fully close the app (swipe away from recents), open twice. If it still
