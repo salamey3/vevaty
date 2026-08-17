@@ -150,12 +150,30 @@ export default function MagicListingModal({
 }
 
 const styles = StyleSheet.create({
-  backdrop: { flex: 1, backgroundColor: 'rgba(20,20,22,0.45)', justifyContent: 'flex-end' },
+  // alignItems centre, so the sheet below sits under the middle of the
+  // window rather than stretching across it.
+  backdrop: {
+    flex: 1,
+    backgroundColor: 'rgba(20,20,22,0.45)',
+    justifyContent: 'flex-end',
+    alignItems: 'center',
+  },
   sheet: {
     backgroundColor: colors.bg,
     borderTopLeftRadius: radius.lg,
     borderTopRightRadius: radius.lg,
     maxHeight: '90%',
+    // Same 640 the screen underneath is capped to (<Screen maxWidth={640}>
+    // in CreateListingScreen), so the sheet lines up with the category grid
+    // it was opened from instead of spanning the whole browser window. A
+    // bottom sheet is a phone shape: full width there is right because the
+    // phone IS the width, but on a desktop it turned a 400px form into a
+    // 1600px band with the content huddled at one end.
+    //
+    // No effect on a phone -- every phone viewport is narrower than this,
+    // so width:100% wins and the sheet stays edge to edge.
+    width: '100%',
+    maxWidth: 640,
   },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
