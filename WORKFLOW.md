@@ -74,6 +74,9 @@ those**, and never run `npm audit fix --force`; it breaks the project.
 npx eas-cli login
 ```
 
+This opens a browser to log in. Nothing else needs installing -- every
+command here fetches the build tool on demand via `npx`.
+
 **4.** The first time you `git push`, it asks for:
 
 - Username: `salamey3`

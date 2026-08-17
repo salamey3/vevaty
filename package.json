@@ -42,7 +42,7 @@
     "web": "expo start --web",
     "verify": "tsc --noEmit",
     "build:web": "expo export --platform web && node build-standalone.mjs",
-    "build:android": "eas build --platform android --profile preview",
+    "build:android": "npx --yes eas-cli build --platform android --profile preview",
     "publish:app": "node publish-app.mjs"
   },
   "private": true
