@@ -25,6 +25,36 @@ Everything below is typed on the laptop.
 
 ---
 
+## Which account is which
+
+Two different systems both have things called "vevaty". They are unrelated,
+and confusing them cost a lot of time once.
+
+**GitHub — where the code lives.** Everything is under the `salamey3`
+GitHub account:
+
+| Repo | Use it? |
+|---|---|
+| `salamey3/vevaty` (public) | **YES — this is the project.** |
+| `salamey3/Vevaty-app` (private) | No. Abandoned early start, one commit. |
+
+**Expo — the service that builds the app.** Two accounts:
+
+| Account | What it is |
+|---|---|
+| `salamey3` | Personal. Free plan. |
+| `vevaty` (organization) | **Holds the paid Starter subscription. The project lives here.** |
+
+The Expo project must be *owned by* `vevaty`, because plans attach to
+whoever owns the project. `app.json` records this as `"owner": "vevaty"`.
+There is also a leftover project named "Vevaty App" inside that
+organization from the same early start — ignore it.
+
+**Nothing needs moving on GitHub.** Only the Expo project was ever
+transferred, and that is already done.
+
+---
+
 ## The one rule
 
 > **Pull when you sit down. Push before you walk away.**
@@ -200,6 +230,12 @@ Downloads?
 
 **`git pull` says "divergent branches"**
 Run `git pull --rebase`.
+
+**A build says "used its Android builds from the Free plan"**
+Expo is checking the wrong account. It means the project is not owned by
+the `vevaty` organization — the one with the subscription. Check
+`app.json` still says `"owner": "vevaty"`, and that the project on
+expo.dev sits under the Vevaty organization rather than salamey3.
 
 **Anything else** — screenshot the terminal and send it. The error text is
 the useful part.
