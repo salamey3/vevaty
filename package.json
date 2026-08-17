@@ -19,6 +19,7 @@
     "expo-linear-gradient": "^57.0.1",
     "expo-location": "~57.0.9",
     "expo-status-bar": "~57.0.1",
+    "expo-updates": "~57.0.14",
     "react": "19.2.3",
     "react-dom": "^19.2.3",
     "react-native": "0.86.2",
@@ -42,8 +43,7 @@
     "verify": "tsc --noEmit",
     "build:web": "expo export --platform web && node build-standalone.mjs",
     "build:android": "eas build --platform android --profile preview",
-    "release:web": "npm run verify && npm run build:web",
-    "release": "npm run verify && npm run build:web && npm run build:android"
+    "publish:app": "node publish-app.mjs"
   },
   "private": true
 }

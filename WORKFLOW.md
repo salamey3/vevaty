@@ -1,31 +1,27 @@
 # Working on Vevaty — plain English guide
 
-You are not expected to understand the code. You need four things to work,
-and this page is only about those four.
+You are not expected to understand the code. This page covers only what you
+actually have to do.
 
 ---
 
 ## The idea in 30 seconds
 
-There is **one master copy** of Vevaty, stored online at
-`github.com/salamey3/vevaty`. Think of it like a shared folder in the cloud.
+There is **one master copy** of Vevaty stored online at
+`github.com/salamey3/vevaty` — like a shared folder in the cloud.
 
-Your laptop and your phone each keep their **own copy**. They do not talk to
-each other. They both talk to the master copy:
+Your laptop keeps its own copy. It talks to the master copy:
 
-```
-        laptop  ⇅
-                  master copy on GitHub
-        phone   ⇅
-```
+- **`git pull`** = get the latest
+- **`git push`** = save your work to the master
 
-- **Download from master** = `git pull` ("get me the latest")
-- **Upload to master** = `git push` ("save my work for everyone")
+Vevaty ships to two places, **both built from that same copy**:
 
-Vevaty ships to two places, and **both are built from the same copy**:
+- **the website** — vevaty.com
+- **the phone app** — the installed Android app
 
-- **the website** (vevaty.com) — you build one file and upload it
-- **the phone app** — a build service (EAS) makes the installable app
+**Work on the laptop.** The phone is your test device, not a work machine.
+Everything below is typed on the laptop.
 
 ---
 
@@ -33,20 +29,35 @@ Vevaty ships to two places, and **both are built from the same copy**:
 
 > **Pull when you sit down. Push before you walk away.**
 
-Do that and switching between laptop and phone always just works. Skip it and
-the two copies drift apart, which is the only thing here that gets messy.
+---
+
+## The two ways changes reach the phone app
+
+This is the part worth understanding, because it saves the most pain.
+
+**1. Publishing an update — `npm run publish:app`**
+Takes about a minute. Unlimited. Sends the new code straight to the app
+already installed on your phone. Works for almost everything: text, layout,
+Arabic, colours, logic, bug fixes.
+
+**2. A full rebuild — `npm run build:android`**
+Takes 10–20 minutes and uses one of a **small monthly quota**. Only needed
+when something changes deep inside the app — a new camera/maps/notifications
+capability, the app icon or name, or an Expo version upgrade.
+
+**Rule of thumb: always use #1. I will tell you explicitly on the rare
+occasions #2 is required.** You never have to work this out yourself — the
+system also physically prevents a #1 update from reaching an app that needs
+#2, so a wrong guess is harmless.
 
 ---
 
 ## First time only — set up the laptop
 
-Do this once. The phone is already set up.
+**1.** Install **Node.js** (the "LTS" version) from nodejs.org.
 
-**1.** Install **Node.js** — the "LTS" version — from nodejs.org. That's the
-only thing you need to install.
-
-**2.** Open a terminal (Mac: *Terminal*. Windows: *Git Bash*, which comes
-with git from git-scm.com) and run these one at a time:
+**2.** Open a terminal (Mac: *Terminal*. Windows: *Git Bash*, installed with
+git from git-scm.com) and run, one line at a time:
 
 ```sh
 git clone https://github.com/salamey3/vevaty.git
@@ -54,23 +65,25 @@ cd vevaty
 npm install
 ```
 
-- `git clone` downloads the master copy to your laptop.
-- `npm install` downloads the building blocks the app is made of. It prints a
-  lot and may warn about "vulnerabilities" — **ignore those warnings**, and
-  never run `npm audit fix --force`; it breaks the project.
+`npm install` prints a lot and may warn about "vulnerabilities" — **ignore
+those**, and never run `npm audit fix --force`; it breaks the project.
 
-**3.** The first time you ever `git push`, it asks for a username and
-password:
+**3.** Sign in to the build service, once:
+
+```sh
+npx eas-cli login
+```
+
+**4.** The first time you `git push`, it asks for:
 
 - Username: `salamey3`
-- Password: **your GitHub token**, not your GitHub password
+- Password: **your GitHub token** (not your GitHub password)
 
-(A token is a long password that starts with `ghp_`. Make one at
-**github.com/settings/tokens/new** — tick the box `public_repo`, then
-*Generate token*, and copy it. GitHub shows it only once. Never paste it into
-a chat.)
+A token is a long password starting with `ghp_`. Create one at
+**github.com/settings/tokens/new** — tick `public_repo`, click *Generate
+token*, copy it. GitHub shows it once. Never paste it into a chat.
 
-Run this once so it remembers the token and stops asking:
+Run this once so it stops asking:
 
 ```sh
 git config --global credential.helper store
@@ -78,13 +91,11 @@ git config --global credential.helper store
 
 ---
 
-## The four things you will ever do
+## Everyday: the three things
 
-### 1. Get Claude's latest changes
+### 1. Get Claude's changes
 
 Claude sends a `.bundle` file. Save it, then:
-
-**On the laptop**
 
 ```sh
 cd vevaty
@@ -92,108 +103,103 @@ git pull ~/Downloads/NAME-OF-FILE.bundle main
 git push
 ```
 
-**On the phone**
+The `git push` is what saves it to the master copy. Don't skip it.
+
+### 2. Publish
+
+Always check first:
 
 ```sh
-cd ~/vevaty-app
-git pull ~/storage/downloads/NAME-OF-FILE.bundle main
-git push
+npm run verify
 ```
 
-The `git push` matters — that's what saves it to the master copy so your
-other device can get it too.
+If that reports an error, **stop and send it to Claude.** Do not publish.
 
-### 2. Put the changes on the website
-
-Nothing reaches vevaty.com by itself. You have to build and upload it.
+**To the phone app:**
 
 ```sh
-git pull
-npm run verify
+npm run publish:app
+```
+
+Then on the phone: fully close Vevaty (swipe it away) and open it **twice** —
+the first open downloads the update, the second runs it.
+
+**To the website:**
+
+```sh
 npm run build:web
 ```
 
-- `verify` checks the code for mistakes. **If it shows an error, stop** and
-  send Claude the message — do not upload.
-- `build:web` creates the website as a single file: `dist/index.html`
-  (about 2.6 MB).
+Then:
 
-Then upload it:
+1. cPanel → **File Manager**
+2. Open the folder **`vevaty.com`** (full path `/home/yousifs1/vevaty.com`)
+   ⚠️ **Not `public_html`** — that's a different website.
+3. Tick **"Overwrite existing files"** *before* choosing the file
+4. **Upload** → `dist/index.html` from your vevaty folder
+5. Open vevaty.com and confirm your change is there
 
-1. Log in to cPanel → **File Manager**
-2. Open the folder **`vevaty.com`** — the full path is
-   `/home/yousifs1/vevaty.com`
-   ⚠️ **Not `public_html`.** That folder is a different website.
-3. Tick **"Overwrite existing files"** — do this *before* choosing the file
-4. **Upload** → choose `dist/index.html` from your vevaty folder
-5. Open vevaty.com and check your change is there
+**Publish to both.** If you only do one, the app and the website drift apart —
+which is exactly how "it works on the website but not the app" happens.
 
-**Do this from the laptop when you can.** Phone browsers are unreliable at
-uploading files this size.
+### 3. Test on the phone
 
-### 3. Put the changes in the phone app
+After `npm run publish:app`, open the app and actually use the part that
+changed. Things that work in a browser don't always work in the app —
+Arabic layout and the AI photo feature have both broken this way before, and
+the only way to catch it is to look.
 
-Only the phone does this.
+---
+
+## The rare thing: a full rebuild
+
+Only when Claude tells you. Requires quota, so it gets batched.
 
 ```sh
-cd ~/vevaty-app
-git pull
-npm run verify
 npm run build:android
 ```
 
-It uploads the project and builds it in the cloud, then gives you a link to
-install the app. Takes 10–20 minutes.
-
-⚠️ **The free plan allows only a few builds per month.** Don't build for one
-small fix — collect several changes, then build once.
-
-### 4. Switch between laptop and phone
-
-Before you stop working on one:
-
-```sh
-git add -A
-git commit -m "short note about what changed"
-git push
-```
-
-When you pick up the other:
-
-```sh
-git pull
-```
-
-That's the whole handover.
+It uploads the project, builds in the cloud (10–20 min), and gives you a link
+to install the new app. Install it on the phone, and from then on
+`npm run publish:app` works again as normal.
 
 ---
 
 ## If something goes wrong
 
 **"Authentication failed" / "Invalid username or token"**
-Your token is wrong or expired. Make a new one at
-github.com/settings/tokens/new and push again. Tokens expire — this will
-happen every 90 days and is normal.
+Your GitHub token expired or is wrong. Make a new one at
+github.com/settings/tokens/new. Tokens expire — expect this roughly every 90
+days.
 
-**cPanel: "Your account may be over its quota or you attempted to upload a
-folder"**
-Almost always means the **"Overwrite existing files"** checkbox wasn't
-ticked. Tick it and upload again.
-
-**The website doesn't show my change**
-Almost always one of the three steps was skipped. In order: did you
-`git pull`? Did you run `npm run build:web` *after* pulling? Did you upload
-the freshly built file rather than an older copy still sitting in Downloads?
-
-**`git pull` says "divergent branches" or refuses**
-You committed on both devices. Fix:
+**`npm run publish:app` says "There are uncommitted changes"**
+Working as intended — it refuses to send anything not saved to the master
+copy. Do:
 
 ```sh
-git pull --rebase
+git add -A && git commit -m "what changed" && git push
 ```
 
-**Anything else**
-Screenshot the terminal and send it. The error text is the useful part.
+then publish again.
+
+**The phone doesn't show the update**
+Fully close the app (swipe away from recents), open twice. If it still
+doesn't appear, the change likely needs a full rebuild — send Claude what you
+changed.
+
+**cPanel: "over its quota or you attempted to upload a folder"**
+Almost always the **"Overwrite existing files"** checkbox wasn't ticked.
+
+**The website doesn't show my change**
+In order: did you `git pull`? did you run `npm run build:web` *after*
+pulling? did you upload the freshly built file, not an older copy still in
+Downloads?
+
+**`git pull` says "divergent branches"**
+Run `git pull --rebase`.
+
+**Anything else** — screenshot the terminal and send it. The error text is
+the useful part.
 
 ---
 
@@ -201,19 +207,19 @@ Screenshot the terminal and send it. The error text is the useful part.
 
 | Word | Plain meaning |
 |---|---|
-| **repository / repo** | The project folder, with its full history |
+| **repository / repo** | The project folder plus its full history |
 | **GitHub** | The website holding the master copy |
-| **clone** | Download the project to a machine for the first time |
+| **clone** | Download the project to a machine the first time |
 | **pull** | Get the latest changes |
 | **push** | Send your changes to the master copy |
-| **commit** | Save a snapshot, with a note about what changed |
-| **bundle** | A file Claude sends containing changes; you `git pull` it |
-| **token** | A long password (`ghp_...`) that proves you're you to GitHub |
-| **build** | Turn the code into something usable — a website file or an app |
-| **terminal / Termux** | The text window where you type these commands |
-| **npm** | The tool that fetches the building blocks the app needs |
-| **EAS** | Expo's cloud service that builds the Android app |
-| **dist/** | The folder holding freshly built output. Never edit by hand |
+| **commit** | Save a snapshot with a note about what changed |
+| **bundle** | A file Claude sends with changes; you `git pull` it |
+| **token** | A long password (`ghp_…`) proving you're you to GitHub |
+| **publish / update** | Send new code to the already-installed app (fast) |
+| **build** | Make a whole new app file (slow, limited) |
+| **channel** | Which group of phones an update goes to — ours is `preview` |
+| **terminal** | The text window where you type these commands |
+| **dist/** | Freshly built website output. Never edit by hand |
 
 ---
 
@@ -222,8 +228,9 @@ Screenshot the terminal and send it. The error text is the useful part.
 | I want to… | Command |
 |---|---|
 | Start working | `git pull` |
-| Get Claude's bundle | `git pull <path-to-file>.bundle main` then `git push` |
+| Take Claude's changes | `git pull <file>.bundle main` then `git push` |
 | Check for mistakes | `npm run verify` |
-| Build the website | `npm run build:web` → upload `dist/index.html` |
-| Build the app | `npm run build:android` (phone only) |
-| Finish working | `git add -A && git commit -m "note" && git push` |
+| Send to the phone app | `npm run publish:app` |
+| Send to the website | `npm run build:web` → upload `dist/index.html` |
+| Save my work | `git add -A && git commit -m "note" && git push` |
+| New app build (rare) | `npm run build:android` |
