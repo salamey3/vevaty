@@ -42,7 +42,16 @@ export default function ListingCard({
   const { language, isRTL } = useLanguage();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const cat = categoryById(listing.cat);
-  const widthPct = `${Math.floor((100 - (columns - 1) * 3) / columns)}%` as const;
+  // Gutter between cards, as a percentage of the row. 3% reads well at two
+  // columns and far too wide at four or six -- the same proportion of a
+  // wider row is a much bigger gap in pixels, which is what left the
+  // desktop grid looking sparse. Scale it down as the columns go up.
+  //
+  // Not floored: rounding each card down left the remainder to
+  // space-between, which quietly widened the gutters again beyond whatever
+  // was set here.
+  const gutterPct = columns > 4 ? 1.1 : columns > 2 ? 1.6 : 3;
+  const widthPct: `${number}%` = `${Number(((100 - (columns - 1) * gutterPct) / columns).toFixed(3))}%`;
   const favorited = isFavorite(listing.id);
   const [favBusy, setFavBusy] = useState(false);
   // Nothing to save about your own listing -- same reasoning as
@@ -60,10 +69,28 @@ export default function ListingCard({
   // starts competing with the price and title for the same attention.
   const topSpecs = useMemo(() => {
     if (!listing.attributes) return [];
-    const attrs = resolveAttributesForCategory(listing.cat).filter((a) => attrHasValue(listing.attributes[a.slug]));
-    const ordered = [...attrs.filter((a) => a.required), ...attrs.filter((a) => !a.required)];
-    return ordered.slice(0, 2).map((a) => formatAttrValue(a, listing.attributes[a.slug], language));
-  }, [listing.cat, listing.attributes, resolveAttributesForCategory, language]);
+    // Skip anything the title already says. A car listing titled "Honda
+    // Civic 2018" was showing "Honda · Civic" underneath it -- two lines
+    // of the same information, on the one surface where space is
+    // scarcest. Dropping the duplicates leaves the line to say what the
+    // title doesn't: mileage, transmission, condition.
+    //
+    // Compared against the full title, not the truncated one on screen,
+    // so a long title that gets cut off still suppresses its own terms.
+    const haystack = listingTitle(listing, language).toLowerCase();
+    const attrs = resolveAttributesForCategory(listing.cat)
+      .filter((a) => attrHasValue(listing.attributes[a.slug]))
+      .map((a) => ({ attr: a, text: formatAttrValue(a, listing.attributes[a.slug], language) }))
+      .filter(({ text }) => {
+        const t = text.trim().toLowerCase();
+        return t.length > 0 && !haystack.includes(t);
+      });
+    // Required first: an admin marks a field required by asking "what
+    // would I refuse to list this without?", which is close to what a
+    // buyer scans for.
+    const ordered = [...attrs.filter((a) => a.attr.required), ...attrs.filter((a) => !a.attr.required)];
+    return ordered.slice(0, 2).map(({ text }) => text);
+  }, [listing, listing.cat, listing.attributes, resolveAttributesForCategory, language]);
 
   const handleFavoritePress = async () => {
     if (!isVerified) {
