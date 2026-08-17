@@ -66,7 +66,7 @@ export default function ListingCard({
 
   return (
     <Pressy onPress={onPress} style={[styles.card, { width: width ?? widthPct }]}>
-      <View style={[styles.thumb, columns > 2 && styles.thumbWide]}>
+      <View style={styles.thumb}>
         {listing.photos[0] ? (
           // Requested at card size, not the seeded 900x1200 original -- see
           // photoSize.ts for why that mattered so much more than it looks
@@ -111,13 +111,22 @@ const styles = StyleSheet.create({
     borderWidth: 1,
     borderColor: colors.line,
   },
+  // Portrait 3:4, derived from the card's own width rather than a fixed
+  // height. The old fixed 120/150px meant the shape changed with every
+  // context the card appeared in -- roughly square in a 2-column grid,
+  // letterboxed in a wide carousel, different again on desktop -- so the
+  // same listing looked like a different product depending on where you
+  // met it, and a grid of them had no consistent rhythm.
+  //
+  // 3:4 also matches the source photos: the seeded catalogue is 900x1200,
+  // and phone cameras shoot 3:4 by default, so the common case now fills
+  // the frame instead of being cropped to a letterbox.
   thumb: {
-    height: 120,
+    aspectRatio: 3 / 4,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
-  thumbWide: { height: 150 },
   thumbImg: { width: '100%', height: '100%' },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
