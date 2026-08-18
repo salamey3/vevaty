@@ -10,9 +10,11 @@ import {
   Text,
   View,
 } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import CarouselArrows, { ARROW_GUTTER } from './CarouselArrows';
+import SystemBottomStrip from './SystemBottomStrip';
 import { colors, radius } from '../theme/theme';
 
 type Props = {
@@ -48,6 +50,12 @@ export default function PhotoLightbox({ photos, visible, initialIndex, onClose }
   indexRef.current = index;
   const widthRef = useRef(width);
   widthRef.current = width;
+  // This modal is full-bleed and Android draws it edge to edge, so the
+  // stage's own 24px padding is not enough to clear the system bars: the
+  // close button and photo counter ran under the status bar, and the page
+  // dots under the navigation bar. Pad the stage by the real insets on top
+  // of that 24 so the picture keeps its margin either way.
+  const insets = useSafeAreaInsets();
 
   // Jump straight to whichever photo was tapped -- it should open already
   // showing that one, not visibly page over from photo 0. The timeout lets
@@ -106,7 +114,10 @@ export default function PhotoLightbox({ photos, visible, initialIndex, onClose }
             Pressy directly and closes the lightbox, same as Escape. */}
         <Pressy onPress={onClose} style={StyleSheet.absoluteFill} haptic={false} />
 
-        <View style={styles.stage} pointerEvents="box-none">
+        <View
+          style={[styles.stage, { paddingTop: insets.top + 24, paddingBottom: insets.bottom + 24 }]}
+          pointerEvents="box-none"
+        >
           {/* Arrows wrap the image box from outside, in the backdrop
               margin either side -- the same rule as the listing page, and
               it matters more here: this is the one view that shows the
@@ -157,6 +168,7 @@ export default function PhotoLightbox({ photos, visible, initialIndex, onClose }
           </View>
           </CarouselArrows>
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

@@ -3,6 +3,7 @@ import { FlatList, KeyboardAvoidingView, Modal, Platform, ScrollView, StyleSheet
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Screen from '../components/Screen';
+import SystemBottomStrip from '../components/SystemBottomStrip';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import { colors, type, radius } from '../theme/theme';
@@ -378,6 +379,7 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
               </Pressy>
             </View>
           </View>
+          <SystemBottomStrip />
         </View>
       </Modal>
     </Screen>

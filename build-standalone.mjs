@@ -30,6 +30,52 @@ const mimeFor = (p) => MIME[path.extname(p).toLowerCase()] || 'application/octet
 const htmlPath = path.join(DIST, 'index.html');
 let html = fs.readFileSync(htmlPath, 'utf8');
 
+// --- Bottom system bar (Android nav bar / iOS home indicator) on the web ---
+//
+// The app reserves space for the phone's bottom system bar everywhere (see
+// Screen.tsx and SystemBottomStrip.tsx), and on native that works because
+// react-native-safe-area-context reads the real insets from the OS. On the
+// web it reads env(safe-area-inset-*) instead -- and a browser only reports
+// a non-zero value for those when the page has opted into drawing edge to
+// edge with viewport-fit=cover. Expo's generated index.html doesn't set it,
+// so every inset was 0 and the mobile site had nothing reserved at all:
+// content ran under Android's navigation bar exactly as it did in the app.
+//
+// Patching it here rather than shipping a custom HTML template keeps this
+// next to the other index.html surgery, and means it can't be lost the next
+// time Expo regenerates the file.
+const VIEWPORT_RE = /(<meta name="viewport" content=")([^"]*)(")/;
+const viewportMatch = html.match(VIEWPORT_RE);
+if (!viewportMatch) {
+  // Loud, not silent: without this the mobile site quietly regresses to
+  // content sitting under the navigation bar, which looks like a CSS bug
+  // rather than a missing meta tag.
+  throw new Error('could not find the <meta name="viewport"> tag in dist/index.html');
+}
+if (!viewportMatch[2].includes('viewport-fit')) {
+  html = html.replace(VIEWPORT_RE, `$1$2, viewport-fit=cover$3`);
+  console.log('Added viewport-fit=cover to the viewport meta tag');
+}
+
+// Black behind everything, so the strip the app reserves at the bottom is
+// black from the very first paint -- before the JS bundle has booted and
+// measured the insets -- rather than flashing white and then filling in.
+// Appended to the end of Expo's own reset block so its rules win on order
+// without having to out-specify them.
+const RESET_STYLE_END = '\n    </style>';
+if (!html.includes(RESET_STYLE_END)) {
+  throw new Error('could not find the end of the #expo-reset <style> block in dist/index.html');
+}
+html = html.replace(
+  RESET_STYLE_END,
+  '\n      /* The bottom system-bar strip is painted over this -- see' +
+    '\n         SystemBottomStrip.tsx. Black here means the strip is already' +
+    '\n         the right colour on first paint, before the bundle has booted' +
+    '\n         and measured the insets. */' +
+    '\n      html,\n      body {\n        background-color: #000;\n      }' +
+    RESET_STYLE_END
+);
+
 // Expo doesn't always emit exactly one web bundle. Alongside the entry
 // bundle it code-splits dynamically-imported modules into their own chunks --
 // right now that's expo-camera's ZXing barcode scanner, which nothing in

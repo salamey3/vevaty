@@ -2,6 +2,7 @@ import React from 'react';
 import { StyleSheet, View } from 'react-native';
 import { SafeAreaView, Edge } from 'react-native-safe-area-context';
 import Texture from './Texture';
+import SystemBottomStrip from './SystemBottomStrip';
 import { useIsDesktop, SIDEBAR_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -61,6 +62,16 @@ export default function Screen({
       <SafeAreaView style={styles.fill} edges={edges}>
         <View style={[styles.fill, sidebarReserveStyle]}>{content}</View>
       </SafeAreaView>
+      {/* Paints the strip the SafeAreaView above just reserved. Texture
+          runs full-bleed behind everything, so without this the reserved
+          space showed the pale app background and read like part of the
+          page rather than part of the phone. Outside the SafeAreaView on
+          purpose -- inside it, it would be positioned against the already-
+          inset box and paint in the wrong place. Also covers any Screen
+          rendered inside a Modal (the mobile filter sheet), which the
+          app-root strip in App.tsx cannot reach: a Modal is its own
+          native window. */}
+      <SystemBottomStrip />
     </View>
   );
 }

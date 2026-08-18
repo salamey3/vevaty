@@ -2,6 +2,7 @@ import React from 'react';
 import { ActivityIndicator, Image, Modal, Platform, ScrollView, StyleSheet, Text, View } from 'react-native';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from './Pressy';
+import SystemBottomStrip from './SystemBottomStrip';
 import Button from './Button';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
@@ -144,6 +145,7 @@ export default function MagicListingModal({
             )}
           </ScrollView>
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

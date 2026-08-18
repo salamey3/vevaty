@@ -1,5 +1,5 @@
 import React, { useEffect } from 'react';
-import { Platform } from 'react-native';
+import { Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
 // eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept from
 // the original App.tsx; not currently wired into the tree below.
@@ -15,6 +15,7 @@ import { LanguageProvider } from './src/i18n/LanguageContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
 import AdminLockScreen from './src/components/AdminLockScreen';
+import SystemBottomStrip from './src/components/SystemBottomStrip';
 
 // Feeds SettingsStore's auto-lock idle timer -- any pointer/keyboard
 // activity anywhere in the app resets the clock. Web-only (matches the
@@ -195,6 +196,10 @@ function WebScrollAnywhere() {
   return null;
 }
 
+const styles = StyleSheet.create({
+  root: { flex: 1 },
+});
+
 export default function App() {
   return (
     <SafeAreaProvider>
@@ -205,13 +210,25 @@ export default function App() {
               <FavoritesStoreProvider>
                 <SavedSearchesStoreProvider>
                   <ScrollChromeProvider>
-                    <StatusBar style="dark" />
-                    <RootNavigator />
-                    <AlertHost />
-                    <AdminLockScreen />
-                    <AdminActivityListener />
-        <WebFocusStyles />
-        <WebScrollAnywhere />
+                    {/* An explicit full-height box purely so the bottom
+                        strip below has a positioned parent that is exactly
+                        the window -- an absolutely positioned view needs
+                        one, and relying on whatever React Native happens to
+                        mount as the root would be an assumption. */}
+                    <View style={styles.root}>
+                      <StatusBar style="dark" />
+                      <RootNavigator />
+                      <AlertHost />
+                      <AdminLockScreen />
+                      <AdminActivityListener />
+                      <WebFocusStyles />
+                      <WebScrollAnywhere />
+                      {/* Last, so it paints over the navigator and the
+                          floating tab bar alike. Modals are their own
+                          native windows and this cannot reach them -- each
+                          one renders its own copy. */}
+                      <SystemBottomStrip />
+                    </View>
                   </ScrollChromeProvider>
                 </SavedSearchesStoreProvider>
               </FavoritesStoreProvider>

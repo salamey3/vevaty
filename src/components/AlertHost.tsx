@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { Modal, View, Text, StyleSheet } from 'react-native';
 import Pressy from './Pressy';
+import SystemBottomStrip from './SystemBottomStrip';
 import Button from './Button';
 import { colors, type, radius } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -56,6 +57,7 @@ export default function AlertHost() {
             ))}
           </View>
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

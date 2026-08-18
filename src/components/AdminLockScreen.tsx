@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { ActivityIndicator, Modal, StyleSheet, Text, TextInput, View } from 'react-native';
 import Pressy from './Pressy';
+import SystemBottomStrip from './SystemBottomStrip';
 import Button from './Button';
 import Icon from '../icons/Icon';
 import { colors, type, radius } from '../theme/theme';
@@ -108,6 +109,7 @@ export default function AdminLockScreen() {
             <Text style={styles.signOutLinkText}>{t('admin.lock.notYouSignOut')}</Text>
           </Pressy>
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

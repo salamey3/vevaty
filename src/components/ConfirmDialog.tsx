@@ -1,6 +1,7 @@
 import React from 'react';
 import { Modal, View, Text, StyleSheet } from 'react-native';
 import Pressy from './Pressy';
+import SystemBottomStrip from './SystemBottomStrip';
 import Button from './Button';
 import { colors, type, radius } from '../theme/theme';
 
@@ -47,6 +48,7 @@ export default function ConfirmDialog({
             />
           </View>
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

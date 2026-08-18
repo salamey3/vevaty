@@ -1,8 +1,10 @@
 import React from 'react';
 import { Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import SpinViewer from './SpinViewer';
+import SystemBottomStrip from './SystemBottomStrip';
 import { colors, radius, type } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -55,11 +57,16 @@ export default function SpinPreviewModal({
   onClose,
 }: Props) {
   const { t } = useLanguage();
+  // Same story as CameraCapture: Android draws this modal edge to edge, so
+  // without these the X sits under the clock and -- the one that actually
+  // cost the seller their capture -- Continue and Retake sit under the
+  // navigation bar, where they cannot be tapped at all.
+  const insets = useSafeAreaInsets();
   if (!visible) return null;
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
           <Pressy onPress={onClose} style={styles.iconBtn} accessibilityLabel="Close">
             <Icon name="close" size={18} color={colors.white} />
           </Pressy>
@@ -90,7 +97,7 @@ export default function SpinPreviewModal({
           <SpinViewer frames={frames} />
         </View>
 
-        <View style={styles.bottomBar}>
+        <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 18 }]}>
           <Text style={styles.hintText}>{t('createListing.spinPreviewHint')}</Text>
           <Pressy onPress={onRetake} style={styles.retakeBtn} accessibilityLabel="Retake photos">
             <Icon name="rotate" size={14} color={colors.white} />
@@ -100,6 +107,7 @@ export default function SpinPreviewModal({
             <Text style={styles.continueBtnText}>{t('createListing.spinPreviewContinue')}</Text>
           </Pressy>
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

@@ -3,6 +3,7 @@ import { Image, Modal, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from './Pressy';
+import SystemBottomStrip from './SystemBottomStrip';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -222,6 +223,7 @@ export default function CameraCapture({
             </Pressy>
           </View>
         )}
+        <SystemBottomStrip />
       </View>
     </Modal>
   );

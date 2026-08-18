@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, Image, Modal, TextInput, Linking } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
+import SystemBottomStrip from '../components/SystemBottomStrip';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
@@ -265,6 +266,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             </>
           )}
         </View>
+        <SystemBottomStrip />
       </View>
     </Modal>
   );
