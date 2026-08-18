@@ -443,31 +443,47 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         </View>
       </Pressy>
 
-      {relatedListings.length > 0 && (
-        <>
-          <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.relatedListings')}</Text>
-          <ScrollView
-            ref={relatedScrollRef}
-            horizontal
-            showsHorizontalScrollIndicator={false}
-            contentContainerStyle={styles.relatedRow}
-            onContentSizeChange={onRelatedContentSizeChange}
-            // Nests inside this screen's outer vertical ScrollView -- same
-            // Android nested-scroll gesture-ownership gap as the home
-            // screen's carousels (see that comment for the full story).
-            nestedScrollEnabled
-          >
-            {orderedRelated.map((item) => (
-              <ListingCard
-                key={item.id}
-                listing={item}
-                width={140}
-                onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
-              />
-            ))}
-          </ScrollView>
-        </>
-      )}
+    </>
+  );
+
+  // Split out from `details` above so it can render AFTER the CTA button
+  // on desktop (see the isDesktop render below) -- ctaSection used to come
+  // after this, which buried "Contact & Buy" beneath a whole row of other
+  // listings. Mobile keeps the original order (this right after `details`,
+  // same position it held before the split), since its CTA already lives
+  // in its own pinned footer rather than in the scroll flow.
+  const relatedSection = relatedListings.length > 0 && (
+    <>
+      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.relatedListings')}</Text>
+      <ScrollView
+        ref={relatedScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        // flexGrow:0 matters here the same way it does on the home screen's
+        // category slider (see catSlider's comment there for the full
+        // story): a horizontal ScrollView with no height of its own
+        // stretches to fill whatever vertical space its flex parent has to
+        // give -- on desktop that parent is desktopInfo (flex:1, stretched
+        // tall to match the media column), so without this every card in
+        // the row got stretched into a tall sliver instead of staying a
+        // normal 3:4 thumbnail.
+        style={styles.relatedScroll}
+        contentContainerStyle={styles.relatedRow}
+        onContentSizeChange={onRelatedContentSizeChange}
+        // Nests inside this screen's outer vertical ScrollView -- same
+        // Android nested-scroll gesture-ownership gap as the home
+        // screen's carousels (see that comment for the full story).
+        nestedScrollEnabled
+      >
+        {orderedRelated.map((item) => (
+          <ListingCard
+            key={item.id}
+            listing={item}
+            width={140}
+            onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
+          />
+        ))}
+      </ScrollView>
     </>
   );
 
@@ -514,7 +530,20 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         />
       </View>
     );
-    if (listing.photos.length < 2) return inner;
+    // Always wrapped, even with 0 or 1 photos -- CarouselArrows is a no-op
+    // on mobile/touch anyway (see its own Platform.OS check), and on
+    // desktop it reserves the same 34px gutter on each side regardless of
+    // whether a button is actually showing in it. Skipping the wrap
+    // whenever there was nothing to scroll used to leave the photo box
+    // flush against the column edge while the spin box below it (wrapped
+    // whenever it HAD more than one spin set) sat shifted right by that
+    // gutter -- two boxes in the same column, misaligned depending on
+    // item counts that have nothing to do with each other. Wrapping
+    // unconditionally means both boxes always reserve identical gutters
+    // and their edges line up regardless of how many photos or spins
+    // either one happens to have; canScrollBack/canScrollForward below
+    // already evaluate to false with fewer than 2 items, so no arrow
+    // button actually renders in that case either way.
     return (
       <CarouselArrows
         onScrollBy={(d) => galleryRef.current?.page(d)}
@@ -532,6 +561,12 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // to miss. Same arrow convention as photoBox above: they live outside the
   // box, in their own gutters, and each one only shows when it actually
   // leads somewhere -- with one spin set that's neither arrow, ever.
+  //
+  // Wrapped unconditionally, same reasoning as photoBox above -- the
+  // gutters have to be reserved even with a single spin set, or this box
+  // stops lining up with the photo box above it the moment their item
+  // counts differ (e.g. 3 photos but only 1 spin set, which is the common
+  // case: most listings that have a spin at all only have one).
   const desktopSpinBox = () => {
     const activeSet = spinSets[desktopSpinIndex] ?? spinSets[0];
     const inner = (
@@ -539,7 +574,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <SpinViewer frames={activeSet.frames} />
       </View>
     );
-    if (spinSets.length < 2) return inner;
     return (
       <CarouselArrows
         onScrollBy={(d) => setDesktopSpinIndex((i) => Math.min(Math.max(i + d, 0), spinSets.length - 1))}
@@ -657,6 +691,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             <View style={styles.desktopInfo}>
               {details}
               {ctaSection({ marginTop: 26 })}
+              {relatedSection}
             </View>
           </View>
         </ScrollView>
@@ -672,7 +707,10 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {photoBox(styles.photo)}
-        <View style={styles.card}>{details}</View>
+        <View style={styles.card}>
+          {details}
+          {relatedSection}
+        </View>
       </ScrollView>
 
       <View style={styles.footer}>
@@ -811,7 +849,14 @@ const styles = StyleSheet.create({
   },
   verifiedBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.success },
   memberSince: { ...type.tiny, marginTop: 3 },
-  relatedRow: { gap: 12, paddingTop: 2, paddingBottom: 4 },
+  // flexGrow:0 on the ScrollView itself, same as home's catRowDesktopScroll
+  // -- see the render-side comment where this style is used.
+  relatedScroll: { flexGrow: 0 },
+  // alignItems:'flex-start' opts the row out of RN's default row-children
+  // stretch -- without it, every ListingCard in the row got stretched to
+  // match whatever height the ScrollView ended up with, warping each
+  // thumbnail from its normal 3:4 shape into a tall sliver.
+  relatedRow: { gap: 12, paddingTop: 2, paddingBottom: 4, alignItems: 'flex-start' },
   // Plain paddingBottom now -- the Android nav-bar inset is reserved once,
   // globally, by Screen's 'bottom' edge, so adding insets.bottom here too
   // would double-pad.
