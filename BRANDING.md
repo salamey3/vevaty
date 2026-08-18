@@ -360,3 +360,32 @@ why an edit to `BrandMark.tsx` had no effect.
 colour and the button colour, which is why every button matched the
 paragraph next to it. Text is `ink`; anything that carries the brand —
 buttons, selected states, the mark, prices — is `primary`.
+
+---
+
+## Category icons
+
+The icon disc carries the brand: **forest green disc, cream glyph**, label
+underneath unchanged in `ink`. It used to be a pale grey disc with a dark
+glyph, which read as a disabled control rather than a category.
+
+Selection can no longer be "turn the disc green", because every disc is
+green now. The selected disc flips to **accent gold with an `accentDeep`
+ring**, and its label goes bold.
+
+The ring is not decoration. The gold fill reads clearly against its green
+siblings (5.4:1) — which is what actually communicates *which* one is
+selected — but only 2:1 against the cream page, under the 3:1 WCAG asks of
+a state indicator's own edge. The darker ring gives the disc a defined
+boundary (5.7:1) without dulling the fill.
+
+Two components must stay in step, because they sit side by side in the same
+strip and any drift between them is immediately visible:
+
+- `src/components/CategoryCard.tsx` — the category chips
+- `src/screens/HomeScreen.tsx` — the "All" chip (`allChipIconWrap*`)
+
+Uploaded category icons (`categories.icon_url`) are inset to 72% rather
+than filling the disc, so a custom icon sits *inside* the brand colour
+instead of painting over it. No category uses one today; this only shapes
+what happens the first time one does.

@@ -816,7 +816,7 @@ export default function HomeScreen() {
                   c === 'all' ? (
                     <Pressy key="all" onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
                       <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
-                        <Icon name="grip" size={20} color={topCat === 'all' ? colors.white : colors.ink} />
+                        <Icon name="grip" size={20} color={topCat === 'all' ? colors.accentInk : colors.bg} />
                       </View>
                       <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
                         {t('common.all')}
@@ -977,11 +977,16 @@ const styles = StyleSheet.create({
     width: 72, alignItems: 'center', justifyContent: 'flex-start', gap: 8,
   },
   allChipActive: {},
+  // Matches CategoryCard's icon circle exactly -- these two sit side by
+  // side in the same strip, so any drift between them is immediately
+  // visible. Green disc, cream glyph, accent disc when selected.
   allChipIconWrap: {
-    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface,
+    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
-  allChipIconWrapActive: { backgroundColor: colors.primary },
+  // Ring matches CategoryCard's selected disc -- see the note there for
+  // why the gold fill alone is not enough of an edge on a cream page.
+  allChipIconWrapActive: { backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.accentDeep },
   allChipText: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center' },
   allChipTextActive: { fontWeight: '700' },
 

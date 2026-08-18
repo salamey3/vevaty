@@ -31,7 +31,7 @@ export default function CategoryCard({
         {category.iconUrl ? (
           <Image source={{ uri: category.iconUrl }} style={styles.iconImg} resizeMode="contain" />
         ) : (
-          <Icon name={category.icon as any} size={24} color={selected ? colors.white : colors.ink} />
+          <Icon name={category.icon as any} size={24} color={selected ? colors.accentInk : colors.bg} />
         )}
       </View>
       {/* Two lines, centred under the icon. On one line "Electronics &
@@ -62,19 +62,36 @@ const styles = StyleSheet.create({
     // and down with the length of each word.
     minHeight: 44 + 8 + 28,
   },
+  // The icon circle carries the brand: forest green disc, cream glyph
+  // (BRANDING.md part 3). It used to be a pale grey disc with a dark
+  // glyph, which read as a disabled control rather than a category.
   iconWrap: {
     width: 44,
     height: 44,
     borderRadius: 22,
-    backgroundColor: colors.surface,
+    backgroundColor: colors.primary,
     alignItems: 'center',
     justifyContent: 'center',
     overflow: 'hidden',
   },
+  // Selection can no longer be "turn the circle green" -- every circle is
+  // green now. It flips to the accent instead, which is legible at a
+  // glance in a row of green discs and is exactly the kind of single
+  // moment gold exists for.
   iconWrapSelected: {
-    backgroundColor: colors.primary,
+    backgroundColor: colors.accent,
+    // The gold fill reads clearly against its green siblings (5.4:1), but
+    // only 2:1 against the cream page -- under the 3:1 WCAG asks of a
+    // state indicator's own edge. The darker gold ring gives the disc a
+    // defined boundary (5.7:1) without dulling the fill.
+    borderWidth: 2,
+    borderColor: colors.accentDeep,
   },
-  iconImg: { width: '100%', height: '100%' },
+  // Inset rather than filling the disc: an admin-uploaded icon used to
+  // cover the circle edge to edge, which would now paint over the brand
+  // colour entirely. No category uses one today, so this only shapes what
+  // happens the first time one does.
+  iconImg: { width: '72%', height: '72%' },
   label: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center', lineHeight: 14 },
   labelSelected: { fontWeight: '700' },
 });
