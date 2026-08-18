@@ -1,66 +1,101 @@
-import React, { useState } from 'react';
-import { Image, StyleSheet, Text, View } from 'react-native';
+import React, { useMemo, useState } from 'react';
+import { Image, Platform, StyleSheet, View, useWindowDimensions } from 'react-native';
 import { useVideoPlayer, VideoView } from 'expo-video';
-import Pressy from './Pressy';
-import { colors, radius, type } from '../theme/theme';
-import { videoPlaybackUrl, videoThumbnailUrl } from '../lib/bunnyVideo';
+import { radius } from '../theme/theme';
+import {
+  BUNNY_MEDIA_HEADERS,
+  videoPlaybackUrl,
+  videoStreamUrl,
+  videoThumbnailUrl,
+} from '../lib/bunnyVideo';
 
 type Props = {
   guid: string;
-  // The source height Bunny reported, which decides which MP4 rendition
-  // actually exists (see videoPlaybackUrl).
+  // The SOURCE height Bunny reported. Bunny never upscales, so this is what
+  // decides which renditions actually exist.
   height: number | null;
 };
 
-// Fills its parent container -- same contract as PhotoGallery and
-// SpinViewer, so the media box on ListingDetailScreen doesn't change shape
-// depending on which tab is open.
+// Fills its parent container -- same contract as PhotoGallery and SpinViewer,
+// so the media box on ListingDetailScreen doesn't change shape depending on
+// which tab is open.
 //
-// Nothing is downloaded until the buyer taps play. The player is created
-// with a null source and only given the URL on press, so a listing page with
-// a video costs one small JPEG to open rather than a video's worth of
-// someone's mobile data. That also sidesteps every browser's autoplay
-// policy instead of fighting it.
+// This component only mounts when the buyer opens the Videos tab (see
+// ListingDetailScreen's mediaBox), which is what makes it safe to start
+// loading immediately: a listing page still costs nothing extra to open, but
+// by the time somebody has moved their finger to the play button the video is
+// already buffered. The first version deferred loading until the tap and then
+// called play() programmatically, which was wrong twice over -- it put a
+// multi-second stall in front of every play, and on mobile browsers the
+// play() call no longer counted as a user gesture, so it was refused outright
+// and the video just sat on its first frame forever.
 export default function VideoPlayer({ guid, height }: Props) {
-  const [started, setStarted] = useState(false);
-  const [failed, setFailed] = useState(false);
+  if (Platform.OS === 'web') return <WebVideo guid={guid} height={height} />;
+  return <NativeVideo guid={guid} height={height} />;
+}
 
-  const player = useVideoPlayer(null, (p) => {
+// Web: a real <video> element rather than expo-video's wrapper, because the
+// browser's own controls are the point. Its play button is a genuine user
+// gesture on the element itself, so no autoplay policy applies, and there is
+// no programmatic play() to be refused.
+function WebVideo({ guid, height }: Props) {
+  const { width } = useWindowDimensions();
+  // A phone browser shows this in a box a few hundred pixels wide. Pulling
+  // 720p into it costs the buyer roughly three times the data for a
+  // difference they cannot see.
+  const src = useMemo(
+    () => videoPlaybackUrl(guid, height, width < 700 ? 360 : 720),
+    [guid, height, width]
+  );
+
+  return (
+    <View style={styles.fill}>
+      {React.createElement('video', {
+        key: src,
+        src,
+        poster: videoThumbnailUrl(guid),
+        controls: true,
+        preload: 'auto',
+        playsInline: true,
+        // Attribute spelling, for the browsers that still want it.
+        'webkit-playsinline': 'true',
+        style: {
+          width: '100%',
+          height: '100%',
+          objectFit: 'contain',
+          backgroundColor: '#000000',
+          display: 'block',
+        },
+      })}
+    </View>
+  );
+}
+
+// Native: expo-video over the adaptive HLS playlist, which the platform
+// player handles itself -- playback starts after one short segment, and the
+// bitrate adapts rather than committing to one rendition on mobile data.
+//
+// The player is created with its source already set, so it is buffering from
+// the moment the tab opens.
+function NativeVideo({ guid, height }: Props) {
+  const [firstFrame, setFirstFrame] = useState(false);
+
+  const source = useMemo(
+    () => ({
+      uri: videoStreamUrl(guid),
+      // Android and iOS both need telling, since the URL's own extension is
+      // the only other hint and iOS in particular ignores tracks without it.
+      contentType: 'hls' as const,
+      // Without this every request 403s -- see BUNNY_MEDIA_HEADERS. This was
+      // the black frame.
+      headers: BUNNY_MEDIA_HEADERS,
+    }),
+    [guid]
+  );
+
+  const player = useVideoPlayer(source, (p) => {
     p.loop = false;
   });
-
-  const start = () => {
-    try {
-      player.replace(videoPlaybackUrl(guid, height));
-      player.play();
-      setStarted(true);
-    } catch {
-      setFailed(true);
-    }
-  };
-
-  if (failed) {
-    return (
-      <View style={styles.fill}>
-        <Text style={type.soft}>This video could not be played.</Text>
-      </View>
-    );
-  }
-
-  if (!started) {
-    return (
-      <Pressy onPress={start} style={styles.fill}>
-        <Image source={{ uri: videoThumbnailUrl(guid) }} style={styles.poster} resizeMode="cover" />
-        <View style={styles.playOverlay}>
-          <View style={styles.playCircle}>
-            {/* No play glyph in the icon set; a border triangle renders
-                identically on native and on react-native-web. */}
-            <View style={styles.playTriangle} />
-          </View>
-        </View>
-      </Pressy>
-    );
-  }
 
   return (
     <View style={styles.fill}>
@@ -69,16 +104,22 @@ export default function VideoPlayer({ guid, height }: Props) {
         style={fillAbsolute}
         contentFit="contain"
         nativeControls
-        // expo-video 57 replaced the old `allowsFullscreen` boolean with
-        // this options object -- passing the old prop is a type error, not a
-        // silently ignored one.
         fullscreenOptions={{ enable: true }}
-        // Web only. Without it, iOS Safari yanks the video into its own
-        // fullscreen player the moment it starts, which throws the buyer out
-        // of the listing page they were reading.
-        playsInline
         allowsPictureInPicture={false}
+        onFirstFrameRender={() => setFirstFrame(true)}
       />
+      {/* Bunny's own thumbnail, covering the black rectangle the player
+          shows before it has decoded anything. Removed the instant there is
+          a real frame behind it. */}
+      {!firstFrame && (
+        <View style={styles.poster} pointerEvents="none">
+          <Image
+            source={{ uri: videoThumbnailUrl(guid), headers: BUNNY_MEDIA_HEADERS }}
+            style={styles.poster}
+            resizeMode="cover"
+          />
+        </View>
+      )}
     </View>
   );
 }
@@ -98,29 +139,13 @@ const styles = StyleSheet.create({
     alignItems: 'center',
     justifyContent: 'center',
   },
-  poster: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, width: '100%', height: '100%' },
-  playOverlay: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0, alignItems: 'center', justifyContent: 'center' },
-  playCircle: {
-    width: 60,
-    height: 60,
-    borderRadius: 30,
-    backgroundColor: 'rgba(0,0,0,0.55)',
-    borderWidth: 2,
-    borderColor: colors.white,
-    alignItems: 'center',
-    justifyContent: 'center',
-  },
-  playTriangle: {
-    width: 0,
-    height: 0,
-    marginLeft: 5,
-    borderTopWidth: 11,
-    borderBottomWidth: 11,
-    borderLeftWidth: 18,
-    borderRightWidth: 0,
-    borderTopColor: 'transparent',
-    borderBottomColor: 'transparent',
-    borderRightColor: 'transparent',
-    borderLeftColor: colors.white,
+  poster: {
+    position: 'absolute',
+    top: 0,
+    left: 0,
+    right: 0,
+    bottom: 0,
+    width: '100%',
+    height: '100%',
   },
 });

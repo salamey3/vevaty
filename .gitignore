@@ -44,3 +44,9 @@ deploy.config.json
 # generated native folders
 /ios
 /android
+
+# Scratch folder for files the cloud assistant can't delete directly (its
+# mount refuses unlink, so anything it needs to remove gets moved here for
+# you to bin later). Ignored so a leftover never blocks `npm run ship`,
+# which refuses to run while `git status --porcelain` reports anything.
+_to_delete/

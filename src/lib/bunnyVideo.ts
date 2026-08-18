@@ -23,6 +23,19 @@ import type { ListingVideo } from '../types';
 export const BUNNY_LIBRARY_ID = '730683';
 export const BUNNY_CDN_HOST = 'vz-7a0fc8e2-1e7.b-cdn.net';
 
+// The Stream pull zone refuses any request that arrives without a Referer.
+// Measured, not assumed: no Referer gets a 403, `https://vevaty.com/` gets a
+// 200 -- and so does `https://example.com/`, so the rule is "block empty
+// referrer" rather than a domain allowlist, and it is protecting nothing at
+// all (every hotlinker sends one).
+//
+// A browser sends this by itself. A native player does not, which is why the
+// app showed a black frame and no thumbnail: every file 403'd. Sending it
+// explicitly on native costs nothing and keeps the app working whether or not
+// that CDN setting is ever changed.
+export const BUNNY_REFERER = 'https://vevaty.com/';
+export const BUNNY_MEDIA_HEADERS: Record<string, string> = { Referer: BUNNY_REFERER };
+
 // The agreed product rule: one video per listing, a minute at most.
 export const MAX_VIDEO_SECONDS = 60;
 
@@ -46,16 +59,36 @@ export function videoPreviewUrl(guid: string): string {
   return `https://${BUNNY_CDN_HOST}/${guid}/preview.webp`;
 }
 
-// The MP4 fallback rather than the HLS playlist. For a clip this short
-// adaptive streaming buys nothing, and HLS would mean shipping hls.js
-// (~150KB) into a web bundle that is already one self-contained file.
+// The adaptive HLS playlist. Used on native, where the platform player
+// handles HLS itself: playback starts after one short segment instead of
+// after enough of a single file to decode, and the bitrate adapts on mobile
+// data instead of committing to one rendition up front.
 //
-// Bunny only generates an MP4 at resolutions it actually encoded, and it
-// never upscales -- so a source shot at 480p has a 360p rendition and no
-// 720p one, and asking for the wrong one 404s. `height` is the source
-// height Bunny reports back, which is what decides.
-export function videoPlaybackUrl(guid: string, height: number | null): string {
-  const rendition = (height ?? 0) >= 700 ? '720p' : '360p';
+// Not used on web: expo-video's web build has no HLS support at all (no
+// hls.js, nothing), so a browser other than Safari would simply refuse this
+// URL. Web uses the MP4 below.
+export function videoStreamUrl(guid: string): string {
+  return `https://${BUNNY_CDN_HOST}/${guid}/playlist.m3u8`;
+}
+
+// The MP4 fallback, for web. Verified faststart (the moov box comes before
+// mdat), so a browser can begin playing from a partial download rather than
+// waiting for the whole file.
+//
+// Two heights matter and they are different things. `sourceHeight` is what
+// Bunny reports for the original: Bunny never upscales, so a clip shot at
+// 480p has no 720p rendition and asking for one 404s. `maxHeight` is how big
+// the player actually is on screen -- there is no point pulling 720p into a
+// 350px-wide phone browser, it just costs the seller's buyer three times the
+// data for no visible difference.
+export function videoPlaybackUrl(
+  guid: string,
+  sourceHeight: number | null,
+  maxHeight?: number
+): string {
+  const available = sourceHeight ?? 0;
+  const wanted = maxHeight ?? 720;
+  const rendition = available >= 700 && wanted >= 700 ? '720p' : '360p';
   return `https://${BUNNY_CDN_HOST}/${guid}/play_${rendition}.mp4`;
 }
 
