@@ -25,7 +25,7 @@ export default function VideoPlayer({ guid, height }: Props) {
   const [started, setStarted] = useState(false);
   const [failed, setFailed] = useState(false);
 
-  const player = useVideoPlayer(null, (p: any) => {
+  const player = useVideoPlayer(null, (p) => {
     p.loop = false;
   });
 
@@ -69,7 +69,14 @@ export default function VideoPlayer({ guid, height }: Props) {
         style={fillAbsolute}
         contentFit="contain"
         nativeControls
-        allowsFullscreen
+        // expo-video 57 replaced the old `allowsFullscreen` boolean with
+        // this options object -- passing the old prop is a type error, not a
+        // silently ignored one.
+        fullscreenOptions={{ enable: true }}
+        // Web only. Without it, iOS Safari yanks the video into its own
+        // fullscreen player the moment it starts, which throws the buyer out
+        // of the listing page they were reading.
+        playsInline
         allowsPictureInPicture={false}
       />
     </View>

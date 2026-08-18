@@ -48,7 +48,8 @@
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
-      ]
+      ],
+      "expo-video"
     ],
     "updates": {
       "url": "https://u.expo.dev/f9c404c9-b0c5-456e-ae14-cab8a0112775"
