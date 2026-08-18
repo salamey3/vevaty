@@ -45,6 +45,30 @@ export function deployWeb() {
   if (!sources.length) throw new Error('Nothing in dist/ to upload -- run `npm run build:web` first.');
   if (missing.length) console.log(`  (not built, skipping: ${missing.join(', ')})`);
 
+  // Refuse to upload the raw Expo shell.
+  //
+  // `npm run build:web` is two commands joined by &&: `expo export` writes a
+  // ~1KB dist/index.html that pulls its JavaScript from /_expo/static/js/web/,
+  // and only then does build-standalone.mjs replace it with the ~2.7MB
+  // self-contained bundle. If the second half doesn't run -- an interrupted
+  // build, a non-zero exit from the first half -- dist/index.html is left as
+  // that shell, and uploading it silently breaks the whole site: the script it
+  // points at was never uploaded, so it 404s, the SPA-fallback rewrite serves
+  // index.html back for that 404, and every page is blank.
+  //
+  // This has actually happened, and it cost an afternoon of "my changes aren't
+  // live" -- from the outside it looks exactly like a deploy that worked.
+  const html = readFileSync('dist/index.html', 'utf8');
+  if (/<script[^>]+src=["']\/?_expo\//.test(html)) {
+    throw new Error(
+      'dist/index.html is the raw Expo shell, not the self-contained bundle.\n' +
+        '  It still loads its JavaScript from /_expo/, which never gets uploaded.\n' +
+        '  Run `npm run build:web` again and check it finishes both halves --\n' +
+        '  the last line should say "Overwrote dist/index.html with the\n' +
+        '  self-contained bundle". Nothing has been uploaded.'
+    );
+  }
+
   const port = String(cfg.port || 22);
   const target = `${cfg.user}@${cfg.host}:${cfg.remoteDir.replace(/\/$/, '')}/`;
 
