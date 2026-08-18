@@ -282,6 +282,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // after `cat` (and therefore stepKinds) has actually updated -- computing
   // the target step in the same tick would use the old category's steps.
   const [magicJumpPending, setMagicJumpPending] = useState(false);
+  // True once a Magic Listing has dropped the seller onto the Photos step,
+  // so that step can explain why they are looking at photos they have
+  // already taken.
+  const [magicLanded, setMagicLanded] = useState(false);
   // True while `title` holds the plain item name the classifier produced
   // rather than something the seller wrote. The auto-suggestion below
   // refuses to run when there is already a title -- the point being not to
@@ -348,14 +352,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // worth keeping -- the seller picks the category by hand and the rest
       // of the flow (including the AI title/description pass) carries on
       // from there, so nothing they've done is wasted.
-      setPhotos((prev) => [...prev, ...source].slice(0, MAGIC_MAX_PHOTOS));
+      setPhotos((prev) => [...prev, ...source].slice(0, PHOTOS_MAX));
       setMagicPhotos([]);
       closeMagic();
       Alert.alert(t('createListing.magicUnsureTitle'), t('createListing.magicUnsureMessage'));
       return;
     }
     setCategory(data.categoryId);
-    setPhotos((prev) => [...prev, ...source].slice(0, MAGIC_MAX_PHOTOS));
+    setPhotos((prev) => [...prev, ...source].slice(0, PHOTOS_MAX));
     // A plain name for the item, which the AI suggestion pass then uses as
     // its seed and rewrites into a proper listing title.
     if (data.itemName && !title.trim()) {
@@ -404,12 +408,23 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   useEffect(() => {
     if (!magicJumpPending || !cat) return;
-    // Land on whatever comes after the photos step for this category --
-    // spin, specs, or details. The AI title/description pass fires on its
-    // own from the photos we just set (see the auto-trigger effect below),
-    // so by the time the seller reaches Details it is usually filled in.
-    const next = stepKinds.indexOf('photos') + 1;
-    setStep(Math.min(next, stepKinds.length - 1));
+    // Land ON the photos step, not past it.
+    //
+    // This used to skip to whatever came next (spin, specs or details) on
+    // the reasoning that Magic had already collected photos. But the three
+    // photos Magic asks for are the ones the MODEL needs to recognise the
+    // item -- which is not the same set a buyer needs to decide to message
+    // you -- and the video control lives on this step too. Skipping it meant
+    // a listing created through Magic could never gain a fourth photo or a
+    // video at all, which is a strange thing for the fast path to cost you.
+    //
+    // Nothing is lost by stopping here: the AI title/description pass fires
+    // on its own from the photos just set (see the auto-trigger effect
+    // below), so it is still running in the background while the seller
+    // decides whether to add anything.
+    const photosStep = stepKinds.indexOf('photos');
+    setStep(photosStep >= 0 ? photosStep : 0);
+    setMagicLanded(true);
     setMagicJumpPending(false);
   }, [magicJumpPending, cat, stepKinds]);
 
@@ -1055,6 +1070,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         {currentKind === 'photos' && (
           <View>
             <Text style={type.soft}>{t('createListing.photosIntro')}</Text>
+            {magicLanded && (
+              <View style={styles.magicLandedNotice}>
+                <Icon name="sparkle" size={13} color={colors.inkSoft} />
+                <Text style={[type.tiny, styles.magicLandedNoticeText]}>
+                  {t('createListing.magicLandedHint', { count: photos.length })}
+                </Text>
+              </View>
+            )}
             {aiBackgroundNotice}
             <View style={styles.photoGrid}>
               {photos.map((uri) => (
@@ -1754,6 +1777,14 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 16,
   },
   aiBackgroundNoticeText: { ...type.tiny, textTransform: 'none', letterSpacing: 0, flex: 1, color: colors.inkSoft },
+  // Same shape as the AI notice above, on the plain surface rather than the
+  // warn colour -- this one is an invitation, not something to act on.
+  magicLandedNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.surface, borderRadius: radius.sm,
+    paddingHorizontal: 12, paddingVertical: 9, marginTop: 14,
+  },
+  magicLandedNoticeText: { ...type.tiny, textTransform: 'none', letterSpacing: 0, flex: 1, color: colors.inkSoft },
   draftBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 14, height: 36, marginBottom: 18,
