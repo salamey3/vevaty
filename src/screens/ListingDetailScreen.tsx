@@ -1,4 +1,4 @@
-import React, { useMemo, useRef, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, ScrollView, Image, Modal, TextInput, Linking } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -11,6 +11,8 @@ import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
 import CarouselArrows from '../components/CarouselArrows';
 import { useGoBack } from '../hooks/useGoBack';
 import SpinViewer from '../components/SpinViewer';
+import VideoPlayer from '../components/VideoPlayer';
+import { nudgeVideoStatus } from '../lib/bunnyVideo';
 import ListingCard from '../components/ListingCard';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
@@ -478,12 +480,27 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // experiment), now with a third tab and a much harder-to-miss header --
   // the earlier "spread across the page" layouts were themselves a fix for
   // an easy-to-miss tab, but the user preferred tabs back once the tab
-  // strip itself couldn't be missed. Videos has no real content yet (the
-  // app doesn't support uploading video), so it always renders its empty
-  // state -- the tab exists so the media panel's shape is ready for that
-  // once it lands, not because there's footage to show today.
+  // strip itself couldn't be missed. The Videos tab was built as an empty
+  // slot ahead of the feature; it now shows the listing's real video.
   const [mediaTab, setMediaTab] = useState<'photos' | 'spin' | 'video'>('photos');
   const [mediaExpanded, setMediaExpanded] = useState(true);
+
+  // Only a finished video is playable. RLS already hides anyone else's
+  // unfinished video, so a non-ready one here belongs to the seller looking
+  // at their own listing while it encodes -- worth telling them so, rather
+  // than showing the same "no videos" state a stranger sees.
+  const video = listing.video;
+  const playableVideo = video && video.status === 'ready' ? video : null;
+
+  // A listing opened while its video is still encoding asks once for the
+  // current state, so the seller isn't left refreshing. The answer lands on
+  // the next sync rather than instantly, which is fine -- this is a nudge,
+  // not a subscription.
+  useEffect(() => {
+    if (video && video.status !== 'ready' && video.status !== 'failed') {
+      nudgeVideoStatus(video.guid);
+    }
+  }, [video?.guid, video?.status]);
 
   const mediaHeader = (
     <Pressy onPress={() => setMediaExpanded((e) => !e)} style={styles.mediaHeader}>
@@ -532,7 +549,9 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <Text style={[styles.mediaTabText, mediaTab === 'video' && styles.mediaTabTextActive]} numberOfLines={1}>
           {t('listingDetail.videosTab')}
         </Text>
-        <Text style={[styles.mediaTabCount, mediaTab === 'video' && styles.mediaTabTextActive]}>0</Text>
+        <Text style={[styles.mediaTabCount, mediaTab === 'video' && styles.mediaTabTextActive]}>
+          {playableVideo ? 1 : 0}
+        </Text>
       </Pressy>
     </View>
   );
@@ -562,9 +581,23 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // canScrollForward just decide whether either arrow button is visible.
   const mediaBox = (extraStyle: any) => {
     if (mediaTab === 'video') {
+      // Wrapped in CarouselArrows with both arrows off for the same reason
+      // the empty states are: every tab has to render the same overall box
+      // width, or the header and tab strip above it visibly jump as you
+      // switch tabs.
       return (
         <CarouselArrows onScrollBy={() => {}} step={1} canScrollBack={false} canScrollForward={false}>
-          <View style={extraStyle}>{mediaEmptyState('camera', t('listingDetail.noVideos'))}</View>
+          <View style={extraStyle}>
+            {playableVideo ? (
+              <VideoPlayer guid={playableVideo.guid} height={playableVideo.height} />
+            ) : video && video.status === 'failed' ? (
+              mediaEmptyState('camera', t('listingDetail.videoFailed'))
+            ) : video ? (
+              mediaEmptyState('camera', t('listingDetail.videoProcessing'))
+            ) : (
+              mediaEmptyState('camera', t('listingDetail.noVideos'))
+            )}
+          </View>
         </CarouselArrows>
       );
     }

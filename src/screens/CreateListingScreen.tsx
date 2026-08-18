@@ -1,5 +1,5 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
+import { Platform, StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
@@ -16,7 +16,7 @@ import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
-import { AttributeValue, Category, CategoryAttribute, CategoryId, SpinSet } from '../types';
+import { AttributeValue, Category, CategoryAttribute, CategoryId, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
@@ -30,6 +30,17 @@ import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
 import MagicListingModal, { MAGIC_MAX_PHOTOS, MAGIC_MIN_PHOTOS } from '../components/MagicListingModal';
 import { classifyListingPhotos } from '../lib/classifyPhotos';
+import {
+  MAX_VIDEO_BYTES,
+  MAX_VIDEO_SECONDS,
+  UploadHandle,
+  createVideoUploadTicket,
+  deleteVideo,
+  fetchVideoStatus,
+  measureVideoSeconds,
+  nudgeVideoStatus,
+  uploadVideoToBunny,
+} from '../lib/bunnyVideo';
 import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
@@ -113,6 +124,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // Index into spinSets for the set currently being retaken/previewed, or
   // null while capturing a brand-new one not yet added to the list.
   const [activeSpinIndex, setActiveSpinIndex] = useState<number | null>(null);
+  // The listing's one optional video. Deliberately held HERE, at the wizard
+  // level, rather than inside the photos step: the whole point of the
+  // feature is that the seller carries on to Details while the upload is
+  // still running, and state owned by the step would be thrown away the
+  // moment they did. `videoUploadRef` is the live tus upload, kept only so
+  // Remove can actually stop it rather than leaving bytes in flight.
+  const [video, setVideo] = useState<ListingVideo | null>(editingListing?.video || null);
+  const [videoProgress, setVideoProgress] = useState<number>(0);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const videoUploadRef = useRef<UploadHandle | null>(null);
   const [draftSpinFrames, setDraftSpinFrames] = useState<string[]>([]);
   const [draftSpinLabel, setDraftSpinLabel] = useState('');
   const [cameraOpen, setCameraOpen] = useState(false);
@@ -472,6 +493,96 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     }
   };
 
+  // Records or picks ONE video and starts sending it to Bunny immediately.
+  //
+  // The length limit cannot be imposed while recording -- neither a phone
+  // browser's capture attribute nor Android's system camera app accepts one
+  // from us, and videoMaxDuration below is honoured on iOS but not
+  // everywhere -- so it is checked here instead, after the file exists and
+  // before a single byte is sent. Refusing in one sentence beats spending
+  // ten minutes of somebody's mobile data and refusing afterwards.
+  const addVideo = async (fromCamera: boolean) => {
+    setVideoError(null);
+    const perm = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(t('createListing.photoPermTitle'), t('createListing.photoPermMessage'));
+      return;
+    }
+
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          videoMaxDuration: MAX_VIDEO_SECONDS,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          allowsMultipleSelection: false,
+          selectionLimit: 1,
+        });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+
+    const seconds = await measureVideoSeconds(asset.uri, asset.duration ?? null);
+    // A second of slack: a "60 second" recording routinely measures 60.2.
+    if (seconds != null && seconds > MAX_VIDEO_SECONDS + 1) {
+      setVideoError(t('createListing.videoTooLong', { max: MAX_VIDEO_SECONDS, secs: Math.round(seconds) }));
+      return;
+    }
+    if (typeof asset.fileSize === 'number' && asset.fileSize > MAX_VIDEO_BYTES) {
+      setVideoError(t('createListing.videoTooBig'));
+      return;
+    }
+
+    try {
+      setVideoProgress(0);
+      const ticket = await createVideoUploadTicket({
+        title: title.trim() || 'Vevaty listing video',
+        // Passing the listing id on an edit is what lets the server delete
+        // the video being replaced, instead of orphaning it on Bunny.
+        listingId: editListingId ?? null,
+      });
+      const { promise, handle } = uploadVideoToBunny(asset.uri, ticket, {
+        mimeType: asset.mimeType ?? null,
+        title: title.trim() || 'Vevaty listing video',
+        onProgress: (fraction) => setVideoProgress(fraction),
+      });
+      videoUploadRef.current = handle;
+      setVideo({
+        guid: ticket.videoId,
+        status: 'uploading',
+        durationS: seconds,
+        width: asset.width ?? null,
+        height: asset.height ?? null,
+      });
+
+      await promise;
+      videoUploadRef.current = null;
+      setVideoProgress(1);
+      setVideo((v) => (v && v.guid === ticket.videoId ? { ...v, status: 'processing' } : v));
+      // Don't wait for Bunny's callback to say encoding started -- ask.
+      nudgeVideoStatus(ticket.videoId);
+    } catch (e: any) {
+      videoUploadRef.current = null;
+      setVideo(null);
+      setVideoProgress(0);
+      setVideoError(e?.message || String(e));
+    }
+  };
+
+  const removeVideo = async () => {
+    const guid = video?.guid;
+    videoUploadRef.current?.abort();
+    videoUploadRef.current = null;
+    setVideo(null);
+    setVideoProgress(0);
+    setVideoError(null);
+    // Removes it from Bunny too, not just from this form -- otherwise every
+    // video a seller changed their mind about is stored and billed forever.
+    if (guid) deleteVideo(guid).catch(() => {});
+  };
+
   // Fallback default name for a spin set the seller never typed/picked a
   // label for -- "Spin 1", "Spin 2", ... in whatever position it ends up
   // at in the list (index is 0-based, so +1 for a human-friendly count).
@@ -762,6 +873,41 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     }
   };
 
+  // Bunny does not document whether it retries a failed webhook delivery,
+  // so nothing here waits on one: while the seller is still in the wizard
+  // this asks for the real state every few seconds. A missed callback should
+  // mean a slightly later "ready", never a video stuck on "processing"
+  // forever.
+  useEffect(() => {
+    if (video?.status !== 'processing') return;
+    const guid = video.guid;
+    let cancelled = false;
+    const timer = setInterval(async () => {
+      await nudgeVideoStatus(guid);
+      const fresh = await fetchVideoStatus(guid);
+      if (cancelled || !fresh || fresh.status === 'processing') return;
+      setVideo(fresh);
+    }, 6000);
+    return () => {
+      cancelled = true;
+      clearInterval(timer);
+    };
+  }, [video?.guid, video?.status]);
+
+  // Closing the tab mid-upload loses the upload. Web only -- there is no
+  // equivalent event on the phone app, where backgrounding suspends rather
+  // than kills, and tus resumes when the app comes back.
+  useEffect(() => {
+    if (Platform.OS !== 'web' || video?.status !== 'uploading') return;
+    if (typeof window === 'undefined') return;
+    const warn = (e: any) => {
+      e.preventDefault();
+      e.returnValue = '';
+    };
+    window.addEventListener('beforeunload', warn);
+    return () => window.removeEventListener('beforeunload', warn);
+  }, [video?.status]);
+
   const post = async () => {
     if (!category) return;
     setPosting(true);
@@ -787,6 +933,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       lng: derivedCoords?.lng ?? null,
       photos,
       spinSets,
+      video,
       aiGenerated: usedDraft,
       attributes,
       contactMethod,
@@ -893,6 +1040,68 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 <Icon name="image" size={20} color={colors.inkSoft} />
                 <Text style={[type.tiny, styles.addPhotoLabel]}>{t('createListing.addFromGallery')}</Text>
               </Pressy>
+            </View>
+
+            {/* Video sits on the photos step rather than getting a step of
+                its own: one optional clip doesn't justify a whole extra
+                screen every seller has to walk past. The upload runs from
+                the wizard's own state, so Continue is never blocked by it. */}
+            <View style={styles.videoBlock}>
+              <Text style={styles.sectionLabel}>{t('createListing.videoLabel')}</Text>
+              <Text style={type.soft}>{t('createListing.videoIntro', { max: MAX_VIDEO_SECONDS })}</Text>
+
+              {!video && (
+                <View style={styles.photoGrid}>
+                  <Pressy onPress={() => addVideo(true)} style={styles.addPhoto}>
+                    <Icon name="camera" size={20} color={colors.inkSoft} />
+                    <Text style={[type.tiny, styles.addPhotoLabel]}>{t('createListing.videoRecord')}</Text>
+                  </Pressy>
+                  <Pressy onPress={() => addVideo(false)} style={styles.addPhoto}>
+                    <Icon name="image" size={20} color={colors.inkSoft} />
+                    <Text style={[type.tiny, styles.addPhotoLabel]}>{t('createListing.videoChoose')}</Text>
+                  </Pressy>
+                </View>
+              )}
+
+              {video && (
+                <View style={styles.videoCard}>
+                  <View style={styles.videoCardRow}>
+                    <Icon
+                      name={video.status === 'failed' ? 'close' : video.status === 'ready' ? 'checkCircle' : 'camera'}
+                      size={15}
+                      color={video.status === 'failed' ? colors.danger : video.status === 'ready' ? colors.success : colors.inkSoft}
+                    />
+                    <Text style={[type.soft, styles.videoStatusText]}>
+                      {video.status === 'uploading'
+                        ? t('createListing.videoUploading', { pct: Math.round(videoProgress * 100) })
+                        : video.status === 'processing'
+                          ? t('createListing.videoProcessing')
+                          : video.status === 'ready'
+                            ? t('createListing.videoReady')
+                            : t('createListing.videoFailed')}
+                    </Text>
+                    <Pressy onPress={removeVideo} style={styles.videoRemoveBtn}>
+                      <Icon name="trash" size={14} color={colors.inkSoft} />
+                      <Text style={type.soft}>{t('createListing.videoRemove')}</Text>
+                    </Pressy>
+                  </View>
+                  {video.status === 'uploading' && (
+                    <View style={styles.videoProgressTrack}>
+                      <View
+                        style={[
+                          styles.videoProgressFill,
+                          // A plain conditional style, not the Animated API --
+                          // see the standing note about Animated's web
+                          // fallback dropping percentage widths.
+                          { width: `${Math.max(2, Math.round(videoProgress * 100))}%` },
+                        ]}
+                      />
+                    </View>
+                  )}
+                </View>
+              )}
+
+              {!!videoError && <Text style={styles.videoError}>{videoError}</Text>}
             </View>
             {cat && (
               <View style={styles.shotList}>
@@ -1446,6 +1655,27 @@ const styles = StyleSheet.create({
   addPhotoLabel: { textAlign: 'center' },
   shotList: { marginTop: 24, gap: 8 },
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
+  videoBlock: { marginTop: 26 },
+  videoCard: {
+    marginTop: 12,
+    padding: 12,
+    borderRadius: radius.md,
+    borderWidth: 1,
+    borderColor: colors.line,
+    backgroundColor: colors.card,
+    gap: 10,
+  },
+  videoCardRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  videoStatusText: { flex: 1 },
+  videoRemoveBtn: { flexDirection: 'row', alignItems: 'center', gap: 5 },
+  videoProgressTrack: {
+    height: 5,
+    borderRadius: 3,
+    backgroundColor: colors.surface,
+    overflow: 'hidden',
+  },
+  videoProgressFill: { height: 5, borderRadius: 3, backgroundColor: colors.ink },
+  videoError: { ...type.soft, color: colors.danger, marginTop: 10 },
   shotItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   spinCaptureBtn: {
     marginTop: 14, height: 84, borderRadius: radius.sm, backgroundColor: colors.card,

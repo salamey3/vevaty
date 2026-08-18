@@ -107,6 +107,24 @@ export interface SpinSet {
   frames: string[]; // same local-uri-then-hosted-url lifecycle as photos, in capture order
 }
 
+// A listing's optional video, hosted on Bunny Stream (see
+// src/lib/bunnyVideo.ts). One per listing, 60 seconds at most.
+//
+// Only `guid` is stored server-side -- every URL (playback, thumbnail,
+// preview) is derived from it, so there are no stored URLs to migrate if
+// the CDN hostname ever changes. `status` walks uploading -> processing ->
+// ready: 'ready' is the only status anyone but the seller can ever see,
+// because a half-encoded video would just be a broken player on a public
+// listing. `height` is the SOURCE height Bunny reports, and it decides
+// which MP4 rendition actually exists -- Bunny never upscales.
+export interface ListingVideo {
+  guid: string;
+  status: 'uploading' | 'processing' | 'ready' | 'failed';
+  durationS: number | null;
+  width: number | null;
+  height: number | null;
+}
+
 export interface Listing {
   id: string;
   cat: CategoryId;
@@ -145,6 +163,11 @@ export interface Listing {
   // common case (no spin at all). Replaces the old flat single-spin
   // `spinPhotos: string[]` field.
   spinSets: SpinSet[];
+  // Null for the vast majority of listings -- video is entirely optional,
+  // and a listing posted before this feature existed simply has none. See
+  // normalizeListing in AppStore.tsx for why that null has to be defaulted
+  // at cache-read time rather than trusted.
+  video: ListingVideo | null;
   sellerName: string;
   sellerId: string;
   rating: number;

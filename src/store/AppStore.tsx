@@ -1,10 +1,11 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Listing, Profile, PointsEvent, SpinSet } from '../types';
+import { Listing, ListingVideo, Profile, PointsEvent, SpinSet } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
 import { uploadPhotos } from '../lib/photoUpload';
+import { attachVideoToListing, deleteVideo } from '../lib/bunnyVideo';
 
 const KEYS = {
   listings: 'vevaty:listings',
@@ -134,6 +135,12 @@ function normalizeListing(l: any): Listing {
     // default to empty rather than let a stale/wrong shape reach a
     // component expecting SpinSet[].
     spinSets: Array.isArray(l?.spinSets) ? l.spinSets : [],
+    // Exactly the same defensive story once more, for exactly the same
+    // reason: a listing cached by a build that predates video has no such
+    // field, and anything reading `listing.video.status` without a guard
+    // would take the whole render tree down on first load -- which is what
+    // the 360-spin deploy actually did in production.
+    video: l?.video && typeof l.video === 'object' && typeof l.video.guid === 'string' ? l.video : null,
     // Same defensive story as photos/spinSets above: a listing cached by
     // a build that predates the login-gate/expiry feature won't have
     // these fields at all.
@@ -160,6 +167,23 @@ function normalizeListing(l: any): Listing {
   };
 }
 
+// The listing_videos join comes back as an array (it is a one-to-many
+// relationship in Postgres even though the product rule allows exactly one
+// row per listing, enforced by a partial unique index). Anything not yet
+// 'ready' is dropped for everyone except the owner by RLS, so a row arriving
+// here at all already means it is showable.
+function videoFromRows(rows: any): ListingVideo | null {
+  const row = Array.isArray(rows) ? rows[0] : rows;
+  if (!row?.bunny_guid) return null;
+  return {
+    guid: row.bunny_guid,
+    status: row.status || 'processing',
+    durationS: row.duration_s != null ? Number(row.duration_s) : null,
+    width: row.width != null ? Number(row.width) : null,
+    height: row.height != null ? Number(row.height) : null,
+  };
+}
+
 function dbListingToLocal(row: any): Listing {
   const rows = Array.isArray(row.photos) ? row.photos : [];
   const photos = sortedByKind(rows, 'gallery');
@@ -180,6 +204,8 @@ function dbListingToLocal(row: any): Listing {
     lng: row.lng != null ? Number(row.lng) : null,
     photos, // hosted on vevaty.com/uploads, not Supabase Storage
     spinSets,
+    video: videoFromRows(row.video), // hosted on Bunny Stream, not either of those
+
     sellerName: row.seller?.full_name || 'Vevaty user',
     sellerId: row.seller_id,
     rating: 5,
@@ -276,11 +302,20 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         .select(
           '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at), ' +
             'photos:listing_photos(url, sort_order, kind, spin_set_id), ' +
-            'spinSets:listing_spin_sets(id, label, sort_order)'
+            'spinSets:listing_spin_sets(id, label, sort_order), ' +
+            'video:listing_videos(bunny_guid, status, duration_s, width, height)'
         )
         .order('created_at', { ascending: false });
 
-      if (!error) {
+      if (error) {
+        // Worth saying out loud. A malformed embed in the select above (a
+        // renamed table, a foreign key PostgREST can't resolve) fails the
+        // WHOLE listings fetch, and the catch below would then quietly fall
+        // back to cached data -- an app that looks fine while showing
+        // yesterday's listings is far harder to diagnose than one that
+        // complains.
+        console.warn('[AppStore] listings fetch failed:', error.message);
+      } else {
         setOnline(true);
         if (listingRows) {
           setListings(listingRows.map(dbListingToLocal));
@@ -573,6 +608,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
               })
               .catch(() => {});
           }
+          // The video went to Bunny while the seller was still filling in
+          // the rest of the form, so by now it exists but points at nothing.
+          // Linking it is what makes it visible to anyone else: the RLS
+          // select policy only exposes a video whose listing is live.
+          if (l.video?.guid) {
+            attachVideoToListing(l.video.guid, listingId).catch(() => {});
+          }
         }
       }
 
@@ -625,6 +667,29 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         syncSpinSets(id, l.spinSets),
       ]);
       setListings((prev) => prev.map((it) => (it.id === id ? { ...it, spinSets: hostedSpinSets } : it)));
+
+      // Video. Read what is currently attached from the database rather than
+      // from local state: this callback deliberately doesn't depend on
+      // `listings`, so any copy captured in its closure would be stale.
+      //
+      // Replacing a video is already handled before we get here -- the edit
+      // screen passes the listing id when it asks for an upload ticket, and
+      // bunny-video-token deletes the old video from Bunny at that point. So
+      // only two cases are left: attach a new one, or the seller removed the
+      // one that was there.
+      const { data: attachedVideo } = await supabase
+        .from('listing_videos')
+        .select('bunny_guid')
+        .eq('listing_id', id)
+        .maybeSingle();
+      const previousGuid: string | null = attachedVideo?.bunny_guid ?? null;
+      if (l.video?.guid && l.video.guid !== previousGuid) {
+        await attachVideoToListing(l.video.guid, id);
+      } else if (!l.video?.guid && previousGuid) {
+        // Best effort -- a listing must never be stuck un-editable because
+        // Bunny had a bad minute.
+        await deleteVideo(previousGuid).catch(() => {});
+      }
     },
     [syncPhotoKind, syncSpinSets]
   );
@@ -635,6 +700,20 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
     const uid = userIdRef.current;
     if (!uid) return;
+    // The listing_videos row cascade-deletes with the parent, but the file
+    // itself lives on Bunny and would go on being paid for every month with
+    // nothing pointing at it -- so it has to be removed explicitly, and
+    // before the row that names it disappears. (Expiry is different: an
+    // expired listing keeps its video so a one-tap renewal still has one.)
+    const { data: attachedVideo } = await supabase
+      .from('listing_videos')
+      .select('bunny_guid')
+      .eq('listing_id', id)
+      .maybeSingle();
+    if (attachedVideo?.bunny_guid) {
+      await deleteVideo(attachedVideo.bunny_guid).catch(() => {});
+    }
+
     // RLS (myazar.listings "sellers manage their own listings") already
     // restricts this to the caller's own rows; listing_photos cascade-
     // deletes with the parent row, so there's nothing else to clean up.

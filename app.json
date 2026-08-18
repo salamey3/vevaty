@@ -44,7 +44,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Vevaty to access your camera to take listing photos and 360° spins.",
+          "cameraPermission": "Allow Vevaty to access your camera to take listing photos, 360° spins and videos.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
