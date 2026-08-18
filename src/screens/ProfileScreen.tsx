@@ -335,7 +335,7 @@ const styles = StyleSheet.create({
     flex: 1, height: 44, borderRadius: radius.md, backgroundColor: colors.card,
     borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center',
   },
-  langOptionActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  langOptionActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   langLabel: { fontSize: 14, fontWeight: '600', color: colors.ink },
   langLabelActive: { color: colors.white },
   adminBtn: {
@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
   logOutLabel: { fontSize: 14.5, fontWeight: '600', color: colors.danger },
   logInBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
-    height: 48, borderRadius: radius.md, backgroundColor: colors.ink,
+    height: 48, borderRadius: radius.md, backgroundColor: colors.primary,
   },
   logInLabel: { fontSize: 14.5, fontWeight: '600', color: colors.white },
   deleteAccountRow: { height: 32, alignItems: 'center', justifyContent: 'center' },

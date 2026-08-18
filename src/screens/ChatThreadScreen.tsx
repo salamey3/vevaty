@@ -398,7 +398,7 @@ const styles = StyleSheet.create({
   bubbleRowMine: { justifyContent: 'flex-end' },
   bubbleRowTheirs: { justifyContent: 'flex-start' },
   bubble: { maxWidth: '78%', borderRadius: radius.md, paddingHorizontal: 14, paddingVertical: 9 },
-  bubbleMine: { backgroundColor: colors.ink, borderBottomRightRadius: 4 },
+  bubbleMine: { backgroundColor: colors.primary, borderBottomRightRadius: 4 },
   bubbleTheirs: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line, borderBottomLeftRadius: 4 },
   bubbleText: { fontSize: 14.5, lineHeight: 20, color: colors.ink },
   bubbleTextMine: { color: colors.white },
@@ -428,7 +428,7 @@ const styles = StyleSheet.create({
   },
   sendBtn: {
     height: 40, paddingHorizontal: 16, borderRadius: radius.pill,
-    backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
   },
   sendBtnDisabled: { opacity: 0.4 },
   sendBtnText: { fontSize: 14, fontWeight: '600', color: colors.white },
@@ -445,7 +445,7 @@ const styles = StyleSheet.create({
   },
   offerChip: {
     flexDirection: 'row', alignItems: 'center', gap: 6,
-    height: 32, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.ink,
+    height: 32, paddingHorizontal: 14, borderRadius: radius.pill, backgroundColor: colors.primary,
   },
   offerChipText: { fontSize: 12.5, fontWeight: '700', color: colors.white },
   quickReplyChip: {
@@ -477,7 +477,7 @@ const styles = StyleSheet.create({
   },
   offerDeclineBtnText: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   offerAcceptBtn: {
-    flex: 1, height: 36, borderRadius: radius.pill, backgroundColor: colors.ink,
+    flex: 1, height: 36, borderRadius: radius.pill, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
   offerAcceptBtnText: { fontSize: 12.5, fontWeight: '700', color: colors.white },
@@ -501,7 +501,7 @@ const styles = StyleSheet.create({
   offerPanelCancelBtn: { height: 48, paddingHorizontal: 16, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   offerPanelCancelBtnText: { fontSize: 14.5, fontWeight: '600', color: colors.inkSoft },
   offerPanelSendBtn: {
-    flex: 1, height: 48, borderRadius: radius.pill, backgroundColor: colors.ink,
+    flex: 1, height: 48, borderRadius: radius.pill, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
   offerPanelSendBtnText: { fontSize: 14.5, fontWeight: '600', color: colors.white },

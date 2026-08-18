@@ -26,25 +26,49 @@ import { Platform } from 'react-native';
 // when the admin changes branding in-session the way web does (would need
 // a separate mechanism, e.g. re-fetching site_settings into component
 // state and re-rendering; tracked as a follow-up, not blocking here).
-const ink = Platform.OS === 'web' ? 'var(--vevaty-primary, #2b2b2f)' : '#2b2b2f';
-const heroA = Platform.OS === 'web' ? 'var(--vevaty-accent, #4c4d52)' : '#4c4d52';
-const heroB = Platform.OS === 'web' ? 'var(--vevaty-primary, #2a2a2e)' : '#2a2a2e';
+// Brand colours -- see BRANDING.md part 3, "Forest & gold".
+//
+// `primary` is the brand green: the mark, primary buttons, every selected
+// state, prices. `ink` is body TEXT and is deliberately NOT the brand
+// colour any more. It used to be both, which is why every button in the
+// app was the same charcoal as the paragraph beside it.
+const primary = Platform.OS === 'web' ? 'var(--vevaty-primary, #0F3D2E)' : '#0F3D2E';
+const accent = Platform.OS === 'web' ? 'var(--vevaty-accent, #D9A441)' : '#D9A441';
+// The hero gradient stays inside the green family. Running it from green
+// to gold reads as a sunset rather than as a brand.
+const heroA = Platform.OS === 'web' ? 'var(--vevaty-primary, #0F3D2E)' : '#0F3D2E';
+const heroB = '#0A2E22';
 
 export const colors = {
-  ink,
-  inkSoft: '#7a7a78',
-  line: '#e6e6e3',
-  bg: '#f5f5f3',
+  primary,
+  primaryPressed: '#0A2E22',
+  primaryTint: '#E3EDE8',
+  accent,
+  // Text ON accent is near-black, never white -- white on #D9A441 is
+  // roughly 2:1 and fails contrast outright.
+  accentInk: '#2A1F06',
+  accentTint: '#F6EBD3',
+  accentDeep: '#7A5A16',
+  ink: '#1C2420',
+  // #626A67 and not a shade lighter. The first value tried (#6B7370)
+  // measured 4.38:1 against `bg`, under the 4.5 body text needs; this is
+  // the lightest value that clears AA on bg, surface AND card. Do not
+  // lighten it back for looks.
+  inkSoft: '#626A67',
+  line: '#E4E2DA',
+  bg: '#F4F3EE',
   card: '#ffffff',
-  surface: '#f0f0ee',
+  surface: '#EDEBE3',
   heroA,
   heroB,
   glassBg: 'rgba(255,255,255,0.6)',
   glassBorder: 'rgba(255,255,255,0.7)',
   white: '#ffffff',
-  danger: '#b3413a',
-  success: '#3c6e52',
-  warnBg: '#fff7cc',
+  danger: '#A3332F',
+  // Distinct from `primary` on purpose: a success message should not be
+  // indistinguishable from a button.
+  success: '#1F5E43',
+  warnBg: '#F6EBD3',
 };
 
 // Called once site_settings loads from Supabase (and again whenever the

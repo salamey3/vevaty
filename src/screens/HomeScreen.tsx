@@ -981,7 +981,7 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22, backgroundColor: colors.surface,
     alignItems: 'center', justifyContent: 'center',
   },
-  allChipIconWrapActive: { backgroundColor: colors.ink },
+  allChipIconWrapActive: { backgroundColor: colors.primary },
   allChipText: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center' },
   allChipTextActive: { fontWeight: '700' },
 
@@ -1031,7 +1031,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     alignItems: 'center', justifyContent: 'center',
   },
-  numberPillActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  numberPillActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   numberPillText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
   numberPillTextActive: { color: colors.white },
 
@@ -1052,7 +1052,7 @@ const styles = StyleSheet.create({
   priceDash: { color: colors.inkSoft },
   setPriceBtn: {
     height: 36, paddingHorizontal: 14, borderRadius: radius.sm,
-    backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center',
+    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
   },
   setPriceBtnText: { fontSize: 12.5, fontWeight: '600', color: colors.white },
   distanceHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },

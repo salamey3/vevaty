@@ -1,0 +1,106 @@
+<!DOCTYPE html>
+<html>
+<head>
+<meta charset="utf-8">
+<!--
+  Source for the brand assets that contain type. These cannot be built by
+  scripts/generate-brand-assets.mjs, because rasterising text needs a real
+  font and a text engine (Arabic in particular needs proper shaping, which
+  a plain SVG rasteriser will not do).
+
+  Regenerate with:
+      node scripts/brand/render-wordmark.mjs
+
+  It loads this file in headless Chromium and screenshots each .plate at
+  device_scale_factor 2. Cairo comes from @fontsource/cairo, a devDependency,
+  so the fonts are resolved locally rather than from a CDN and the output is
+  byte-stable across machines.
+
+  Colours and sizes here mirror BRANDING.md parts 2, 3, 6 and 7.
+-->
+<style>
+  @font-face{font-family:'Cairo';font-weight:700;font-display:block;
+    src:url('../../node_modules/@fontsource/cairo/files/cairo-latin-700-normal.woff2') format('woff2');
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+2000-206F,U+2122;}
+  @font-face{font-family:'Cairo';font-weight:700;font-display:block;
+    src:url('../../node_modules/@fontsource/cairo/files/cairo-arabic-700-normal.woff2') format('woff2');
+    unicode-range:U+0600-06FF,U+0750-077F,U+FB50-FDFF,U+FE70-FEFF;}
+
+  html,body{margin:0;padding:0;background:transparent}
+  .plate{display:flex;align-items:center;justify-content:center;overflow:hidden}
+  .lock{display:flex;align-items:center;gap:var(--gap)}
+  .lock.rtl{flex-direction:row-reverse}
+  .wm{font-family:'Cairo';font-weight:700;line-height:1;letter-spacing:-.0125em}
+  .ar{font-family:'Cairo';font-weight:700;line-height:1.4;direction:rtl}
+  svg{display:block}
+
+  /* logo plates: transparent, tight to the lockup */
+  #logo-en,#logo-ar{width:560px;height:150px;background:transparent}
+  #logo-en-dark,#logo-ar-dark{width:560px;height:150px;background:transparent}
+
+  /* share image: 1200x630, green ground (BRANDING.md part 7) */
+  #og{width:1200px;height:630px;background:#0F3D2E;position:relative;
+      flex-direction:column;align-items:flex-start;justify-content:center;padding:0 96px}
+  #og .head{font-family:'Cairo';font-weight:700;font-size:86px;line-height:1.06;
+            letter-spacing:-.02em;color:#fff}
+  #og .sub{font-family:'Cairo';font-weight:700;font-size:27px;color:#A8C0B4;margin-top:26px;letter-spacing:-.01em}
+  #og .foot{position:absolute;left:96px;bottom:58px;display:flex;align-items:center;gap:16px}
+  #og .footwm{font-family:'Cairo';font-weight:700;font-size:40px;color:#fff;letter-spacing:-.0125em}
+  #og .ghost{position:absolute;right:-70px;bottom:-90px;opacity:.06;color:#fff}
+</style>
+</head>
+<body>
+
+<!-- mark, defined once -->
+<svg width="0" height="0" style="position:absolute"><defs>
+  <symbol id="m" viewBox="0 0 64 64">
+    <path fill-rule="evenodd" fill="currentColor" d="M30 8h20a6 6 0 0 1 6 6v20a6 6 0 0 1-1.76 4.24L36.24 56.24a6 6 0 0 1-8.48 0L7.76 36.24a6 6 0 0 1 0-8.48L25.76 9.76A6 6 0 0 1 30 8zM49.7 18.5a4.2 4.2 0 1 0-8.4 0 4.2 4.2 0 0 0 8.4 0zM23.6 25.4 32 35.6l8.4-10.2 4.7 4.5L32 45.6 18.9 29.9z"/>
+  </symbol>
+</defs></svg>
+
+<!-- English logo, green on transparent -->
+<div class="plate" id="logo-en">
+  <div class="lock" style="--gap:19px">
+    <svg width="64" height="64" style="color:#0F3D2E"><use href="#m"/></svg>
+    <span class="wm" style="font-size:62px;color:#0F3D2E">vevaty</span>
+  </div>
+</div>
+
+<!-- English logo, white on transparent (for dark grounds) -->
+<div class="plate" id="logo-en-dark">
+  <div class="lock" style="--gap:19px">
+    <svg width="64" height="64" style="color:#ffffff"><use href="#m"/></svg>
+    <span class="wm" style="font-size:62px;color:#ffffff">vevaty</span>
+  </div>
+</div>
+
+<!-- Arabic logo, green on transparent. Arabic sets ~0.9x the Latin size
+     (BRANDING.md part 2) because it reads optically larger at parity. -->
+<div class="plate" id="logo-ar">
+  <div class="lock rtl" style="--gap:19px">
+    <svg width="64" height="64" style="color:#0F3D2E"><use href="#m"/></svg>
+    <span class="ar" style="font-size:56px;color:#0F3D2E">ڤيڤاتي</span>
+  </div>
+</div>
+
+<!-- Arabic logo, white on transparent -->
+<div class="plate" id="logo-ar-dark">
+  <div class="lock rtl" style="--gap:19px">
+    <svg width="64" height="64" style="color:#ffffff"><use href="#m"/></svg>
+    <span class="ar" style="font-size:56px;color:#ffffff">ڤيڤاتي</span>
+  </div>
+</div>
+
+<!-- Share / OG image -->
+<div class="plate" id="og">
+  <div class="head">Buy and sell,<br>near you.</div>
+  <div class="sub">Lebanon’s marketplace for secondhand</div>
+  <div class="foot">
+    <svg width="46" height="46" style="color:#fff"><use href="#m"/></svg>
+    <span class="footwm">vevaty</span>
+  </div>
+  <div class="ghost"><svg width="420" height="420"><use href="#m"/></svg></div>
+</div>
+
+</body>
+</html>

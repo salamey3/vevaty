@@ -85,7 +85,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'nav.sell': 'Sell an item',
     'nav.messages': 'Messages',
     'nav.profile': 'Profile',
-    'nav.footer': 'Vevaty — Lebanon marketplace',
+    'nav.footer': 'vevaty — Lebanon marketplace',
 
     // Home
     'home.greeting': 'Good to see you,',
@@ -148,7 +148,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.contactToHire': 'Contact to hire',
     'listingDetail.callSeller': 'Call seller',
     'listingDetail.whatsappSeller': 'Message on WhatsApp',
-    'listingDetail.whatsappMessage': 'Hi, I’m interested in "{title}" on Vevaty.',
+    'listingDetail.whatsappMessage': 'Hi, I’m interested in "{title}" on vevaty.',
     'listingDetail.contactLoadFailed': 'Could not load the seller’s contact info. Please try again.',
     'listingDetail.messageSeller': 'Message seller',
     'listingDetail.showPhoneNumber': 'Show phone number',
@@ -387,13 +387,13 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     // Public seller profile page (OLX-comparison follow-up)
     'sellerProfile.title': 'Seller profile',
-    'sellerProfile.unknownSeller': 'Vevaty user',
+    'sellerProfile.unknownSeller': 'vevaty user',
     'sellerProfile.notFoundTitle': 'This seller could not be found.',
     'sellerProfile.publishedAds': '{count} published ads',
     'sellerProfile.listings': 'Listings ({count})',
     'sellerProfile.noActiveListings': 'This seller doesn’t have any active listings right now.',
     'sellerProfile.shareProfile': 'Share profile',
-    'sellerProfile.shareText': 'Check out {name}’s listings on Vevaty',
+    'sellerProfile.shareText': 'Check out {name}’s listings on vevaty',
     'sellerProfile.linkCopied': 'Link copied',
     'sellerProfile.shareFailed': 'Could not copy link',
 
@@ -508,7 +508,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'nav.sell': 'أضف إعلان',
     'nav.messages': 'الرسائل',
     'nav.profile': 'حسابي',
-    'nav.footer': 'فيفاتي — سوق لبنان',
+    'nav.footer': 'ڤيڤاتي — سوق لبنان',
 
     'home.greeting': 'أهلاً فيك،',
     'home.welcome': 'أهلاً بك',
@@ -566,7 +566,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.contactToHire': 'تواصل للتوظيف',
     'listingDetail.callSeller': 'اتصال بالبائع',
     'listingDetail.whatsappSeller': 'مراسلة عبر واتساب',
-    'listingDetail.whatsappMessage': 'مرحبًا، أنا مهتم بـ "{title}" على فيفاتي.',
+    'listingDetail.whatsappMessage': 'مرحبًا، أنا مهتم بـ "{title}" على ڤيڤاتي.',
     'listingDetail.contactLoadFailed': 'تعذّر تحميل معلومات التواصل مع البائع. يرجى المحاولة مرة أخرى.',
     'listingDetail.messageSeller': 'مراسلة البائع',
     'listingDetail.showPhoneNumber': 'إظهار رقم الهاتف',
@@ -793,13 +793,13 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'favorites.searchesEmptySub': 'اضغط على "حفظ هذا البحث" في أي فئة مُصفّاة لتجدها هنا لاحقًا.',
 
     'sellerProfile.title': 'الملف الشخصي للبائع',
-    'sellerProfile.unknownSeller': 'مستخدم Vevaty',
+    'sellerProfile.unknownSeller': 'مستخدم ڤيڤاتي',
     'sellerProfile.notFoundTitle': 'تعذّر العثور على هذا البائع.',
     'sellerProfile.publishedAds': '{count} إعلان منشور',
     'sellerProfile.listings': 'الإعلانات ({count})',
     'sellerProfile.noActiveListings': 'لا يوجد لدى هذا البائع أي إعلانات نشطة حاليًا.',
     'sellerProfile.shareProfile': 'مشاركة الملف الشخصي',
-    'sellerProfile.shareText': 'شاهد إعلانات {name} على Vevaty',
+    'sellerProfile.shareText': 'شاهد إعلانات {name} على ڤيڤاتي',
     'sellerProfile.linkCopied': 'تم نسخ الرابط',
     'sellerProfile.shareFailed': 'تعذّر نسخ الرابط',
 

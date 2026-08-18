@@ -1,0 +1,13 @@
+<svg viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg">
+  <!--
+    Vevaty mark: a price tag with the V and the eyelet punched clean
+    through it (fill-rule evenodd). The voids are real holes, never white
+    shapes, so the mark drops onto any colour, photo or dark field with no
+    second variant, and survives Android's monochrome themed-icon
+    treatment, which flattens everything to a single colour.
+    See BRANDING.md part 1. Do not add a double hyphen to this comment;
+    it is not legal inside XML and the rasteriser rejects the file.
+  -->
+  <path fill-rule="evenodd" fill="currentColor"
+        d="M30 8h20a6 6 0 0 1 6 6v20a6 6 0 0 1-1.76 4.24L36.24 56.24a6 6 0 0 1-8.48 0L7.76 36.24a6 6 0 0 1 0-8.48L25.76 9.76A6 6 0 0 1 30 8zM49.7 18.5a4.2 4.2 0 1 0-8.4 0 4.2 4.2 0 0 0 8.4 0zM23.6 25.4 32 35.6l8.4-10.2 4.7 4.5L32 45.6 18.9 29.9z"/>
+</svg>

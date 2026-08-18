@@ -72,7 +72,7 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   iconWrapSelected: {
-    backgroundColor: colors.ink,
+    backgroundColor: colors.primary,
   },
   iconImg: { width: '100%', height: '100%' },
   label: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center', lineHeight: 14 },

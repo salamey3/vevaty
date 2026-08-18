@@ -62,6 +62,39 @@ if (!viewportMatch[2].includes('viewport-fit')) {
 // measured the insets -- rather than flashing white and then filling in.
 // Appended to the end of Expo's own reset block so its rules win on order
 // without having to out-specify them.
+// --- brand: theme colour + share card ---------------------------------
+//
+// The site deploys as ONE index.html, so the share image has to be inlined
+// as a data: URI like everything else -- an <meta og:image> pointing at a
+// file that is never uploaded would leave every WhatsApp and Facebook
+// preview blank, which is the most-seen brand surface a marketplace in
+// Lebanon has (BRANDING.md part 7).
+const BRAND_PRIMARY = '#0F3D2E';
+const shareImagePath = path.join('assets', 'brand', 'share-image.png');
+let shareMeta = '';
+if (fs.existsSync(shareImagePath)) {
+  const shareUri = `data:image/png;base64,${fs.readFileSync(shareImagePath).toString('base64')}`;
+  shareMeta =
+    `\n    <meta property="og:image" content="${shareUri}"/>` +
+    `\n    <meta property="og:image:width" content="1200"/>` +
+    `\n    <meta property="og:image:height" content="630"/>` +
+    `\n    <meta name="twitter:card" content="summary_large_image"/>`;
+  console.log(`Inlined the share image (${(fs.statSync(shareImagePath).size / 1024).toFixed(0)} KB)`);
+} else {
+  console.log('NOTE: assets/brand/share-image.png is missing -- link previews will have no image.');
+  console.log('      Regenerate it with: node scripts/brand/render-wordmark.mjs');
+}
+
+html = html.replace(
+  '<title>',
+  `<meta name="theme-color" content="${BRAND_PRIMARY}"/>` +
+  `\n    <meta property="og:title" content="vevaty — buy &amp; sell in Lebanon"/>` +
+  `\n    <meta property="og:description" content="Lebanon’s marketplace for secondhand. Find what you need near you."/>` +
+  `\n    <meta property="og:type" content="website"/>` +
+  shareMeta +
+  `\n    <title>`
+);
+
 const RESET_STYLE_END = '\n    </style>';
 if (!html.includes(RESET_STYLE_END)) {
   throw new Error('could not find the end of the #expo-reset <style> block in dist/index.html');

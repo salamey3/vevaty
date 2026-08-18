@@ -7,14 +7,14 @@
     "orientation": "portrait",
     "icon": "./assets/icon.png",
     "userInterfaceStyle": "light",
-    "backgroundColor": "#f5f5f3",
+    "backgroundColor": "#F4F3EE",
     "ios": {
       "supportsTablet": true
     },
     "android": {
       "package": "com.vevaty.app",
       "adaptiveIcon": {
-        "backgroundColor": "#E6F4FE",
+        "backgroundColor": "#0F3D2E",
         "foregroundImage": "./assets/android-icon-foreground.png",
         "backgroundImage": "./assets/android-icon-background.png",
         "monochromeImage": "./assets/android-icon-monochrome.png"
@@ -44,7 +44,7 @@
       [
         "expo-camera",
         {
-          "cameraPermission": "Allow Vevaty to access your camera to take listing photos, 360° spins and videos.",
+          "cameraPermission": "Allow Vevaty to access your camera to take listing photos, 360\u00b0 spins and videos.",
           "microphonePermission": false,
           "recordAudioAndroid": false
         }
@@ -56,6 +56,11 @@
     },
     "runtimeVersion": {
       "policy": "fingerprint"
+    },
+    "splash": {
+      "image": "./assets/splash-icon.png",
+      "resizeMode": "contain",
+      "backgroundColor": "#F4F3EE"
     }
   }
 }

@@ -367,7 +367,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
     alignItems: 'center', justifyContent: 'center',
   },
-  durationChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  durationChipActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   durationChipText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
   durationChipTextActive: { color: colors.white },
   qrWrap: { alignItems: 'center', marginTop: 16, marginBottom: 4 },

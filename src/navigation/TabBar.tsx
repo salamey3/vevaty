@@ -231,9 +231,9 @@ const styles = StyleSheet.create({
   pillAndroid: { backgroundColor: 'rgba(252,252,251,0.97)' },
   tabItem: { width: 50, height: 50, alignItems: 'center', justifyContent: 'center', gap: 4 },
   dot: { width: 4, height: 4, borderRadius: 2, backgroundColor: 'transparent' },
-  dotActive: { backgroundColor: colors.ink },
+  dotActive: { backgroundColor: colors.primary },
   sellBtn: {
-    width: 50, height: 50, borderRadius: 25, backgroundColor: colors.ink,
+    width: 50, height: 50, borderRadius: 25, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center', marginHorizontal: 2,
   },
 
@@ -255,7 +255,7 @@ const styles = StyleSheet.create({
   navList: { gap: 4 },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: 12, height: 44, borderRadius: radius.md, paddingHorizontal: 12 },
   navItemActive: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line },
-  navItemSell: { backgroundColor: colors.ink, marginTop: 10, marginBottom: 10 },
+  navItemSell: { backgroundColor: colors.primary, marginTop: 10, marginBottom: 10 },
   navLabel: { fontSize: 14, fontWeight: '600', color: colors.inkSoft },
   navLabelActive: { color: colors.ink },
   navLabelSell: { color: colors.white },

@@ -350,7 +350,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
     alignItems: 'center', justifyContent: 'center',
   },
-  chipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   chipText: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   chipTextActive: { color: colors.white },
   scroll: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 60 },

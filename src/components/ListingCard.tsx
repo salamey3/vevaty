@@ -266,7 +266,7 @@ const styles = StyleSheet.create({
   info: { paddingHorizontal: 10, paddingVertical: 9 },
   specs: { ...type.tiny, color: colors.ink, marginBottom: 3 },
   posted: { ...type.tiny, color: colors.inkSoft, marginTop: 3 },
-  price: { ...type.h3, marginBottom: 2 },
+  price: { ...type.h3, color: colors.primary, marginBottom: 2 },
   title: { ...type.soft, marginBottom: 4 },
   // theme.ts's `textAlign: 'auto'` doesn't actually right-align Arabic
   // text on native (it resolves via I18nManager.isRTL, which this app

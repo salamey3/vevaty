@@ -121,7 +121,7 @@ const styles = StyleSheet.create({
     width: 17, height: 17, borderRadius: 4, borderWidth: 1.4, borderColor: colors.line,
     alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card,
   },
-  checkboxChecked: { backgroundColor: colors.ink, borderColor: colors.ink },
+  checkboxChecked: { backgroundColor: colors.primary, borderColor: colors.ink },
   optionLabel: { fontSize: 13.5, color: colors.ink, flex: 1 },
   noMatches: { paddingVertical: 4 },
   expandBtn: { marginTop: 4, paddingVertical: 4 },

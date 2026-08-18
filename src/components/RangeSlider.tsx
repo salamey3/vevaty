@@ -131,7 +131,7 @@ export default function RangeSlider(props: Props) {
 const styles = StyleSheet.create({
   wrap: { height: THUMB_SIZE, justifyContent: 'center', marginVertical: 6 },
   track: { height: 4, borderRadius: 2, backgroundColor: colors.line, overflow: 'visible' },
-  filled: { position: 'absolute', height: 4, borderRadius: 2, backgroundColor: colors.ink },
+  filled: { position: 'absolute', height: 4, borderRadius: 2, backgroundColor: colors.primary },
   thumb: {
     position: 'absolute',
     top: 0,

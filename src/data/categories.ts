@@ -87,9 +87,14 @@ export const BUILTIN_ICON_FALLBACK: Record<string, string> = {
 };
 export const GENERIC_CATEGORY_ICON = 'sparkle';
 
+// Brand defaults -- see BRANDING.md part 3. These feed applyBrandColors(),
+// which writes --vevaty-primary / --vevaty-accent on <html>, so they
+// override the fallbacks baked into theme.ts. Leaving the old charcoal
+// here silently repainted the whole app charcoal no matter what theme.ts
+// said, which is exactly what happened the first time this shipped.
 export const DEFAULT_SITE_SETTINGS = {
-  brandPrimaryColor: '#2b2b2f',
-  brandAccentColor: '#4c4d52',
+  brandPrimaryColor: '#0F3D2E',
+  brandAccentColor: '#D9A441',
   logoEnUrl: null as string | null,
   logoArUrl: null as string | null,
   faviconUrl: null as string | null,

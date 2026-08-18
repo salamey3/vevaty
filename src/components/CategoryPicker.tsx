@@ -271,7 +271,7 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: 14, height: 42,
   },
-  paneRowSelected: { backgroundColor: colors.ink },
+  paneRowSelected: { backgroundColor: colors.primary },
   paneRowText: { fontSize: 13.5, fontWeight: '500', color: colors.ink, flex: 1 },
   paneRowTextSelected: { color: colors.white, fontWeight: '600' },
 

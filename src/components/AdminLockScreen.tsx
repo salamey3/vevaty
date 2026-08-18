@@ -125,7 +125,7 @@ const styles = StyleSheet.create({
   },
   card: { width: '100%', maxWidth: 360 },
   iconWrap: {
-    width: 52, height: 52, borderRadius: 26, backgroundColor: colors.ink,
+    width: 52, height: 52, borderRadius: 26, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center', alignSelf: 'center', marginBottom: 16,
   },
   title: { ...type.h3, textAlign: 'center' },

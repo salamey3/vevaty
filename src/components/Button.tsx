@@ -45,7 +45,7 @@ const styles = StyleSheet.create({
     paddingHorizontal: 20,
   },
   primary: {
-    backgroundColor: colors.ink,
+    backgroundColor: colors.primary,
   },
   secondary: {
     backgroundColor: colors.surface,

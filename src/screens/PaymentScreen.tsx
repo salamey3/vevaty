@@ -109,7 +109,7 @@ const styles = StyleSheet.create({
   footer: { marginTop: 'auto', paddingHorizontal: 18, paddingTop: 12, paddingBottom: 18 },
   successWrap: { flex: 1, alignItems: 'center', justifyContent: 'center', gap: 10 },
   successCircle: {
-    width: 74, height: 74, borderRadius: 37, backgroundColor: colors.ink,
+    width: 74, height: 74, borderRadius: 37, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center', marginBottom: 6,
   },
   successTitle: { ...type.title, fontSize: 21 },

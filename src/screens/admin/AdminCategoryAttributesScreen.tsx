@@ -528,7 +528,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
     alignItems: 'center', justifyContent: 'center',
   },
-  typePillActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  typePillActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   typePillText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
   typePillTextActive: { color: colors.white },
   unitRow: { flexDirection: 'row', gap: 12 },

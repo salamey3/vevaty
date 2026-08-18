@@ -199,7 +199,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
     alignItems: 'center', justifyContent: 'center',
   },
-  tabBtnActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  tabBtnActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   tabText: { ...type.tiny, fontWeight: '600', color: colors.inkSoft },
   tabTextActive: { color: colors.white },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40, gap: 8 },
