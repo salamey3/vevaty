@@ -995,8 +995,17 @@ const styles = StyleSheet.create({
   filtersBtnText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
 
   // Desktop: persistent left sidebar next to the listings grid.
+  //
+  // The gutter is deliberately wide. At 28 the two columns read as one
+  // block: the price row and the distance slider both run the full 240
+  // and their right ends landed almost against the first card, so the
+  // filters looked like they were being crowded out by the grid rather
+  // than sitting beside it. Whitespace is what separates them -- there is
+  // no divider or panel background here -- so it has to be enough to do
+  // that job on its own. It costs the grid 44px, which the four columns
+  // absorb as ~11px each.
   body: { flex: 1 },
-  bodyDesktop: { flexDirection: 'row', gap: 28 },
+  bodyDesktop: { flexDirection: 'row', gap: 72 },
   sidebar: { width: 240, flexGrow: 0, flexShrink: 0 },
   sidebarContent: { paddingBottom: 60 },
   filtersHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 14 },
