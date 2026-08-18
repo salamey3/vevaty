@@ -100,7 +100,22 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.sm, paddingHorizontal: 10, height: 34, marginBottom: 8,
   },
-  searchInput: { flex: 1, fontSize: 13, color: colors.ink },
+  // minWidth 0 is defensive, not a fix for a live bug -- worth being
+  // precise about, because it looks like the one HomeScreen's priceBox
+  // needed and it is not doing the same work.
+  //
+  // There, TWO flex:1 <input>s shared a row: on the web an input's
+  // min-content width is around 198px and `min-width: auto` stops a flex
+  // item shrinking past it, so the pair wanted ~410px inside a 240px
+  // sidebar and genuinely overflowed. Here there is one input with an
+  // icon beside it, and A/B measurement in the DOM (min-width toggled
+  // between 0 and auto with everything else identical) gave the same
+  // 197px input and zero spill either way -- there is enough room that
+  // the constraint never binds.
+  //
+  // Kept anyway: it costs nothing, and the margin is about 3px, which a
+  // longer translated placeholder or a narrower sidebar would eat.
+  searchInput: { flex: 1, minWidth: 0, fontSize: 13, color: colors.ink },
   optionRow: { flexDirection: 'row', alignItems: 'center', gap: 9, paddingVertical: 5 },
   checkbox: {
     width: 17, height: 17, borderRadius: 4, borderWidth: 1.4, borderColor: colors.line,
