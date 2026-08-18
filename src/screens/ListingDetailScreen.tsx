@@ -58,12 +58,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
-  // Desktop only -- which of the listing's spin sets (there can be more
-  // than one, e.g. "Exterior"/"Interior" for a car, one per room for a
-  // property -- see the SpinSet type) the arrows below the photo carousel
-  // currently show. Mobile has no equivalent state: every spin set renders
-  // at once, below the description (see hasSpin below).
-  const [desktopSpinIndex, setDesktopSpinIndex] = useState(0);
   // Seller contact reveal (gated behind login -- see AppStore's
   // isVerified). Fetched lazily, only once the buyer actually taps the
   // CTA button, via the get_seller_phone RPC -- the phone column itself
@@ -308,29 +302,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const spinSets = listing.spinSets ?? [];
   const hasSpin = spinSets.length > 0;
 
-  // Mobile/app: every spin set the listing has, stacked below the
-  // description -- not a single switchable tab, which is what buyers were
-  // scrolling right past before. Each one gets its own label only when
-  // there's more than one to tell apart. Declared ahead of `details` below
-  // since it's rendered from inside it, right after the description.
-  const mobileSpinSection = hasSpin && (
-    <>
-      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.spinSectionTitle')}</Text>
-      {spinSets.map((set, i) => (
-        <View key={set.id} style={i > 0 && styles.mobileSpinItem}>
-          {spinSets.length > 1 && (
-            <Text style={[styles.spinSetLabel, isRTL && styles.rtlText]} numberOfLines={1}>
-              {set.label || t('listingDetail.spinTabDefaultName', { n: i + 1 })}
-            </Text>
-          )}
-          <View style={styles.mobileSpinBox}>
-            <SpinViewer frames={set.frames} />
-          </View>
-        </View>
-      ))}
-    </>
-  );
-
   const details = (
     <>
       <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
@@ -391,11 +362,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
       <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.description')}</Text>
       <Text style={[styles.desc, isRTL && styles.rtlText]}>{listingDescription(listing, language) || t('listingDetail.noDescription')}</Text>
-
-      {/* Desktop already has its own spin box under the photo carousel
-          (desktopSpinBox, rendered in the desktop layout below) -- showing
-          it again here would be the same content twice on one screen. */}
-      {!isDesktop && mobileSpinSection}
 
       {specs.length > 0 && (
         <>
@@ -507,43 +473,123 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   );
   const galleryRef = useRef<PhotoGalleryHandle>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
+  const [spinIndex, setSpinIndex] = useState(0);
+  // Back to a tab switcher (Phase after the below-description/split-box
+  // experiment), now with a third tab and a much harder-to-miss header --
+  // the earlier "spread across the page" layouts were themselves a fix for
+  // an easy-to-miss tab, but the user preferred tabs back once the tab
+  // strip itself couldn't be missed. Videos has no real content yet (the
+  // app doesn't support uploading video), so it always renders its empty
+  // state -- the tab exists so the media panel's shape is ready for that
+  // once it lands, not because there's footage to show today.
+  const [mediaTab, setMediaTab] = useState<'photos' | 'spin' | 'video'>('photos');
+  const [mediaExpanded, setMediaExpanded] = useState(true);
 
-  // The photo box now shows only photos, full time -- no more Photos/360°
-  // toggle sitting on top where a spin could go unnoticed. Where the spins
-  // themselves show up differs by platform (see mobileSpinSection and
-  // desktopSpinBox below): easy to miss a tab is exactly the complaint this
-  // replaced.
-  //
-  // Arrows wrap the photo box from OUTSIDE, so they sit in the page beside
-  // the frame rather than on top of the photograph. Putting them inside
-  // PhotoGallery was the obvious move and the wrong one: that box is
-  // fixed-size and overflow-hidden, so anything rendered within it is by
-  // definition over the image.
-  const photoBox = (extraStyle: any) => {
-    const inner = (
-      <View style={extraStyle}>
-        <PhotoGallery
-          ref={galleryRef}
-          photos={listing.photos}
-          fallbackIconName={(cat?.icon as any) || 'bag'}
-          onIndexChange={setPhotoIndex}
-        />
+  const mediaHeader = (
+    <Pressy onPress={() => setMediaExpanded((e) => !e)} style={styles.mediaHeader}>
+      <Text style={styles.mediaHeaderText}>{t('listingDetail.media')}</Text>
+      {/* No dedicated chevron-down glyph in the icon set -- chevronRight
+          rotated 90° points down (expanded); its unrotated resting
+          position already points the right direction for collapsed, same
+          reuse trick as chevronRTL elsewhere in this file. */}
+      <View style={[styles.mediaChevron, mediaExpanded && styles.mediaChevronExpanded]}>
+        <Icon name="chevronRight" size={13} color={colors.ink} strokeWidth={2.2} />
       </View>
-    );
-    // Always wrapped, even with 0 or 1 photos -- CarouselArrows is a no-op
-    // on mobile/touch anyway (see its own Platform.OS check), and on
-    // desktop it reserves the same 34px gutter on each side regardless of
-    // whether a button is actually showing in it. Skipping the wrap
-    // whenever there was nothing to scroll used to leave the photo box
-    // flush against the column edge while the spin box below it (wrapped
-    // whenever it HAD more than one spin set) sat shifted right by that
-    // gutter -- two boxes in the same column, misaligned depending on
-    // item counts that have nothing to do with each other. Wrapping
-    // unconditionally means both boxes always reserve identical gutters
-    // and their edges line up regardless of how many photos or spins
-    // either one happens to have; canScrollBack/canScrollForward below
-    // already evaluate to false with fewer than 2 items, so no arrow
-    // button actually renders in that case either way.
+    </Pressy>
+  );
+
+  const mediaTabsRow = (
+    <View style={styles.mediaTabsRow}>
+      <Pressy
+        onPress={() => setMediaTab('photos')}
+        style={[styles.mediaTab, mediaTab === 'photos' && styles.mediaTabActive]}
+      >
+        <Icon name="image" size={14} color={mediaTab === 'photos' ? colors.white : colors.inkSoft} />
+        <Text style={[styles.mediaTabText, mediaTab === 'photos' && styles.mediaTabTextActive]} numberOfLines={1}>
+          {t('listingDetail.photosTab')}
+        </Text>
+        <Text style={[styles.mediaTabCount, mediaTab === 'photos' && styles.mediaTabTextActive]}>
+          {listing.photos.length}
+        </Text>
+      </Pressy>
+      <Pressy
+        onPress={() => setMediaTab('spin')}
+        style={[styles.mediaTab, mediaTab === 'spin' && styles.mediaTabActive]}
+      >
+        <Icon name="rotate" size={14} color={mediaTab === 'spin' ? colors.white : colors.inkSoft} />
+        <Text style={[styles.mediaTabText, mediaTab === 'spin' && styles.mediaTabTextActive]} numberOfLines={1}>
+          {t('listingDetail.spinViewTab')}
+        </Text>
+        <Text style={[styles.mediaTabCount, mediaTab === 'spin' && styles.mediaTabTextActive]}>
+          {spinSets.length}
+        </Text>
+      </Pressy>
+      <Pressy
+        onPress={() => setMediaTab('video')}
+        style={[styles.mediaTab, mediaTab === 'video' && styles.mediaTabActive]}
+      >
+        <Icon name="camera" size={14} color={mediaTab === 'video' ? colors.white : colors.inkSoft} />
+        <Text style={[styles.mediaTabText, mediaTab === 'video' && styles.mediaTabTextActive]} numberOfLines={1}>
+          {t('listingDetail.videosTab')}
+        </Text>
+        <Text style={[styles.mediaTabCount, mediaTab === 'video' && styles.mediaTabTextActive]}>0</Text>
+      </Pressy>
+    </View>
+  );
+
+  // An empty state for the spin/video tabs, styled to sit inside the same
+  // box as a real photo or spin would -- so switching to a tab that
+  // happens to have nothing in it doesn't collapse the layout, just swaps
+  // what's inside it.
+  const mediaEmptyState = (iconName: 'rotate' | 'camera', label: string) => (
+    <View style={styles.mediaEmptyState}>
+      <View style={styles.mediaEmptyIconCircle}>
+        <Icon name={iconName} size={22} color={colors.inkSoft} />
+      </View>
+      <Text style={styles.mediaEmptyText}>{label}</Text>
+    </View>
+  );
+
+  // Arrows wrap the box from OUTSIDE, so they sit in the page beside the
+  // frame rather than on top of the photograph/spin. Wrapped
+  // unconditionally regardless of tab or item count -- CarouselArrows is a
+  // no-op on mobile/touch anyway (see its own Platform.OS check), and on
+  // desktop it reserves the same 34px gutter on each side whether or not a
+  // button actually shows in it. That's what keeps the header and tab
+  // strip above it from shifting width as you switch between a tab with
+  // arrows and one without (e.g. 3 photos vs. Videos, which never has
+  // any) -- every tab renders the same overall box width, canScrollBack/
+  // canScrollForward just decide whether either arrow button is visible.
+  const mediaBox = (extraStyle: any) => {
+    if (mediaTab === 'video') {
+      return (
+        <CarouselArrows onScrollBy={() => {}} step={1} canScrollBack={false} canScrollForward={false}>
+          <View style={extraStyle}>{mediaEmptyState('camera', t('listingDetail.noVideos'))}</View>
+        </CarouselArrows>
+      );
+    }
+    if (mediaTab === 'spin') {
+      if (!hasSpin) {
+        return (
+          <CarouselArrows onScrollBy={() => {}} step={1} canScrollBack={false} canScrollForward={false}>
+            <View style={extraStyle}>{mediaEmptyState('rotate', t('listingDetail.noSpin'))}</View>
+          </CarouselArrows>
+        );
+      }
+      const activeSet = spinSets[spinIndex] ?? spinSets[0];
+      return (
+        <CarouselArrows
+          onScrollBy={(d) => setSpinIndex((i) => Math.min(Math.max(i + d, 0), spinSets.length - 1))}
+          step={1}
+          canScrollBack={spinIndex > 0}
+          canScrollForward={spinIndex < spinSets.length - 1}
+        >
+          <View style={extraStyle}>
+            <SpinViewer frames={activeSet.frames} />
+          </View>
+        </CarouselArrows>
+      );
+    }
     return (
       <CarouselArrows
         onScrollBy={(d) => galleryRef.current?.page(d)}
@@ -551,40 +597,63 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         canScrollBack={photoIndex > 0}
         canScrollForward={photoIndex < listing.photos.length - 1}
       >
-        {inner}
+        <View style={extraStyle}>
+          <PhotoGallery
+            ref={galleryRef}
+            photos={listing.photos}
+            fallbackIconName={(cat?.icon as any) || 'bag'}
+            onIndexChange={setPhotoIndex}
+          />
+        </View>
       </CarouselArrows>
     );
   };
 
-  // Desktop: the first spin set, sitting directly under the photo
-  // carousel -- not a tab beside it, which is exactly what made spins easy
-  // to miss. Same arrow convention as photoBox above: they live outside the
-  // box, in their own gutters, and each one only shows when it actually
-  // leads somewhere -- with one spin set that's neither arrow, ever.
-  //
-  // Wrapped unconditionally, same reasoning as photoBox above -- the
-  // gutters have to be reserved even with a single spin set, or this box
-  // stops lining up with the photo box above it the moment their item
-  // counts differ (e.g. 3 photos but only 1 spin set, which is the common
-  // case: most listings that have a spin at all only have one).
-  const desktopSpinBox = () => {
-    const activeSet = spinSets[desktopSpinIndex] ?? spinSets[0];
-    const inner = (
-      <View style={styles.desktopPhoto}>
-        <SpinViewer frames={activeSet.frames} />
-      </View>
-    );
-    return (
-      <CarouselArrows
-        onScrollBy={(d) => setDesktopSpinIndex((i) => Math.min(Math.max(i + d, 0), spinSets.length - 1))}
-        step={1}
-        canScrollBack={desktopSpinIndex > 0}
-        canScrollForward={desktopSpinIndex < spinSets.length - 1}
-      >
-        {inner}
-      </CarouselArrows>
-    );
-  };
+  // Which named spin set is active, shown as tappable chips above the box
+  // -- only when there's more than one to tell apart (e.g. "Exterior" vs.
+  // "Interior"); with just one, the 360° View tab itself already says all
+  // there is to say. Chips rather than plain text because they're also
+  // the ONLY way to switch spin sets on mobile/touch: the arrows in
+  // mediaBox come from CarouselArrows, which is a deliberate no-op off
+  // desktop web (a spin set isn't swipeable the way a photo gallery page
+  // is -- see PhotoGallery -- so without this a multi-spin listing would
+  // have no way to reach its second spin set on a phone at all). Desktop
+  // gets both: the arrows for a mouse, these chips as a direct jump.
+  const mediaSpinChips = mediaTab === 'spin' && hasSpin && spinSets.length > 1 && (
+    <View style={styles.spinChipsRow}>
+      {spinSets.map((set, i) => (
+        <Pressy
+          key={set.id}
+          onPress={() => setSpinIndex(i)}
+          style={[styles.spinChip, i === spinIndex && styles.spinChipActive]}
+        >
+          <Text style={[styles.spinChipText, i === spinIndex && styles.spinChipTextActive]} numberOfLines={1}>
+            {set.label || t('listingDetail.spinTabDefaultName', { n: i + 1 })}
+          </Text>
+        </Pressy>
+      ))}
+    </View>
+  );
+
+  // boxStyle: the fixed-size frame (styles.photo on mobile, styles.desktopPhoto
+  // on desktop). chromeStyle: extra spacing for the header/tabs only, since
+  // unlike the box (which carries its own marginHorizontal on mobile) they
+  // have no width of their own to inherit it from -- see styles.photo's
+  // comment for why mobile needs it and desktop doesn't.
+  const mediaSection = (boxStyle: any, chromeStyle?: any) => (
+    <View>
+      <View style={chromeStyle}>{mediaHeader}</View>
+      {mediaExpanded && (
+        <>
+          <View style={chromeStyle}>
+            {mediaTabsRow}
+            {mediaSpinChips}
+          </View>
+          {mediaBox(boxStyle)}
+        </>
+      )}
+    </View>
+  );
 
   // Single CTA slot, reused by both the desktop and mobile layouts below.
   // Never shown to the listing's own owner -- there's nothing to contact
@@ -676,17 +745,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <ScrollView contentContainerStyle={styles.desktopScroll}>
           <View style={styles.desktopRow}>
             <View style={styles.desktopMediaCol}>
-              {photoBox(styles.desktopPhoto)}
-              {hasSpin && (
-                <>
-                  {spinSets.length > 1 && (
-                    <Text style={styles.spinSetLabel} numberOfLines={1}>
-                      {spinSets[desktopSpinIndex]?.label || t('listingDetail.spinTabDefaultName', { n: desktopSpinIndex + 1 })}
-                    </Text>
-                  )}
-                  {desktopSpinBox()}
-                </>
-              )}
+              {mediaSection(styles.desktopPhoto)}
             </View>
             <View style={styles.desktopInfo}>
               {details}
@@ -706,7 +765,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       {topBar}
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {photoBox(styles.photo)}
+        {mediaSection(styles.photo, styles.mediaChromeMobile)}
         <View style={styles.card}>
           {details}
           {relatedSection}
@@ -744,22 +803,66 @@ const styles = StyleSheet.create({
   },
   photoImg: { width: '100%', height: '100%' },
   desktopMediaCol: { flexShrink: 0, gap: 10 },
-  // Mobile: each spin set below the description, in the same padded
-  // `card` column as the rest of `details` -- unlike `photo` above (which
-  // sits directly in the unpadded scroll view and needs its own
-  // marginHorizontal), this one inherits the card's padding, so it stays
-  // bare.
-  mobileSpinBox: {
-    aspectRatio: 3 / 4, borderRadius: radius.lg,
-    backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
+
+  // ---- Media accordion (header + Photos/360° View/Videos tabs) ----
+  // A deliberately heavy header -- large, bold, uppercase, sitting on a
+  // 3px rule -- unlike every other section label in this file
+  // (styles.sectionLabel: tiny, thin, easy to skim past). That contrast is
+  // the actual fix for the complaint that started this: a spin buyers
+  // could miss entirely under the old thin Photos/360° toggle. Tapping it
+  // collapses the whole panel (tabs + box) -- useful once a listing has
+  // enough media that a buyer who only wants the price/description would
+  // rather scroll past it collapsed.
+  mediaHeader: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
+    paddingBottom: 12, marginBottom: 14,
+    borderBottomWidth: 3, borderBottomColor: colors.ink,
   },
-  // Only the second and later spin sets get this -- the first sits right
-  // under the section label above it, which is already enough gap.
-  mobileSpinItem: { marginTop: 18 },
-  // Shared by both platforms: the mobile stack (one per spin set, only
-  // once there's more than one to tell apart) and the desktop box (the
-  // currently-active set, next to its own arrows).
-  spinSetLabel: { ...type.soft, fontWeight: '600', marginBottom: 8 },
+  mediaHeaderText: { fontSize: 20, fontWeight: '800', letterSpacing: 1, textTransform: 'uppercase' },
+  mediaChevron: {
+    width: 24, height: 24, borderRadius: 12, backgroundColor: colors.surface,
+    alignItems: 'center', justifyContent: 'center',
+    transform: [{ rotate: '0deg' }],
+  },
+  // Points down while expanded (content visible below); its unrotated
+  // resting state already points the collapsed direction, so only the
+  // expanded case needs an explicit transform.
+  mediaChevronExpanded: { transform: [{ rotate: '90deg' }] },
+  // Mobile only -- the header/tabs have no width of their own to inherit
+  // page-edge spacing from the way the box below them does (styles.photo
+  // carries its own marginHorizontal since it sits directly in the
+  // unpadded scroll view). Desktop needs no equivalent: its box is
+  // CarouselArrows-wrapped and stretch-sized, so the header/tabs -- with
+  // no margin of their own -- naturally line up with it already.
+  mediaChromeMobile: { marginHorizontal: 18 },
+  mediaTabsRow: { flexDirection: 'row', gap: 8, marginBottom: 12 },
+  mediaTab: {
+    flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
+    height: 42, borderRadius: radius.pill,
+    backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.line,
+  },
+  mediaTabActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  mediaTabText: { fontSize: 13, fontWeight: '700', color: colors.inkSoft },
+  mediaTabCount: { fontSize: 12, fontWeight: '600', color: colors.inkSoft, opacity: 0.8 },
+  mediaTabTextActive: { color: colors.white },
+  mediaEmptyState: { alignItems: 'center', gap: 10 },
+  mediaEmptyIconCircle: {
+    width: 56, height: 56, borderRadius: 28, backgroundColor: 'rgba(20,20,22,0.06)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  mediaEmptyText: { ...type.soft, fontWeight: '600', color: colors.inkSoft },
+  // Tappable spin-set chips (only shown with more than one) -- see
+  // mediaSpinChips' comment for why these exist beyond just labeling.
+  spinChipsRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, marginBottom: 10 },
+  spinChip: {
+    paddingHorizontal: 12, height: 30, borderRadius: radius.pill,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  spinChipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  spinChipText: { ...type.tiny, fontWeight: '600', color: colors.inkSoft },
+  spinChipTextActive: { color: colors.white },
+
   card: { padding: 18 },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
   // With a single child (the price, whenever this isn't the owner's own
