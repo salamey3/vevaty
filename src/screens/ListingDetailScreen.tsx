@@ -182,6 +182,61 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
   }, [listing, contactPhone, language, t]);
 
+  // EVERY hook this component uses has to be above the early return below.
+  // These seven used to sit further down, next to the markup that reads
+  // them, which is nicer to read and is a crash: the moment `listing`
+  // becomes undefined the early return fires, React sees fewer hooks than
+  // the previous render, and it throws "Rendered fewer hooks than
+  // expected" rather than showing the fallback.
+  //
+  // That is not hypothetical -- it is exactly what deleting a listing did.
+  // deleteListing drops the row from local state synchronously, so this
+  // screen re-renders with no listing while it is still mounted, one tick
+  // before navigation.popToTop() unmounts it. The app died every time,
+  // before the delete request was even sent.
+  //
+  // Refreshing on a listing leaves no history to go back to, so the arrow
+  // falls back to the category this listing sits in -- the screen it would
+  // have come from, and more useful than dropping someone at the home feed
+  // with their place lost.
+  const goBack = useGoBack(
+    listing
+      ? () =>
+          navigation.navigate('MainTabs', {
+            screen: 'HomeTab',
+            params: { screen: 'HomeCategory', params: { cat: ancestorsOf(listing.cat)[0]?.id ?? listing.cat } },
+          } as any)
+      : undefined
+  );
+  const galleryRef = useRef<PhotoGalleryHandle>(null);
+  const [photoIndex, setPhotoIndex] = useState(0);
+  const [spinIndex, setSpinIndex] = useState(0);
+  // Back to a tab switcher (Phase after the below-description/split-box
+  // experiment), now with a third tab and a much harder-to-miss header --
+  // the earlier "spread across the page" layouts were themselves a fix for
+  // an easy-to-miss tab, but the user preferred tabs back once the tab
+  // strip itself couldn't be missed. The Videos tab was built as an empty
+  // slot ahead of the feature; it now shows the listing's real video.
+  const [mediaTab, setMediaTab] = useState<'photos' | 'spin' | 'video'>('photos');
+  const [mediaExpanded, setMediaExpanded] = useState(true);
+
+  // Only a finished video is playable. RLS already hides anyone else's
+  // unfinished video, so a non-ready one here belongs to the seller looking
+  // at their own listing while it encodes -- worth telling them so, rather
+  // than showing the same "no videos" state a stranger sees.
+  const video = listing?.video ?? null;
+  const playableVideo = video && video.status === 'ready' ? video : null;
+
+  // A listing opened while its video is still encoding asks once for the
+  // current state, so the seller isn't left refreshing. The answer lands on
+  // the next sync rather than instantly, which is fine -- this is a nudge,
+  // not a subscription.
+  useEffect(() => {
+    if (video && video.status !== 'ready' && video.status !== 'failed') {
+      nudgeVideoStatus(video.guid);
+    }
+  }, [video?.guid, video?.status]);
+
   if (!listing) {
     return (
       <Screen>
@@ -483,48 +538,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // carrying the old flat spinPhotos shape) should never crash the render
   // -- see the normalizeListing comment in AppStore.tsx for the full story
   // on why this actually happened once.
-  // Refreshing on a listing leaves no history to go back to, so the arrow
-  // falls back to the category this listing sits in -- the screen it would
-  // have come from, and more useful than dropping someone at the home
-  // feed with their place lost.
-  const goBack = useGoBack(
-    listing
-      ? () =>
-          navigation.navigate('MainTabs', {
-            screen: 'HomeTab',
-            params: { screen: 'HomeCategory', params: { cat: ancestorsOf(listing.cat)[0]?.id ?? listing.cat } },
-          } as any)
-      : undefined
-  );
-  const galleryRef = useRef<PhotoGalleryHandle>(null);
-  const [photoIndex, setPhotoIndex] = useState(0);
-  const [spinIndex, setSpinIndex] = useState(0);
-  // Back to a tab switcher (Phase after the below-description/split-box
-  // experiment), now with a third tab and a much harder-to-miss header --
-  // the earlier "spread across the page" layouts were themselves a fix for
-  // an easy-to-miss tab, but the user preferred tabs back once the tab
-  // strip itself couldn't be missed. The Videos tab was built as an empty
-  // slot ahead of the feature; it now shows the listing's real video.
-  const [mediaTab, setMediaTab] = useState<'photos' | 'spin' | 'video'>('photos');
-  const [mediaExpanded, setMediaExpanded] = useState(true);
-
-  // Only a finished video is playable. RLS already hides anyone else's
-  // unfinished video, so a non-ready one here belongs to the seller looking
-  // at their own listing while it encodes -- worth telling them so, rather
-  // than showing the same "no videos" state a stranger sees.
-  const video = listing.video;
-  const playableVideo = video && video.status === 'ready' ? video : null;
-
-  // A listing opened while its video is still encoding asks once for the
-  // current state, so the seller isn't left refreshing. The answer lands on
-  // the next sync rather than instantly, which is fine -- this is a nudge,
-  // not a subscription.
-  useEffect(() => {
-    if (video && video.status !== 'ready' && video.status !== 'failed') {
-      nudgeVideoStatus(video.guid);
-    }
-  }, [video?.guid, video?.status]);
-
   const mediaHeader = (
     <Pressy onPress={() => setMediaExpanded((e) => !e)} style={styles.mediaHeader}>
       <Text style={styles.mediaHeaderText}>{t('listingDetail.media')}</Text>
