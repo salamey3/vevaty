@@ -79,9 +79,22 @@ export async function createVideoUploadTicket(opts: {
   });
 
   if (error) {
-    // Surface the function's own message when it sent one -- "you can add 10
-    // videos a day" is actionable, "FunctionsHttpError" is not.
-    const detail = (data as any)?.message || error.message || String(error);
+    // supabase-js throws away the response body on a non-2xx and hands back
+    // the useless "Edge Function returned a non-2xx status code". The actual
+    // reason is on `error.context`, which is the raw Response -- so read it.
+    // "You can add 10 videos a day" is something a seller can act on; a
+    // status-code sentence is not.
+    let detail = error.message || String(error);
+    const response = (error as any)?.context;
+    if (response && typeof response.text === 'function') {
+      try {
+        const body = await response.text();
+        const parsed = JSON.parse(body);
+        detail = parsed?.message || parsed?.error || body.slice(0, 200) || detail;
+      } catch {
+        // Leave the generic message rather than replacing it with noise.
+      }
+    }
     throw new Error(detail);
   }
   if (!data?.videoId || !data?.signature) {
