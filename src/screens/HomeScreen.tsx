@@ -60,7 +60,16 @@ export default function HomeScreen() {
   // hook's RootStackParamList typing.
   const homeNav = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const route = useRoute<RouteProp<HomeStackParamList, 'HomeCategory'>>();
-  const { listings, profile, isVerified } = useAppStore();
+  const { listings: allListings, profile, isVerified } = useAppStore();
+  // Browse/search only ever wants to show published listings -- RLS already
+  // keeps other sellers' non-active listings out of what's fetched, but the
+  // signed-in seller's OWN rows of any status (pending_review, rejected,
+  // expired, removed) are visible to them per RLS too, and this screen
+  // never filtered by status before. Without this, a seller would see their
+  // own still-under-review or rejected listing sitting in the main browse
+  // grid -- confusing, and not where that belongs (ProfileScreen's "My
+  // listings" already surfaces it clearly with a status badge).
+  const listings = useMemo(() => allListings.filter((l) => l.status === 'active'), [allListings]);
   const { categories, categoryById, childrenOf, categoryMatches, resolveFilterFacetsForCategory } = useSettings();
   const { saveSearch } = useSavedSearches();
   const { t, language, isRTL } = useLanguage();

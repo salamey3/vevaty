@@ -185,7 +185,19 @@ export interface Listing {
   // to the app user as "Unpublished" (see ProfileScreen) rather than using
   // the DB word directly; it's driven by a daily pg_cron job flipping any
   // listing past its expiresAt, not by anything client-side.
-  status: 'draft' | 'active' | 'sold' | 'expired' | 'removed';
+  // 'pending_review'/'rejected' are new for the content-moderation feature:
+  // every new listing is inserted as 'pending_review' and only a passing AI
+  // check or a human moderator (AdminModerationScreen) can move it to
+  // 'active'; 'rejected' means a human moderator declined it (see
+  // moderationReason) and the seller can edit and resubmit.
+  status: 'draft' | 'active' | 'sold' | 'expired' | 'removed' | 'pending_review' | 'rejected';
+  // Bookkeeping for WHY status is what it is -- see the moderate-listing
+  // edge function and AdminModerationScreen. 'pending' = AI check hasn't
+  // resolved yet, 'flagged' = AI declined and it's waiting on a human.
+  moderationStatus: 'pending' | 'ai_approved' | 'flagged' | 'human_approved' | 'rejected';
+  // Set by a human moderator on rejection; shown to the seller so they know
+  // what to fix before resubmitting. Null otherwise.
+  moderationReason: string | null;
   // 15 days after posting by default (DB column default), reset to
   // now+15d by extendListing/republishListing. expiryReminderSentAt is set
   // once the day-15 WhatsApp reminder has actually gone out (see the

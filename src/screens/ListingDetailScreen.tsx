@@ -304,12 +304,33 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const spinSets = listing.spinSets ?? [];
   const hasSpin = spinSets.length > 0;
 
+  // Only the seller ever sees this (ctaSection already returns null for
+  // isOwner, and RLS hides a non-active listing from everyone else) -- a
+  // small heads-up about where their own listing stands in the moderation
+  // pipeline, right where they'd otherwise expect the price/edit row.
+  const ownerModerationNotice = isOwner && listing.status === 'pending_review' && (
+    <View style={styles.ownerModerationNotice}>
+      <Icon name="rotate" size={14} color={colors.inkSoft} />
+      <Text style={styles.ownerModerationNoticeText}>{t('listingDetail.pendingReviewNotice')}</Text>
+    </View>
+  );
+  const ownerRejectedNotice = isOwner && listing.status === 'rejected' && (
+    <View style={[styles.ownerModerationNotice, styles.ownerRejectedNotice]}>
+      <Icon name="flag" size={14} color={colors.danger} />
+      <Text style={styles.ownerModerationNoticeText}>
+        {listing.moderationReason ? `${t('listingDetail.rejectedNotice')} ${listing.moderationReason}` : t('listingDetail.rejectedNotice')}
+      </Text>
+    </View>
+  );
+
   const details = (
     <>
       <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
         <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
         {editButton}
       </View>
+      {ownerModerationNotice}
+      {ownerRejectedNotice}
       <Text style={[styles.title, isRTL && styles.rtlText]}>{listingTitle(listing, language)}</Text>
       {/* Category, area and age, in the body rather than only in the top
           bar. The bar has the same chain in it, but it's one truncated line
@@ -905,6 +926,12 @@ const styles = StyleSheet.create({
   // price (and, for the owner, the edit actions alongside it) anchors to
   // the right instead.
   priceRowRTL: { flexDirection: 'row-reverse' },
+  ownerModerationNotice: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10,
+    padding: 10, borderRadius: radius.sm, backgroundColor: colors.warnBg,
+  },
+  ownerRejectedNotice: { backgroundColor: '#f5e4e2' },
+  ownerModerationNoticeText: { ...type.soft, flex: 1, fontSize: 12.5 },
   ownerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   editBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 6,

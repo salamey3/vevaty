@@ -168,6 +168,19 @@ export default function ProfileScreen() {
                         <Text style={styles.republishHint}>{t('profile.republishHint')}</Text>
                       </>
                     )}
+                    {l.status === 'pending_review' && (
+                      <View style={styles.pendingReviewBadge}>
+                        <Text style={styles.pendingReviewBadgeText}>{t('profile.underReview')}</Text>
+                      </View>
+                    )}
+                    {l.status === 'rejected' && (
+                      <>
+                        <View style={styles.rejectedBadge}>
+                          <Text style={styles.rejectedBadgeText}>{t('profile.changesNeeded')}</Text>
+                        </View>
+                        {!!l.moderationReason && <Text style={styles.republishHint}>{l.moderationReason}</Text>}
+                      </>
+                    )}
                     {l.status === 'active' && (
                       <Text style={styles.expiryCaption}>
                         {daysLeft <= 0 ? t('profile.expiresToday') : t('profile.expiresIn', { n: daysLeft })}
@@ -185,6 +198,14 @@ export default function ProfileScreen() {
                       <Text style={styles.rowActionBtnText}>
                         {busyId === l.id ? t('common.loading') : t('profile.republish')}
                       </Text>
+                    </Pressy>
+                  )}
+                  {l.status === 'rejected' && (
+                    <Pressy
+                      onPress={(e: any) => { e?.stopPropagation?.(); navigation.navigate('CreateListing', { editListingId: l.id }); }}
+                      style={styles.rowActionBtn}
+                    >
+                      <Text style={styles.rowActionBtnText}>{t('profile.editAndResubmit')}</Text>
                     </Pressy>
                   )}
                   {expiringSoon && (
@@ -287,6 +308,16 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
   },
   unpublishedBadgeText: { fontSize: 11, fontWeight: '700', color: colors.ink },
+  pendingReviewBadge: {
+    alignSelf: 'flex-start', backgroundColor: colors.warnBg, borderRadius: radius.pill,
+    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
+  },
+  pendingReviewBadgeText: { fontSize: 11, fontWeight: '700', color: colors.ink },
+  rejectedBadge: {
+    alignSelf: 'flex-start', backgroundColor: '#f5e4e2', borderRadius: radius.pill,
+    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
+  },
+  rejectedBadgeText: { fontSize: 11, fontWeight: '700', color: colors.danger },
   republishHint: { fontSize: 12, color: colors.inkSoft, marginTop: 6 },
   rowError: { fontSize: 12, color: colors.danger, marginTop: 6 },
   rowActionBtn: {

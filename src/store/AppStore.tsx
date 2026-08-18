@@ -6,6 +6,13 @@ import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
 import { uploadPhotos } from '../lib/photoUpload';
 import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
+import { uriToCompressedBase64 } from '../lib/imageToBase64';
+import { triggerListingModeration } from '../lib/moderateListing';
+
+// Photos sent to the moderate-listing AI check -- capped the same way the
+// other vision calls (Magic Listing/AI suggest) cap theirs, since the model
+// only needs enough of the item to judge, not every angle.
+const MODERATION_MAX_PHOTOS = 6;
 
 const KEYS = {
   listings: 'vevaty:listings',
@@ -31,6 +38,10 @@ type ListingInput = Omit<
   // Phase 4 item 16 -- computed from the poster's own account (join or
   // isVerified), never something the create-listing form itself supplies.
   | 'sellerVerified' | 'sellerMemberSince'
+  // Content moderation -- addListing always starts a listing at
+  // moderation_status 'pending' server-side (the DB trigger enforces this
+  // for non-privileged callers too); the create-listing form never sets it.
+  | 'moderationStatus' | 'moderationReason'
 >;
 
 interface AppStoreValue {
@@ -147,7 +158,12 @@ function normalizeListing(l: any): Listing {
     // Same defensive story as photos/spinSets above: a listing cached by
     // a build that predates the login-gate/expiry feature won't have
     // these fields at all.
-    status: l?.status === 'draft' || l?.status === 'active' || l?.status === 'sold' || l?.status === 'expired' || l?.status === 'removed' ? l.status : 'active',
+    status: ['draft', 'active', 'sold', 'expired', 'removed', 'pending_review', 'rejected'].includes(l?.status) ? l.status : 'active',
+    // Content moderation -- same defensive story as status above: a
+    // listing cached by a build that predates this feature won't have
+    // these fields at all.
+    moderationStatus: ['pending', 'ai_approved', 'flagged', 'human_approved', 'rejected'].includes(l?.moderationStatus) ? l.moderationStatus : 'ai_approved',
+    moderationReason: typeof l?.moderationReason === 'string' ? l.moderationReason : null,
     expiresAt: typeof l?.expiresAt === 'number' ? l.expiresAt : Date.now() + LISTING_LIFETIME_MS,
     expiryReminderSentAt: typeof l?.expiryReminderSentAt === 'number' ? l.expiryReminderSentAt : null,
     // Phase 4 item 14 -- same defensive story as photos/spinSets/status
@@ -217,6 +233,8 @@ function dbListingToLocal(row: any): Listing {
     aiGenerated: !!row.ai_generated,
     attributes: row.attributes && typeof row.attributes === 'object' ? row.attributes : {},
     status: row.status || 'active',
+    moderationStatus: row.moderation_status || 'ai_approved',
+    moderationReason: row.moderation_reason ?? null,
     expiresAt: row.expires_at ? new Date(row.expires_at).getTime() : Date.now() + LISTING_LIFETIME_MS,
     expiryReminderSentAt: row.expiry_reminder_sent_at ? new Date(row.expiry_reminder_sent_at).getTime() : null,
     contactMethod: row.contact_method === 'phone' || row.contact_method === 'chat' ? row.contact_method : 'both',
@@ -236,9 +254,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [pointsHistory, setPointsHistory] = useState<PointsEvent[]>([]);
   const userIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile>(DEFAULT_PROFILE);
+  const listingsRef = useRef<Listing[]>([]);
   useEffect(() => {
     profileRef.current = profile;
   }, [profile]);
+  useEffect(() => {
+    listingsRef.current = listings;
+  }, [listings]);
 
   // 1) Load whatever's cached on-device immediately, so the app is usable
   // instantly, even offline or before the network round-trip below finishes.
@@ -548,7 +570,14 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         sellerId: uid || profile.id,
         sellerName: profile.name || 'You',
         rating: 5,
-        status: 'active',
+        // Every new listing starts here -- publishing is now gated on the
+        // AI first pass (or a human moderator) rather than going live
+        // immediately. The DB trigger (enforce_listing_moderation_gate)
+        // enforces this server-side too, so this optimistic value is
+        // purely cosmetic, not the actual gate.
+        status: 'pending_review',
+        moderationStatus: 'pending',
+        moderationReason: null,
         expiresAt: Date.now() + LISTING_LIFETIME_MS,
         expiryReminderSentAt: null,
         // Posting a listing is already gated behind isVerified (see the
@@ -577,7 +606,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             geoname_id: l.geonameId,
             lat: l.lat,
             lng: l.lng,
-            status: 'active',
+            status: 'pending_review',
             ai_generated: l.aiGenerated,
             attributes: l.attributes || {},
             contact_method: l.contactMethod || 'both',
@@ -619,6 +648,19 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           if (l.video?.guid) {
             attachVideoToListing(l.video.guid, listingId).catch(() => {});
           }
+
+          // Fire the AI moderation check in the background too -- the
+          // seller is already navigated to their "pending review" listing
+          // by the time this resolves (that's the whole point of the
+          // "instant-feeling" submit). It publishes itself (status ->
+          // active) on a pass, or leaves it flagged for a human on a
+          // fail/error -- see moderate-listing and AdminModerationScreen.
+          Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+            .then((results) => {
+              const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
+              return triggerListingModeration(listingId, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
+            })
+            .catch(() => {});
         }
       }
 
@@ -631,8 +673,25 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const updateListing = useCallback(
     async (id: string, l: ListingInput) => {
+      // A listing a human moderator rejected goes back through the same
+      // AI-first-pass gate on resubmit, rather than silently staying
+      // 'rejected' forever or (worse) silently becoming 'active' again
+      // unreviewed -- see AdminModerationScreen's reject flow and
+      // ProfileScreen's "Edit & resubmit" action, which both funnel here.
+      const wasRejected = listingsRef.current.find((it) => it.id === id)?.status === 'rejected';
+
       // Update local state immediately so the edit feels instant.
-      setListings((prev) => prev.map((it) => (it.id === id ? { ...it, ...l } : it)));
+      setListings((prev) =>
+        prev.map((it) =>
+          it.id === id
+            ? {
+                ...it,
+                ...l,
+                ...(wasRejected ? { status: 'pending_review' as const, moderationStatus: 'pending' as const, moderationReason: null } : {}),
+              }
+            : it
+        )
+      );
 
       const uid = userIdRef.current;
       if (!uid) return;
@@ -655,8 +714,18 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           ai_generated: l.aiGenerated,
           attributes: l.attributes || {},
           contact_method: l.contactMethod || 'both',
+          ...(wasRejected ? { status: 'pending_review', moderation_status: 'pending', moderation_reason: null } : {}),
         })
         .eq('id', id);
+
+      if (wasRejected) {
+        Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+          .then((results) => {
+            const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
+            return triggerListingModeration(id, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
+          })
+          .catch(() => {});
+      }
 
       // Photos: anything already a hosted (https) URL was kept as-is by the
       // edit screen; anything else is a newly-picked local device photo
