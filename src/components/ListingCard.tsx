@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, Image } from 'react-native';
+import { StyleSheet, Text, View, Image, ViewStyle } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Pressy from './Pressy';
@@ -216,7 +216,25 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.line,
-  },
+    // A long press on a card is OUR gesture -- it opens the preview. iOS
+    // Safari otherwise reads the same press as "select this text", pops the
+    // magnifier and the copy/share bubble over the card, and leaves the
+    // title highlighted afterwards. Android's browser doesn't, which is why
+    // this only ever showed up on iPhone.
+    //
+    // Both properties inherit, so setting them on the card covers its title,
+    // price and location text without touching anything else on the page --
+    // a listing's description, a phone number and chat messages all stay
+    // selectable, because none of them live inside a card.
+    //
+    // userSelect stops the text selection; WebkitTouchCallout stops the
+    // separate long-press sheet iOS offers for the thumbnail ("Save Image",
+    // "Copy"). It isn't part of RN's ViewStyle -- react-native-web passes
+    // unknown properties straight through to the generated CSS, same as the
+    // transition properties in Pressy.tsx, hence the cast.
+    userSelect: 'none',
+    WebkitTouchCallout: 'none',
+  } as ViewStyle,
   // Portrait 3:4, derived from the card's own width rather than a fixed
   // height. The old fixed 120/150px meant the shape changed with every
   // context the card appeared in -- roughly square in a 2-column grid,
