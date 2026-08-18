@@ -27,6 +27,9 @@ type Props = {
   // the seller has just watched the counter reach 3/3, so asking them to
   // agree adds a tap and tells them nothing.
   autoFinishAtMin?: boolean;
+  // Wording for the Done button. The default says "frames", which is right
+  // for a 360 spin and wrong for a handful of ordinary photos.
+  finishLabel?: (count: number) => string;
 };
 
 type CamState = 'idle' | 'requesting' | 'active' | 'denied';
@@ -55,6 +58,7 @@ export default function CameraCapture({
   instructions,
   progressHint,
   autoFinishAtMin = false,
+  finishLabel,
 }: Props) {
   const { t } = useLanguage();
   const [permission, requestPermission] = useCameraPermissions();
@@ -203,7 +207,9 @@ export default function CameraCapture({
               accessibilityLabel="Finish spin capture"
             >
               <Text style={styles.finishBtnText}>
-                {canFinish ? t('createListing.cameraFinish', { count }) : `${count}/${minFrames}`}
+                {canFinish
+                  ? (finishLabel ? finishLabel(count) : t('createListing.cameraFinish', { count }))
+                  : `${count}/${minFrames}`}
               </Text>
             </Pressy>
           </View>

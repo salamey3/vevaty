@@ -52,6 +52,10 @@ type StepKind = 'category' | 'photos' | 'spin' | 'specs' | 'details' | 'translat
 // cars -- 12 frames is 30°/frame, the low end of standard commercial
 // product-spin rigs, and reads as an actual smooth spin rather than a
 // slideshow). Max 24 (15°/frame) caps upload size and seller tedium.
+// How many photos a listing can carry in total. Was written out as a bare 6
+// at each call site; named here because the in-camera batch has to know how
+// many slots are left before it opens.
+const PHOTOS_MAX = 6;
 const SPIN_MIN_FRAMES = 12;
 const SPIN_MAX_FRAMES = 24;
 
@@ -130,6 +134,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // still running, and state owned by the step would be thrown away the
   // moment they did. `videoUploadRef` is the live tus upload, kept only so
   // Remove can actually stop it rather than leaving bytes in flight.
+  // The Photos step's own camera session. Separate from the spin and Magic
+  // ones so a seller can't end up with one modal's shots landing in another
+  // modal's array.
+  const [photoCameraVisible, setPhotoCameraVisible] = useState(false);
   const [video, setVideo] = useState<ListingVideo | null>(editingListing?.video || null);
   const [videoProgress, setVideoProgress] = useState<number>(0);
   const [videoError, setVideoError] = useState<string | null>(null);
@@ -405,6 +413,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     setMagicJumpPending(false);
   }, [magicJumpPending, cat, stepKinds]);
 
+  // Drives both the camera's own cap and the "you already have six" refusal.
+  const photosRemaining = Math.max(0, PHOTOS_MAX - photos.length);
+
   const STEP_LABELS: Record<StepKind, string> = {
     category: t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
@@ -581,6 +592,23 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // Removes it from Bunny too, not just from this form -- otherwise every
     // video a seller changed their mind about is stored and billed forever.
     if (guid) deleteVideo(guid).catch(() => {});
+  };
+
+  // Opens the in-app camera for the Photos step so several shots can be taken
+  // in one go. It used to hand off to expo-image-picker's single-shot camera,
+  // which closes and returns to the form after every photo -- six photos meant
+  // six round trips through the form. The same CameraView the spin and Magic
+  // flows already use keeps the seller in the viewfinder, shows what they have
+  // taken along the bottom, and only comes back when they tap Done.
+  const openPhotoCamera = () => {
+    if (photosRemaining <= 0) {
+      Alert.alert(
+        t('createListing.photoLimitTitle'),
+        t('createListing.photoLimitMessage', { max: PHOTOS_MAX })
+      );
+      return;
+    }
+    setPhotoCameraVisible(true);
   };
 
   // Fallback default name for a spin set the seller never typed/picked a
@@ -1032,11 +1060,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               {photos.map((uri) => (
                 <Image key={uri} source={{ uri }} style={styles.photoThumb} />
               ))}
-              <Pressy onPress={() => takePhotoInto(setPhotos, 6)} style={styles.addPhoto}>
+              <Pressy onPress={openPhotoCamera} style={styles.addPhoto}>
                 <Icon name="camera" size={20} color={colors.inkSoft} />
                 <Text style={[type.tiny, styles.addPhotoLabel]}>{t('createListing.takePhoto')}</Text>
               </Pressy>
-              <Pressy onPress={() => pickPhotosInto(setPhotos, 6)} style={styles.addPhoto}>
+              <Pressy onPress={() => pickPhotosInto(setPhotos, PHOTOS_MAX)} style={styles.addPhoto}>
                 <Icon name="image" size={20} color={colors.inkSoft} />
                 <Text style={[type.tiny, styles.addPhotoLabel]}>{t('createListing.addFromGallery')}</Text>
               </Pressy>
@@ -1464,6 +1492,31 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           setCameraOpen(false);
           const added = await pickPhotosInto(setDraftSpinFrames, SPIN_MAX_FRAMES);
           if (added > 0) setSpinPreviewOpen(true);
+        }}
+      />
+
+      <CameraCapture
+        visible={photoCameraVisible}
+        // One photo is enough to be worth keeping, so Done unlocks
+        // immediately; the cap is whatever is left of the six.
+        minFrames={1}
+        maxFrames={Math.max(1, photosRemaining)}
+        instructions={t('createListing.photoCameraInstructions')}
+        progressHint={(count) =>
+          count === 0
+            ? t('createListing.photoCameraStart', { max: photosRemaining })
+            : t('createListing.photoCameraTaken', { count })
+        }
+        finishLabel={(count) => t('createListing.photoCameraDone', { count })}
+        onFinish={(uris) => {
+          setPhotoCameraVisible(false);
+          if (uris.length === 0) return;
+          setPhotos((prev) => [...prev, ...uris].slice(0, PHOTOS_MAX));
+        }}
+        onCancel={() => setPhotoCameraVisible(false)}
+        onFallbackToLibrary={() => {
+          setPhotoCameraVisible(false);
+          pickPhotosInto(setPhotos, PHOTOS_MAX);
         }}
       />
 
