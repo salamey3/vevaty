@@ -1,8 +1,9 @@
-import React, { useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, Image } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Pressy from './Pressy';
+import CardPreview from './CardPreview';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
 import { Listing } from '../types';
@@ -15,6 +16,14 @@ import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { RootStackParamList } from '../navigation/types';
+
+// How long the cursor has to sit still on a card before its preview
+// starts. Not zero: a mouse sweeping across a grid of a dozen cards on
+// its way somewhere else would otherwise fire off a network request and a
+// decode for every single one it merely crossed. Long enough to filter
+// that out, short enough that anyone who's actually looking still reads
+// it as instant.
+const HOVER_PREVIEW_DELAY_MS = 180;
 
 export default function ListingCard({
   listing,
@@ -57,6 +66,29 @@ export default function ListingCard({
   // Nothing to save about your own listing -- same reasoning as
   // ListingDetailScreen hiding its contact CTA from the owner.
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
+
+  // The hover/long-press preview (CardPreview) -- mounted only while
+  // `previewing` is true, so its images never load for a card nobody's
+  // actually looking at. Desktop web gets it from a plain mouse hover;
+  // touch (native app or a phone browser) gets it from a long press,
+  // which is also how it stays distinct from the tap that opens the
+  // listing -- Pressable already suppresses onPress after onLongPress
+  // fires, so holding a card never double-fires a navigation on release.
+  const [previewing, setPreviewing] = useState(false);
+  const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const startHoverTimer = () => {
+    hoverTimerRef.current = setTimeout(() => setPreviewing(true), HOVER_PREVIEW_DELAY_MS);
+  };
+  const clearHoverTimer = () => {
+    if (hoverTimerRef.current) {
+      clearTimeout(hoverTimerRef.current);
+      hoverTimerRef.current = null;
+    }
+  };
+  // A card can be recycled out of a FlatList mid-hover (fast scroll while
+  // the pending timer is still ticking) -- without this the timeout would
+  // fire setPreviewing on a component nobody can see anymore.
+  useEffect(() => clearHoverTimer, []);
 
   // The two specs most worth knowing before you open the listing -- screen
   // size on a TV, year and mileage on a car, storage on a phone. Required
@@ -110,7 +142,24 @@ export default function ListingCard({
   };
 
   return (
-    <Pressy onPress={onPress} style={[styles.card, { width: width ?? widthPct }]}>
+    <Pressy
+      onPress={onPress}
+      style={[styles.card, { width: width ?? widthPct }]}
+      // Desktop web only -- Pressable's hover events don't fire on
+      // native touch, so this never competes with the long-press below.
+      onHoverIn={startHoverTimer}
+      onHoverOut={() => {
+        clearHoverTimer();
+        setPreviewing(false);
+      }}
+      // Touch (native app or a phone browser) -- a genuine hold, not the
+      // tap that opens the listing. onPressOut covers both "let go after
+      // holding" and "let go after a normal quick tap that never became
+      // a long press"; the latter is a no-op since previewing is already
+      // false in that case.
+      onLongPress={() => setPreviewing(true)}
+      onPressOut={() => setPreviewing(false)}
+    >
       <View style={styles.thumb}>
         {listing.photos[0] ? (
           // Requested at card size, not the seeded 900x1200 original -- see
@@ -120,6 +169,7 @@ export default function ListingCard({
         ) : (
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
         )}
+        {previewing && <CardPreview photos={listing.photos} spinSets={listing.spinSets ?? []} />}
         {(listing.spinSets?.length ?? 0) > 0 && (
           <View style={styles.spinBadge}>
             <Icon name="rotate" size={11} color={colors.white} />
