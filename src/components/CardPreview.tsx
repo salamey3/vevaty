@@ -29,7 +29,7 @@ export default function CardPreview({ photos, spinSets }: { photos: string[]; sp
 }
 
 const PHOTO_PREVIEW_MAX = 5;
-const PHOTO_SLIDE_MS = 1200;
+const PHOTO_SLIDE_MS = 700;
 
 function PhotoSlideshow({ photos }: { photos: string[] }) {
   const [width, setWidth] = useState(0);

@@ -123,9 +123,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // Listing detail
     'listingDetail.fallbackTitle': 'Listing',
     'listingDetail.unavailable': 'This listing isn’t available anymore.',
-    'listingDetail.photosTab': 'Photos',
-    // Fallback tab label for a spin set the seller never named -- a
-    // listing can have more than one spin (see SpinSet in types/index.ts).
+    // Section heading above the stacked spin sets on mobile, below the
+    // description (see mobileSpinSection in ListingDetailScreen.tsx).
+    'listingDetail.spinSectionTitle': '360° View',
+    // Fallback label for a spin set the seller never named -- a listing
+    // can have more than one spin (see SpinSet in types/index.ts).
     'listingDetail.spinTabDefaultName': '360° #{n}',
     'listingDetail.description': 'Description',
     'listingDetail.noDescription': 'No description provided yet.',
@@ -513,7 +515,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     'listingDetail.fallbackTitle': 'إعلان',
     'listingDetail.unavailable': 'هذا الإعلان لم يعد متوفرًا.',
-    'listingDetail.photosTab': 'الصور',
+    'listingDetail.spinSectionTitle': 'عرض 360°',
     'listingDetail.spinTabDefaultName': '360° #{n}',
     'listingDetail.description': 'الوصف',
     'listingDetail.noDescription': 'لم يُضف وصف بعد.',

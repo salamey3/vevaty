@@ -58,10 +58,12 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const [reportSubmitting, setReportSubmitting] = useState(false);
   const [reportSubmitted, setReportSubmitted] = useState(false);
   const [reportError, setReportError] = useState<string | null>(null);
-  // 'photos', or the id of one of the listing's spinSets (there can be
-  // more than one -- e.g. "Exterior"/"Interior" for a car, one per room
-  // for a property -- see the SpinSet type and viewToggle below).
-  const [viewMode, setViewMode] = useState<string>('photos');
+  // Desktop only -- which of the listing's spin sets (there can be more
+  // than one, e.g. "Exterior"/"Interior" for a car, one per room for a
+  // property -- see the SpinSet type) the arrows below the photo carousel
+  // currently show. Mobile has no equivalent state: every spin set renders
+  // at once, below the description (see hasSpin below).
+  const [desktopSpinIndex, setDesktopSpinIndex] = useState(0);
   // Seller contact reveal (gated behind login -- see AppStore's
   // isVerified). Fetched lazily, only once the buyer actually taps the
   // CTA button, via the get_seller_phone RPC -- the phone column itself
@@ -303,6 +305,32 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     />
   );
 
+  const spinSets = listing.spinSets ?? [];
+  const hasSpin = spinSets.length > 0;
+
+  // Mobile/app: every spin set the listing has, stacked below the
+  // description -- not a single switchable tab, which is what buyers were
+  // scrolling right past before. Each one gets its own label only when
+  // there's more than one to tell apart. Declared ahead of `details` below
+  // since it's rendered from inside it, right after the description.
+  const mobileSpinSection = hasSpin && (
+    <>
+      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.spinSectionTitle')}</Text>
+      {spinSets.map((set, i) => (
+        <View key={set.id} style={i > 0 && styles.mobileSpinItem}>
+          {spinSets.length > 1 && (
+            <Text style={[styles.spinSetLabel, isRTL && styles.rtlText]} numberOfLines={1}>
+              {set.label || t('listingDetail.spinTabDefaultName', { n: i + 1 })}
+            </Text>
+          )}
+          <View style={styles.mobileSpinBox}>
+            <SpinViewer frames={set.frames} />
+          </View>
+        </View>
+      ))}
+    </>
+  );
+
   const details = (
     <>
       <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
@@ -363,6 +391,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
       <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.description')}</Text>
       <Text style={[styles.desc, isRTL && styles.rtlText]}>{listingDescription(listing, language) || t('listingDetail.noDescription')}</Text>
+
+      {/* Desktop already has its own spin box under the photo carousel
+          (desktopSpinBox, rendered in the desktop layout below) -- showing
+          it again here would be the same content twice on one screen. */}
+      {!isDesktop && mobileSpinSection}
 
       {specs.length > 0 && (
         <>
@@ -458,73 +491,61 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   );
   const galleryRef = useRef<PhotoGalleryHandle>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
-  const spinSets = listing.spinSets ?? [];
-  const hasSpin = spinSets.length > 0;
-  const activeSpinSet = spinSets.find((s) => s.id === viewMode);
 
-  // A small Photos/360° View toggle, rendered as a sibling ABOVE the photo
-  // box (not inside it) -- the box itself (styles.photo/desktopPhoto) is a
-  // fixed-size, center-aligned container that PhotoGallery/SpinViewer are
-  // meant to fill edge-to-edge, so adding the toggle inside it would fight
-  // that sizing. A listing can have more than one named spin (e.g.
-  // "Exterior"/"Interior" for a car, one per room for a property), so this
-  // is a horizontally-scrollable chip per spin rather than a fixed
-  // two-way toggle -- each chip's own tapped-set id becomes viewMode.
-  const viewToggle = hasSpin && (
-    <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.viewToggleRow}>
-      <Pressy
-        onPress={() => setViewMode('photos')}
-        style={[styles.viewToggleBtn, viewMode === 'photos' && styles.viewToggleBtnActive]}
-      >
-        <Text style={[styles.viewToggleText, viewMode === 'photos' && styles.viewToggleTextActive]}>
-          {t('listingDetail.photosTab')}
-        </Text>
-      </Pressy>
-      {spinSets.map((set, i) => (
-        <Pressy
-          key={set.id}
-          onPress={() => setViewMode(set.id)}
-          style={[styles.viewToggleBtn, viewMode === set.id && styles.viewToggleBtnActive]}
-        >
-          <Icon name="rotate" size={12} color={viewMode === set.id ? colors.white : colors.inkSoft} />
-          <Text style={[styles.viewToggleText, viewMode === set.id && styles.viewToggleTextActive]} numberOfLines={1}>
-            {set.label || t('listingDetail.spinTabDefaultName', { n: i + 1 })}
-          </Text>
-        </Pressy>
-      ))}
-    </ScrollView>
-  );
-
+  // The photo box now shows only photos, full time -- no more Photos/360°
+  // toggle sitting on top where a spin could go unnoticed. Where the spins
+  // themselves show up differs by platform (see mobileSpinSection and
+  // desktopSpinBox below): easy to miss a tab is exactly the complaint this
+  // replaced.
+  //
   // Arrows wrap the photo box from OUTSIDE, so they sit in the page beside
   // the frame rather than on top of the photograph. Putting them inside
   // PhotoGallery was the obvious move and the wrong one: that box is
   // fixed-size and overflow-hidden, so anything rendered within it is by
   // definition over the image.
-  //
-  // Only for a real gallery -- a 360 spin is dragged, not paged, and there
-  // is nothing for a next/previous arrow to mean.
   const photoBox = (extraStyle: any) => {
     const inner = (
       <View style={extraStyle}>
-        {activeSpinSet ? (
-          <SpinViewer frames={activeSpinSet.frames} />
-        ) : (
-          <PhotoGallery
-            ref={galleryRef}
-            photos={listing.photos}
-            fallbackIconName={(cat?.icon as any) || 'bag'}
-            onIndexChange={setPhotoIndex}
-          />
-        )}
+        <PhotoGallery
+          ref={galleryRef}
+          photos={listing.photos}
+          fallbackIconName={(cat?.icon as any) || 'bag'}
+          onIndexChange={setPhotoIndex}
+        />
       </View>
     );
-    if (activeSpinSet || listing.photos.length < 2) return inner;
+    if (listing.photos.length < 2) return inner;
     return (
       <CarouselArrows
         onScrollBy={(d) => galleryRef.current?.page(d)}
         step={1}
         canScrollBack={photoIndex > 0}
         canScrollForward={photoIndex < listing.photos.length - 1}
+      >
+        {inner}
+      </CarouselArrows>
+    );
+  };
+
+  // Desktop: the first spin set, sitting directly under the photo
+  // carousel -- not a tab beside it, which is exactly what made spins easy
+  // to miss. Same arrow convention as photoBox above: they live outside the
+  // box, in their own gutters, and each one only shows when it actually
+  // leads somewhere -- with one spin set that's neither arrow, ever.
+  const desktopSpinBox = () => {
+    const activeSet = spinSets[desktopSpinIndex] ?? spinSets[0];
+    const inner = (
+      <View style={styles.desktopPhoto}>
+        <SpinViewer frames={activeSet.frames} />
+      </View>
+    );
+    if (spinSets.length < 2) return inner;
+    return (
+      <CarouselArrows
+        onScrollBy={(d) => setDesktopSpinIndex((i) => Math.min(Math.max(i + d, 0), spinSets.length - 1))}
+        step={1}
+        canScrollBack={desktopSpinIndex > 0}
+        canScrollForward={desktopSpinIndex < spinSets.length - 1}
       >
         {inner}
       </CarouselArrows>
@@ -621,8 +642,17 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <ScrollView contentContainerStyle={styles.desktopScroll}>
           <View style={styles.desktopRow}>
             <View style={styles.desktopMediaCol}>
-              {viewToggle}
               {photoBox(styles.desktopPhoto)}
+              {hasSpin && (
+                <>
+                  {spinSets.length > 1 && (
+                    <Text style={styles.spinSetLabel} numberOfLines={1}>
+                      {spinSets[desktopSpinIndex]?.label || t('listingDetail.spinTabDefaultName', { n: desktopSpinIndex + 1 })}
+                    </Text>
+                  )}
+                  {desktopSpinBox()}
+                </>
+              )}
             </View>
             <View style={styles.desktopInfo}>
               {details}
@@ -641,7 +671,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       {topBar}
 
       <ScrollView contentContainerStyle={styles.scroll}>
-        {hasSpin && <View style={styles.viewToggleMobileWrap}>{viewToggle}</View>}
         {photoBox(styles.photo)}
         <View style={styles.card}>{details}</View>
       </ScrollView>
@@ -677,18 +706,22 @@ const styles = StyleSheet.create({
   },
   photoImg: { width: '100%', height: '100%' },
   desktopMediaCol: { flexShrink: 0, gap: 10 },
-  viewToggleMobileWrap: { marginHorizontal: 18, marginBottom: 10 },
-  viewToggleRow: {
-    flexDirection: 'row', gap: 6,
+  // Mobile: each spin set below the description, in the same padded
+  // `card` column as the rest of `details` -- unlike `photo` above (which
+  // sits directly in the unpadded scroll view and needs its own
+  // marginHorizontal), this one inherits the card's padding, so it stays
+  // bare.
+  mobileSpinBox: {
+    aspectRatio: 3 / 4, borderRadius: radius.lg,
+    backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
-  viewToggleBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 5,
-    paddingHorizontal: 12, height: 30, borderRadius: radius.pill,
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
-  },
-  viewToggleBtnActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  viewToggleText: { ...type.tiny, fontWeight: '600', color: colors.inkSoft },
-  viewToggleTextActive: { color: colors.white },
+  // Only the second and later spin sets get this -- the first sits right
+  // under the section label above it, which is already enough gap.
+  mobileSpinItem: { marginTop: 18 },
+  // Shared by both platforms: the mobile stack (one per spin set, only
+  // once there's more than one to tell apart) and the desktop box (the
+  // currently-active set, next to its own arrows).
+  spinSetLabel: { ...type.soft, fontWeight: '600', marginBottom: 8 },
   card: { padding: 18 },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
   // With a single child (the price, whenever this isn't the owner's own
