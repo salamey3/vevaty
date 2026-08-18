@@ -589,7 +589,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <CarouselArrows onScrollBy={() => {}} step={1} canScrollBack={false} canScrollForward={false}>
           <View style={extraStyle}>
             {playableVideo ? (
-              <VideoPlayer guid={playableVideo.guid} height={playableVideo.height} />
+              <VideoPlayer guid={playableVideo.guid} resolutions={playableVideo.resolutions} />
             ) : video && video.status === 'failed' ? (
               mediaEmptyState('camera', t('listingDetail.videoFailed'))
             ) : video ? (

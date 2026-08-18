@@ -123,6 +123,11 @@ export interface ListingVideo {
   durationS: number | null;
   width: number | null;
   height: number | null;
+  // Rendition heights Bunny actually produced, ascending (e.g. [360, 720]).
+  // Null for videos encoded before this was recorded. Never infer this from
+  // `height`: Bunny doesn't upscale, and which resolutions get generated is a
+  // library setting that can change between one upload and the next.
+  resolutions: number[] | null;
 }
 
 export interface Listing {

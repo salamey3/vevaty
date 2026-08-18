@@ -4,16 +4,18 @@ import { useVideoPlayer, VideoView } from 'expo-video';
 import { radius } from '../theme/theme';
 import {
   BUNNY_MEDIA_HEADERS,
-  videoPlaybackUrl,
+  videoPlaybackCandidates,
   videoStreamUrl,
   videoThumbnailUrl,
 } from '../lib/bunnyVideo';
 
 type Props = {
   guid: string;
-  // The SOURCE height Bunny reported. Bunny never upscales, so this is what
-  // decides which renditions actually exist.
-  height: number | null;
+  // Rendition heights Bunny actually produced, ascending. Null for videos
+  // encoded before we recorded it -- the web player then tries a few likely
+  // ones and lets the browser fall through, rather than guessing one and
+  // failing silently on a 404.
+  resolutions: number[] | null;
 };
 
 // Fills its parent container -- same contract as PhotoGallery and SpinViewer,
@@ -29,44 +31,54 @@ type Props = {
 // multi-second stall in front of every play, and on mobile browsers the
 // play() call no longer counted as a user gesture, so it was refused outright
 // and the video just sat on its first frame forever.
-export default function VideoPlayer({ guid, height }: Props) {
-  if (Platform.OS === 'web') return <WebVideo guid={guid} height={height} />;
-  return <NativeVideo guid={guid} height={height} />;
+export default function VideoPlayer({ guid, resolutions }: Props) {
+  if (Platform.OS === 'web') return <WebVideo guid={guid} resolutions={resolutions} />;
+  return <NativeVideo guid={guid} resolutions={resolutions} />;
 }
 
 // Web: a real <video> element rather than expo-video's wrapper, because the
 // browser's own controls are the point. Its play button is a genuine user
 // gesture on the element itself, so no autoplay policy applies, and there is
 // no programmatic play() to be refused.
-function WebVideo({ guid, height }: Props) {
+function WebVideo({ guid, resolutions }: Props) {
   const { width } = useWindowDimensions();
-  // A phone browser shows this in a box a few hundred pixels wide. Pulling
-  // 720p into it costs the buyer roughly three times the data for a
-  // difference they cannot see.
-  const src = useMemo(
-    () => videoPlaybackUrl(guid, height, width < 700 ? 360 : 720),
-    [guid, height, width]
+  // A phone browser shows this in a box a few hundred pixels wide, so it asks
+  // for the smaller rendition when one exists.
+  const candidates = useMemo(
+    () => videoPlaybackCandidates(guid, resolutions, width < 700 ? 360 : 720),
+    [guid, resolutions, width]
   );
 
   return (
     <View style={styles.fill}>
-      {React.createElement('video', {
-        key: src,
-        src,
-        poster: videoThumbnailUrl(guid),
-        controls: true,
-        preload: 'auto',
-        playsInline: true,
-        // Attribute spelling, for the browsers that still want it.
-        'webkit-playsinline': 'true',
-        style: {
-          width: '100%',
-          height: '100%',
-          objectFit: 'contain',
-          backgroundColor: '#000000',
-          display: 'block',
+      {React.createElement(
+        'video',
+        {
+          // Remount when the list changes, so the browser redoes its source
+          // selection instead of staying on a file it already gave up on.
+          key: candidates.join('|'),
+          poster: videoThumbnailUrl(guid),
+          controls: true,
+          preload: 'auto',
+          playsInline: true,
+          // Attribute spelling, for the browsers that still want it.
+          'webkit-playsinline': 'true',
+          style: {
+            width: '100%',
+            height: '100%',
+            objectFit: 'contain',
+            backgroundColor: '#000000',
+            display: 'block',
+          },
         },
-      })}
+        // Several <source> children rather than one src: if a rendition was
+        // never generated the browser moves on to the next instead of showing
+        // a dead player. That is the whole reason phone browsers broke while
+        // desktop worked.
+        ...candidates.map((url) =>
+          React.createElement('source', { key: url, src: url, type: 'video/mp4' })
+        )
+      )}
     </View>
   );
 }
@@ -77,7 +89,7 @@ function WebVideo({ guid, height }: Props) {
 //
 // The player is created with its source already set, so it is buffering from
 // the moment the tab opens.
-function NativeVideo({ guid, height }: Props) {
+function NativeVideo({ guid }: Props) {
   const [firstFrame, setFirstFrame] = useState(false);
 
   const source = useMemo(

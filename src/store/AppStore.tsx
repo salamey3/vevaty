@@ -5,7 +5,7 @@ import { SEED_LISTINGS } from '../data/seed';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
 import { uploadPhotos } from '../lib/photoUpload';
-import { attachVideoToListing, deleteVideo } from '../lib/bunnyVideo';
+import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
 
 const KEYS = {
   listings: 'vevaty:listings',
@@ -140,7 +140,10 @@ function normalizeListing(l: any): Listing {
     // field, and anything reading `listing.video.status` without a guard
     // would take the whole render tree down on first load -- which is what
     // the 360-spin deploy actually did in production.
-    video: l?.video && typeof l.video === 'object' && typeof l.video.guid === 'string' ? l.video : null,
+    video:
+      l?.video && typeof l.video === 'object' && typeof l.video.guid === 'string'
+        ? { ...l.video, resolutions: Array.isArray(l.video.resolutions) ? l.video.resolutions : null }
+        : null,
     // Same defensive story as photos/spinSets above: a listing cached by
     // a build that predates the login-gate/expiry feature won't have
     // these fields at all.
@@ -181,6 +184,7 @@ function videoFromRows(rows: any): ListingVideo | null {
     durationS: row.duration_s != null ? Number(row.duration_s) : null,
     width: row.width != null ? Number(row.width) : null,
     height: row.height != null ? Number(row.height) : null,
+    resolutions: parseResolutions(row.resolutions),
   };
 }
 
@@ -303,7 +307,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at), ' +
             'photos:listing_photos(url, sort_order, kind, spin_set_id), ' +
             'spinSets:listing_spin_sets(id, label, sort_order), ' +
-            'video:listing_videos(bunny_guid, status, duration_s, width, height)'
+            'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions)'
         )
         .order('created_at', { ascending: false });
 

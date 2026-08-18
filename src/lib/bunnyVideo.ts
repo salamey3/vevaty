@@ -71,25 +71,57 @@ export function videoStreamUrl(guid: string): string {
   return `https://${BUNNY_CDN_HOST}/${guid}/playlist.m3u8`;
 }
 
-// The MP4 fallback, for web. Verified faststart (the moov box comes before
-// mdat), so a browser can begin playing from a partial download rather than
-// waiting for the whole file.
+// Turns Bunny's "360p,480p,720p" into [360, 480, 720].
+export function parseResolutions(raw: string | null | undefined): number[] | null {
+  if (!raw) return null;
+  const heights = raw
+    .split(',')
+    .map((part) => parseInt(part.trim(), 10))
+    .filter((n) => Number.isFinite(n) && n > 0);
+  if (heights.length === 0) return null;
+  return Array.from(new Set(heights)).sort((a, b) => a - b);
+}
+
+// Ordered list of MP4s to try, best first. Used on web, where the MP4
+// fallback is the only option (expo-video's web build has no HLS support).
+// The files are faststart, so a browser plays from a partial download.
 //
-// Two heights matter and they are different things. `sourceHeight` is what
-// Bunny reports for the original: Bunny never upscales, so a clip shot at
-// 480p has no 720p rendition and asking for one 404s. `maxHeight` is how big
-// the player actually is on screen -- there is no point pulling 720p into a
-// 350px-wide phone browser, it just costs the seller's buyer three times the
-// data for no visible difference.
-export function videoPlaybackUrl(
+// This used to pick ONE rendition from the source height: >=700 meant 720p,
+// anything else meant 360p. That quietly broke the moment the library's
+// enabled resolutions changed -- phone browsers, which deliberately ask for
+// the smaller file to save the buyer's data, requested a play_360p.mp4 that
+// had never been generated and got a 404, while desktop carried on fine
+// because 720p did exist.
+//
+// So: use what Bunny actually reported when we have it, and return a LIST
+// either way. A <video> with several <source> children moves on to the next
+// one when a file fails to load, which makes an unknown or stale set
+// self-correcting rather than fatal.
+const KNOWN_RENDITIONS = [240, 360, 480, 720, 1080, 1440, 2160];
+
+export function videoPlaybackCandidates(
   guid: string,
-  sourceHeight: number | null,
-  maxHeight?: number
-): string {
-  const available = sourceHeight ?? 0;
-  const wanted = maxHeight ?? 720;
-  const rendition = available >= 700 && wanted >= 700 ? '720p' : '360p';
-  return `https://${BUNNY_CDN_HOST}/${guid}/play_${rendition}.mp4`;
+  resolutions: number[] | null,
+  maxHeight: number
+): string[] {
+  const url = (h: number) => `https://${BUNNY_CDN_HOST}/${guid}/play_${h}p.mp4`;
+
+  if (resolutions && resolutions.length > 0) {
+    // Best one that fits the player first, then the rest smallest-up as
+    // fallbacks -- there is no point pulling 720p into a 350px-wide phone
+    // browser when 360p exists, it costs the buyer three times the data for
+    // a difference they cannot see.
+    const fits = resolutions.filter((h) => h <= maxHeight).sort((a, b) => b - a);
+    const rest = resolutions.filter((h) => h > maxHeight).sort((a, b) => a - b);
+    return [...fits, ...rest].map(url);
+  }
+
+  // Nothing recorded (a video encoded before we stored this). Try the most
+  // likely renditions in a sensible order and let the browser fall through.
+  const guesses = KNOWN_RENDITIONS.filter((h) => h <= maxHeight)
+    .sort((a, b) => b - a)
+    .concat(KNOWN_RENDITIONS.filter((h) => h > maxHeight).sort((a, b) => a - b));
+  return guesses.slice(0, 4).map(url);
 }
 
 interface UploadTicket {
@@ -231,7 +263,7 @@ export async function nudgeVideoStatus(guid: string): Promise<void> {
 export async function fetchVideoStatus(guid: string): Promise<ListingVideo | null> {
   const { data, error } = await supabase
     .from('listing_videos')
-    .select('bunny_guid, status, duration_s, width, height')
+    .select('bunny_guid, status, duration_s, width, height, resolutions')
     .eq('bunny_guid', guid)
     .maybeSingle();
   if (error || !data) return null;
@@ -241,6 +273,7 @@ export async function fetchVideoStatus(guid: string): Promise<ListingVideo | nul
     durationS: data.duration_s != null ? Number(data.duration_s) : null,
     width: data.width != null ? Number(data.width) : null,
     height: data.height != null ? Number(data.height) : null,
+    resolutions: parseResolutions(data.resolutions),
   };
 }
 

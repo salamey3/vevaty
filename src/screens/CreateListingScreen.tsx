@@ -581,6 +581,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         durationS: seconds,
         width: asset.width ?? null,
         height: asset.height ?? null,
+        // Not known until Bunny has finished encoding and told us which
+        // renditions it actually made -- see the webhook.
+        resolutions: null,
       });
 
       await promise;
