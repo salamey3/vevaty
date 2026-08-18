@@ -1,6 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Image, Modal, StyleSheet, Text, View } from 'react-native';
 import { CameraView, useCameraPermissions } from 'expo-camera';
+import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
@@ -61,6 +62,13 @@ export default function CameraCapture({
   finishLabel,
 }: Props) {
   const { t } = useLanguage();
+  // Android draws this modal edge to edge, so the viewfinder runs under the
+  // status bar at the top and under the navigation bar at the bottom. Without
+  // these, the close button sits beneath the clock and -- worse -- the Done
+  // button sits beneath the navigation bar, where it can't be tapped at all.
+  // Same hook the tab bar already uses; the SafeAreaProvider at the App root
+  // reaches in here because React context passes through a Modal.
+  const insets = useSafeAreaInsets();
   const [permission, requestPermission] = useCameraPermissions();
   const [camState, setCamState] = useState<CamState>('idle');
   const [frames, setFrames] = useState<string[]>([]);
@@ -130,7 +138,7 @@ export default function CameraCapture({
   return (
     <Modal transparent visible={visible} animationType="fade" onRequestClose={onCancel}>
       <View style={styles.backdrop}>
-        <View style={styles.topBar}>
+        <View style={[styles.topBar, { paddingTop: insets.top + 14 }]}>
           <Pressy onPress={onCancel} style={styles.iconBtn} accessibilityLabel="Close">
             <Icon name="close" size={18} color={colors.white} />
           </Pressy>
@@ -167,7 +175,7 @@ export default function CameraCapture({
         )}
 
         {camState === 'active' && (
-          <View style={styles.bottomBar}>
+          <View style={[styles.bottomBar, { paddingBottom: insets.bottom + 18 }]}>
             <Text style={styles.hintText}>
               {progressHint
                 ? progressHint(count, minFrames)
