@@ -1,6 +1,13 @@
 // Tests photo upload's retry behaviour against the REAL src/lib/photoUpload.ts.
 //
-//   npm run test:upload
+//   node scripts/test/upload-retry.test.mjs
+//
+// Run directly, NOT via an npm script. @expo/fingerprint hashes
+// package.json's "scripts" block into the runtime version, so adding a
+// script here silently orphans every over-the-air update: they publish
+// fine, and no installed app ever asks for that runtime. Adding
+// "test:upload" to package.json is exactly what did that, and it cost six
+// ships before anyone noticed the app was frozen on an old bundle.
 //
 // The module can't be imported directly under Node -- it pulls in
 // expo-file-system and react-native -- so esbuild bundles it first with

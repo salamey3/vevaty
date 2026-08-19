@@ -52,8 +52,7 @@
     "deploy:web": "node deploy-web.mjs",
     "ship": "node ship.mjs",
     "verify:web": "node verify-web.mjs",
-    "brand": "node scripts/generate-brand-assets.mjs",
-    "test:upload": "node scripts/test/upload-retry.test.mjs"
+    "brand": "node scripts/generate-brand-assets.mjs"
   },
   "private": true
 }

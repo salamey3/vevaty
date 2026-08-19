@@ -111,26 +111,56 @@ if (auto) {
 //
 // So: compute the fingerprint of what we are about to publish, ask EAS what
 // the last Android build was compiled with, and say so plainly if they
-// don't match. Best-effort -- if either lookup fails, ship rather than
-// block on a diagnostic.
+// don't match.
+//
+// THIS CHECK SILENTLY DID NOT RUN FOR SIX SHIPS, and the exact thing it
+// exists to catch is what happened. `eas-cli build:list` was being passed
+// `--non-interactive`, which that CLI does not accept -- it wants CI=1 in
+// the environment -- so the command threw, the catch swallowed it, and the
+// step printed a bland "skipped ... not fatal" every time. Meanwhile a
+// single line added to package.json's "scripts" had changed the runtime
+// fingerprint, and every update since had been publishing to a runtime no
+// installed app was asking for. Two of the ships in between were spent
+// force-quitting the app wondering why a change that was plainly live on
+// the website refused to appear.
+//
+// Two lessons, both encoded below: pass CI through the environment, and
+// never report a diagnostic that could not run as though it had run.
 function runtimeCheck() {
-  const quiet = (cmd, args) => execFileSync(cmd, args, { encoding: 'utf8', stdio: ['ignore', 'pipe', 'ignore'] });
+  const quiet = (cmd, args) =>
+    execFileSync(cmd, args, {
+      encoding: 'utf8',
+      stdio: ['ignore', 'pipe', 'pipe'],
+      // eas-cli reads CI from the environment. It rejects
+      // --non-interactive outright, which is what broke this.
+      env: { ...process.env, CI: '1' },
+    });
   try {
     const fpOut = quiet('npx', ['--yes', 'expo-updates', 'fingerprint:generate', '--platform', 'android']);
     const local = JSON.parse(fpOut.trim().split('\n').pop()).hash;
-    const buildsOut = quiet('npx', ['--yes', 'eas-cli', 'build:list', '--platform', 'android', '--limit', '1', '--json', '--non-interactive']);
+    const buildsOut = quiet('npx', ['--yes', 'eas-cli', 'build:list', '--platform', 'android', '--limit', '1', '--json']);
     const installed = JSON.parse(buildsOut)[0]?.runtimeVersion;
-    if (!local || !installed) return null;
+    if (!local || !installed) return { error: 'the lookup returned nothing usable' };
     return { local, installed, match: local === installed };
-  } catch {
-    return null;
+  } catch (e) {
+    return { error: (e?.stderr || e?.message || String(e)).toString().trim().split('\n').slice(-3).join(' ') };
   }
 }
 
 step('Checking the update can reach the installed app');
 const rt = runtimeCheck();
-if (!rt) {
-  console.log('       skipped (could not read the build list -- not fatal)');
+if (rt.error) {
+  // Deliberately noisy. A check that cannot run is not a check that
+  // passed, and the quiet version of this line cost six ships.
+  console.log('\n  ' + '?'.repeat(62));
+  console.log('  COULD NOT VERIFY THAT THIS UPDATE WILL REACH THE APP.');
+  console.log('  ' + '?'.repeat(62));
+  console.log(`\n    ${rt.error}`);
+  console.log('\n  Publishing anyway, but nothing here has confirmed the phone will');
+  console.log('  see it. If an update does not appear after two force-quits, run:');
+  console.log('    npx expo-updates fingerprint:generate --platform android');
+  console.log('    CI=1 npx eas-cli build:list --platform android --limit 1 --json');
+  console.log('  and compare the hash with the build\'s runtimeVersion.\n');
 } else if (rt.match) {
   console.log(`       ok -- runtime ${rt.local.slice(0, 12)}`);
 } else {
