@@ -7,8 +7,11 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 // project's other data. The key below is the public "publishable" key,
 // safe to ship inside the app; every table it can reach is protected by
 // Row Level Security policies, not by keeping this key secret.
-const SUPABASE_URL = 'https://ueqfkxvvfrhppdsnsfpx.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_J3b1Uyp4ZvV5ItcAYBhPRg_EX3On8Ez';
+// Exported because photoUpload.ts posts raw image bytes to an edge
+// function by hand: on native the file is streamed from a file:// URI by
+// expo-file-system's uploader, which supabase-js has no way to drive.
+export const SUPABASE_URL = 'https://ueqfkxvvfrhppdsnsfpx.supabase.co';
+export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_J3b1Uyp4ZvV5ItcAYBhPRg_EX3On8Ez';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   db: { schema: 'myazar' },

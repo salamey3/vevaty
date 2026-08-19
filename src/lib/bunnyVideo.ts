@@ -5,7 +5,7 @@ import type { ListingVideo } from '../types';
 
 // A listing's optional video, hosted on Bunny Stream.
 //
-// Photos go to vevaty.com/upload.php (see photoUpload.ts). Video does not,
+// Photos go to Bunny edge storage (see photoUpload.ts). Video does not,
 // and shouldn't: a 60-second clip is two orders of magnitude larger than a
 // photo, needs transcoding into something a phone can actually stream, and
 // has to survive a Lebanese mobile connection dropping halfway through.

@@ -105,10 +105,9 @@ export async function photosForVision(uris: string[], max: number): Promise<Visi
 // Caps a local photo URI to a sane upload size before it ever leaves the
 // device, returning a new local URI (not base64 -- this one gets uploaded
 // as a file, see photoUpload.ts). Sellers' camera/gallery photos routinely
-// come in at 4000x3000+ (several MB each); vevaty.com/upload.php serves
-// whatever it's given back out verbatim with no server-side resizing, and
-// every listing card/carousel on the app requests that same full-size
-// original just to paint a 148px-wide thumbnail. That mismatch -- dozens of
+// come in at 4000x3000+ (several MB each); storage serves back exactly
+// what it was given, and every listing card/carousel on the app requests
+// that same full-size original just to paint a 148px-wide thumbnail. That mismatch -- dozens of
 // multi-megabyte photos decoded at once for tiny cards -- is what actually
 // made scrolling/swiping feel heavy on-device (confirmed via screen
 // recording), not just a cold-start blip. 1600px longest-edge at quality

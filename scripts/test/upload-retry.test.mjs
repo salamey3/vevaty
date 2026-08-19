@@ -9,9 +9,14 @@
 //
 // Why this exists: a real phone posting three photos uploaded the first,
 // then hit "Unable to resolve host vevaty.com" on the next two and
-// published the listing with nothing to show. Upload retried a 403 (expired
-// ticket) but gave up after ONE attempt on any network failure, so a single
-// dropped DNS lookup cost the seller that photo permanently.
+// published the listing with nothing to show. Upload gave up after ONE
+// attempt on any network failure, so a single dropped lookup cost the
+// seller that photo permanently.
+//
+// Photos have since moved off vevaty.com onto Bunny edge storage via the
+// upload-photo function, which is the actual cure for that particular
+// host being unreachable. The retry loop stays and stays tested: mobile
+// connections in Lebanon drop packets whatever the destination is.
 import * as esbuild from 'esbuild';
 import path from 'node:path';
 
@@ -34,11 +39,14 @@ await esbuild.build({
     stub('react-native', `export const Platform = { OS: 'web' };`),
     stub('expo-file-system', `
       export class File { constructor(u){ this.u = u; } async upload(){ return globalThis.__NATIVE_UPLOAD__(this.u); } }
-      export const UploadType = { MULTIPART: 'multipart' };`),
+      export const UploadType = { MULTIPART: 'multipart', BINARY_CONTENT: 'binary' };`),
     stub('./imageToBase64', `export async function resizePhotoForUpload(u){ return u; }`),
-    stub('./uploadTicket', `
-      export async function getUploadTicket(){ return { expires: 1, signature: 's' }; }
-      export function clearUploadTicket(){ globalThis.__TICKET_CLEARED__ = (globalThis.__TICKET_CLEARED__ || 0) + 1; }`),
+    stub('./supabase', `
+      export const SUPABASE_URL = 'https://project.supabase.co';
+      export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_test';
+      export const supabase = {
+        auth: { getSession: async () => ({ data: { session: globalThis.__SESSION__ } }) },
+      };`),
     stub('./alertShim', `export const Alert = { alert: (t, m) => { (globalThis.__ALERTS__ ||= []).push({ t, m }); } };`),
   ],
 });
@@ -46,14 +54,18 @@ await esbuild.build({
 const { uploadPhotos } = await import(OUT);
 
 let calls = 0;
-const reset = () => { calls = 0; globalThis.__ALERTS__ = []; globalThis.__TICKET_CLEARED__ = 0; };
+const reset = () => {
+  calls = 0;
+  globalThis.__ALERTS__ = [];
+  globalThis.__SESSION__ = { access_token: 'fake-jwt' };
+};
 
 // The web path calls fetch TWICE per photo: once to read the local file
 // into a Blob, then once to POST it. Only the POST is scripted; the local
 // read always succeeds, exactly as it does on a device.
-const isUpload = (url) => typeof url === 'string' && url.includes('upload.php');
+const isUpload = (url) => typeof url === 'string' && url.includes('upload-photo');
 const localFile = { blob: async () => new Blob([new Uint8Array([1, 2, 3])], { type: 'image/jpeg' }) };
-const DNS_ERROR = 'Unable to resolve host "vevaty.com": No address associated with hostname';
+const DNS_ERROR = 'Unable to resolve host "project.supabase.co": No address associated with hostname';
 
 function scriptedFetch(script) {
   return async (url) => {
@@ -62,7 +74,7 @@ function scriptedFetch(script) {
     calls++;
     if (step === 'DNS') throw new Error(DNS_ERROR);
     if (typeof step === 'number') return { status: step, text: async () => `{"error":"http ${step}"}` };
-    return { status: 200, text: async () => '{"url":"https://vevaty.com/uploads/ok.jpg"}' };
+    return { status: 200, text: async () => '{"url":"https://vevaty-media.b-cdn.net/listings/ok.jpg"}' };
   };
 }
 
@@ -98,11 +110,19 @@ reset(); globalThis.fetch = scriptedFetch([400]);
 urls = await uploadPhotos(['file:///a.jpg']);
 check('does NOT retry a 400', urls.length === 0 && calls === 1, `attempts=${calls}`);
 
-// 6. Expired ticket: refresh and retry, without spending the retry budget.
-reset(); globalThis.fetch = scriptedFetch([403, 'OK']);
+// 6. A 403 is now the seller's session, not an expired ticket -- the
+//    server will say the same thing every time, so don't spend attempts.
+reset(); globalThis.fetch = scriptedFetch([403]);
 urls = await uploadPhotos(['file:///a.jpg']);
-check('refreshes the ticket on 403 and succeeds', urls.length === 1 && globalThis.__TICKET_CLEARED__ === 1,
-      `cleared=${globalThis.__TICKET_CLEARED__}`);
+check('does NOT retry a 403', urls.length === 0 && calls === 1, `attempts=${calls}`);
+
+// 6b. Signed out entirely: fail immediately with copy that says why,
+//     rather than three rounds of a request that cannot be authorised.
+reset(); globalThis.__SESSION__ = null; globalThis.fetch = scriptedFetch(['OK']);
+urls = await uploadPhotos(['file:///a.jpg']);
+check('fails fast when signed out', urls.length === 0 && calls === 0, `attempts=${calls}`);
+check('  ...and says so', /signed out/i.test(globalThis.__ALERTS__[0]?.m || ''),
+      globalThis.__ALERTS__[0]?.m || '(no alert)');
 
 // 7. The exact shape reported from the phone: three photos, one blip.
 reset();
@@ -111,7 +131,7 @@ globalThis.fetch = async (url) => {
   if (!isUpload(url)) return localFile;
   n++;
   if (n === 2) throw new Error(DNS_ERROR);
-  return { status: 200, text: async () => '{"url":"https://vevaty.com/uploads/ok.jpg"}' };
+  return { status: 200, text: async () => '{"url":"https://vevaty-media.b-cdn.net/listings/ok.jpg"}' };
 };
 urls = await uploadPhotos(['file:///a.jpg', 'file:///b.jpg', 'file:///c.jpg']);
 check('all 3 photos survive one mid-flight blip', urls.length === 3, `uploaded=${urls.length}/3`);

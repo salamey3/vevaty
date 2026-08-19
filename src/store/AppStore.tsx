@@ -222,7 +222,7 @@ function dbListingToLocal(row: any): Listing {
     geonameId: row.geoname_id != null ? Number(row.geoname_id) : null,
     lat: row.lat != null ? Number(row.lat) : null,
     lng: row.lng != null ? Number(row.lng) : null,
-    photos, // hosted on vevaty.com/uploads, not Supabase Storage
+    photos, // Bunny CDN URLs from upload-photo, not Supabase Storage
     spinSets,
     video: videoFromRows(row.video), // hosted on Bunny Stream, not either of those
 

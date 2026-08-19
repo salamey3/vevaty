@@ -16,12 +16,13 @@ import { PixelRatio } from 'react-native';
 // not just the scrolling that's actually loading photos.
 //
 // Requesting the size we're actually going to draw fixes it at the source.
-// For picsum that's just rewriting the trailing /width/height. Uploads to
-// vevaty.com/upload.php pass through untouched -- that endpoint serves
-// back exactly what it was given with no resize support, which is why
-// uploads are also capped client-side before they're sent (see
+// For picsum that's just rewriting the trailing /width/height. Uploaded
+// photos pass through untouched -- Bunny serves back exactly what was
+// stored unless the Optimizer add-on is enabled on the pull zone, which is
+// why uploads are also capped client-side before they're sent (see
 // resizePhotoForUpload in imageToBase64.ts); the two together mean neither
-// seeded nor real photos come down oversized.
+// seeded nor real photos come down oversized. If Optimizer is ever turned
+// on, this is the one place that would need to learn `?width=`.
 const PICSUM = /^(https?:\/\/(?:i\.)?picsum\.photos\/(?:seed\/[^/]+\/)?)(\d+)\/(\d+)(.*)$/;
 
 // Cap the multiplier -- a 3x/4x device would otherwise undo the whole point

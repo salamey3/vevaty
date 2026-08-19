@@ -1,27 +1,37 @@
 import { Platform } from 'react-native';
 import { File, UploadType } from 'expo-file-system';
 import { resizePhotoForUpload } from './imageToBase64';
-import { getUploadTicket, clearUploadTicket } from './uploadTicket';
+import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase';
 import { Alert } from './alertShim';
 
-// Listing photos are hosted on the same ChemiCloud domain the app itself is
-// served from (vevaty.com/upload.php), not Supabase Storage —
-// keeps photo storage off the shared Supabase project's limits entirely.
-const UPLOAD_URL = 'https://vevaty.com/upload.php';
-
-// upload.php expects the image under the field name `photo`, plus the two
-// fields of a signed ticket (`expires` and `signature`) obtained from the
-// sign-upload function. No shared secret is stored in the app -- see
-// uploadTicket.ts for why the old baked-in token had to go.
-const FILE_FIELD = 'photo';
+// Listing photos go to Bunny edge storage, via the `upload-photo` Supabase
+// function -- NOT to vevaty.com/upload.php, which is what this used to do.
+//
+// upload.php was never broken. It answered a plain HTTP client with the
+// right bytes, its certificate chain was complete, and its DNS resolved
+// correctly from Google, Cloudflare and everywhere else that was checked.
+// It just could not be reached FROM THE APP: photos posted from the phone
+// silently arrived with no images, and photos posted from the website
+// showed as blank frames in the app, while Supabase calls on the very same
+// device worked perfectly. One host unreachable, one host fine.
+//
+// So the fix is not another retry -- it is to stop routing photos through
+// a host the app cannot count on. Uploads now go to the same Supabase
+// origin every other call in the app already uses, and the stored file is
+// served back from Bunny's CDN rather than from a shared hosting box, so
+// neither direction depends on vevaty.com any more. Bunny also caches, and
+// serves the Middle East from nearby edges, which the old setup did not:
+// every 148px thumbnail used to re-download a full-size original.
+const UPLOAD_URL = `${SUPABASE_URL}/functions/v1/upload-photo`;
 
 // How many characters of the server's reply to quote back in an error.
-// Enough for upload.php's JSON ({"error":"..."}) without pasting an entire
-// HTML error page into a dialog.
+// Enough for the function's JSON ({"error":"...","message":"..."}) without
+// pasting an entire HTML error page into a dialog.
 const ERROR_BODY_CHARS = 300;
 
-// Turns upload.php's reply into the hosted URL, or throws with the reply
-// quoted. Shared by both platform paths so they fail identically.
+// Turns the upload function's reply into the hosted CDN URL, or throws
+// with the reply quoted. Shared by both platform paths so they fail
+// identically.
 function urlFromResponse(status: number, body: string): string {
   if (status < 200 || status >= 300) {
     throw new Error(`Server rejected the upload (HTTP ${status})\n${body.slice(0, ERROR_BODY_CHARS)}`);
@@ -40,70 +50,68 @@ function urlFromResponse(status: number, body: string): string {
   return data.url as string;
 }
 
-// Uploads one local photo and returns its new public URL on vevaty.com.
-//
-// NATIVE USES expo-file-system's UPLOADER, NOT fetch + FormData. This is the
-// whole reason photo upload never once worked from the app:
-//
-//   form.append('photo', { uri, name, type })   // <- what this used to do
-//
-// That `{ uri, name, type }` object is a React Native invention from the era
-// when RN shipped its own loose FormData. React Native 0.86's FormData is
-// spec-compliant and only accepts strings and real Blobs, so it rejects that
-// shape outright with "Unsupported FormDataPart implementation" -- which is
-// exactly what the app reported once failures stopped being swallowed. The
-// server was never at fault: posting the same JPEG with curl returns 200 and
-// a URL.
-//
-// expo-file-system's File.upload() does the multipart request natively,
-// avoiding JS FormData entirely, and carries the ticket fields through
-// `parameters`.
-//
-// Web keeps fetch + FormData, which is correct there: browsers have always
-// had real Blobs, and that path has no equivalent problem.
-export async function uploadPhoto(localUri: string): Promise<string> {
-  // Cap the longest edge first -- upload.php stores whatever it is given at
-  // full resolution, and the app then re-downloads that original just to
-  // paint a small thumbnail. Falls back to the original URI if resizing
-  // fails (see resizePhotoForUpload).
-  const uri = await resizePhotoForUpload(localUri);
+// The signed-in seller's token, which is what authorises the upload now.
+// There is no ticket to fetch and no shared secret anywhere in the client:
+// the edge function resolves the account from this token, refuses
+// anonymous sessions, and holds the Bunny storage password itself.
+async function authHeaders(contentType: string): Promise<Record<string, string>> {
+  const { data } = await supabase.auth.getSession();
+  const token = data.session?.access_token;
+  if (!token) {
+    throw new Error('You are signed out, so photos cannot be uploaded.\nSign in and try again.');
+  }
+  return {
+    Authorization: `Bearer ${token}`,
+    apikey: SUPABASE_PUBLISHABLE_KEY,
+    'Content-Type': contentType,
+  };
+}
 
-  const ticket = await getUploadTicket();
+// Uploads one local photo and returns its public CDN URL.
+//
+// The bytes go up as the raw request body rather than as multipart form
+// data. That is not a style choice: React Native 0.86 ships a
+// spec-compliant FormData that only accepts strings and real Blobs, so the
+// `{ uri, name, type }` object RN used to allow is rejected outright with
+// "Unsupported FormDataPart implementation" -- which is why photo upload
+// never once worked from the app before this was understood. A raw body
+// sidesteps FormData on both platforms, and expo-file-system's uploader
+// streams the file from disk without loading it into JS memory.
+export async function uploadPhoto(localUri: string): Promise<string> {
+  // Cap the longest edge first -- the CDN serves back whatever it is
+  // given, and a 4000x3000 camera original is several MB to paint a
+  // 148px card. Falls back to the original URI if resizing fails.
+  const uri = await resizePhotoForUpload(localUri);
+  const headers = await authHeaders('image/jpeg');
 
   if (Platform.OS === 'web') {
-    const form = new FormData();
-    form.append('expires', String(ticket.expires));
-    form.append('signature', ticket.signature);
     const blob = await (await fetch(uri)).blob();
-    form.append(FILE_FIELD, blob, 'photo.jpg');
-
     let res: Response;
     try {
-      res = await fetch(UPLOAD_URL, { method: 'POST', body: form });
+      res = await fetch(UPLOAD_URL, { method: 'POST', body: blob, headers });
     } catch (e: any) {
       throw new Error(`Could not reach ${UPLOAD_URL}\n${e?.message || String(e)}`);
     }
-    // Read once as text: a PHP fatal or HTML error page would make .json()
-    // throw a parse error that hides the actual message.
+    // Read once as text: an error page would make .json() throw a parse
+    // error that hides the actual message.
     return urlFromResponse(res.status, await res.text());
   }
 
   const file = new File(uri);
   let result: { status: number; body: string };
   try {
+    // BINARY_CONTENT is expo-file-system's default; named explicitly
+    // because the previous version passed MULTIPART here and the
+    // difference is the entire point of this function.
     result = await file.upload(UPLOAD_URL, {
       httpMethod: 'POST',
-      uploadType: UploadType.MULTIPART,
-      fieldName: FILE_FIELD,
-      mimeType: 'image/jpeg',
-      parameters: { expires: String(ticket.expires), signature: ticket.signature },
+      uploadType: UploadType.BINARY_CONTENT,
+      headers,
     });
   } catch (e: any) {
-    // Rejects only when the file can't be read or the request itself fails;
-    // any completed HTTP response (including non-2xx) resolves instead.
-    throw new Error(
-      `Could not reach ${UPLOAD_URL}\n${e?.message || String(e)}\nfile: ${uri}`
-    );
+    // Rejects only when the file can't be read or the request itself
+    // fails; any completed HTTP response (including non-2xx) resolves.
+    throw new Error(`Could not reach ${UPLOAD_URL}\n${e?.message || String(e)}\nfile: ${uri}`);
   }
   return urlFromResponse(result.status, result.body);
 }
@@ -134,9 +142,10 @@ function isWorthRetrying(detail: string): boolean {
 
 // Uploads one photo, retrying transient failures.
 //
-// The 403 case is handled separately and deliberately does not consume the
-// retry budget: it means the signed ticket expired mid-post, which is fixed
-// by fetching a new ticket, not by waiting.
+// There is no longer a 401/403 special case. That branch existed to
+// refresh an expired upload ticket; the ticket is gone, and a 401/403 now
+// means the seller's session is the problem -- which retrying identically
+// cannot fix, and which isWorthRetrying already declines to retry.
 async function uploadPhotoResilient(uri: string): Promise<string> {
   let lastDetail = '';
 
@@ -145,21 +154,6 @@ async function uploadPhotoResilient(uri: string): Promise<string> {
       return await uploadPhoto(uri);
     } catch (e: any) {
       lastDetail = e?.message || String(e);
-
-      // Ticket refused -- almost always because it expired mid-post (a slow
-      // connection, or the seller left the screen open a while). Throw the
-      // cached ticket away and try once more with a fresh one, rather than
-      // reusing credentials the server has already rejected and failing
-      // every remaining photo for the same stale reason.
-      if (lastDetail.includes('HTTP 403')) {
-        clearUploadTicket();
-        try {
-          return await uploadPhoto(uri);
-        } catch (retryErr: any) {
-          lastDetail = retryErr?.message || String(retryErr);
-        }
-      }
-
       if (attempt >= UPLOAD_ATTEMPTS || !isWorthRetrying(lastDetail)) break;
       console.warn(`[photoUpload] attempt ${attempt} failed, retrying:`, lastDetail);
       await sleep(RETRY_DELAYS_MS[attempt - 1] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]);
