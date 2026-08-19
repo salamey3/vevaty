@@ -14,6 +14,8 @@ import LanguageSwitch from '../components/LanguageSwitch';
 import FilterSection, { FilterOption } from '../components/FilterSection';
 import RangeSlider from '../components/RangeSlider';
 import SaveSearchModal from '../components/SaveSearchModal';
+import BrandMark from '../components/BrandMark';
+import { mirrorRow } from '../lib/mirrorRow';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
 import { colors, type, radius } from '../theme/theme';
@@ -649,20 +651,45 @@ export default function HomeScreen() {
     />
   );
 
+  // The language toggle and the points pill. They live in the brand bar on
+  // mobile and in the greeting row on desktop -- one place or the other,
+  // never both, so they're declared once here rather than written out at
+  // each site where the two copies could drift apart.
+  const headerControls = (
+    <View style={styles.headerActions}>
+      <LanguageSwitch compact />
+      <Pressy style={styles.pointsBadge} onPress={() => navigation.navigate('MainTabs')}>
+        <Icon name="sparkle" size={13} color={colors.ink} />
+        <Text style={styles.pointsText}>{profile.points}</Text>
+      </Pressy>
+    </View>
+  );
+
   return (
     <Screen reserveSidebar maxWidth={1180}>
+      {/* Mobile brand bar. Desktop has no equivalent because the sidebar
+          already carries the lockup permanently -- on a phone there is no
+          sidebar, so before this the brand was visible exactly once, on the
+          first-run language picker, and never again. Mobile web is the
+          weaker case of the two: no app icon on a home screen doing the
+          remembering, just a browser tab.
+
+          The language and points controls move up here on mobile so the
+          bar earns its height rather than only holding a logo, which
+          leaves the greeting below on a line of its own. */}
+      {!isDesktop && (
+        <View style={[styles.brandBar, mirrorRow(isRTL)]}>
+          <BrandMark variant="sidebar" />
+          {headerControls}
+        </View>
+      )}
+
       <View style={[styles.header, isDesktop && styles.headerDesktop]}>
         <View>
           <Text style={type.soft}>{profile.name && profile.name !== 'You' ? t('home.greeting') : ''}</Text>
           <Text style={[styles.name, isDesktop && styles.nameDesktop]}>{profile.name && profile.name !== 'You' ? profile.name : t('home.welcome')}</Text>
         </View>
-        <View style={styles.headerActions}>
-          <LanguageSwitch compact />
-          <Pressy style={styles.pointsBadge} onPress={() => navigation.navigate('MainTabs')}>
-            <Icon name="sparkle" size={13} color={colors.ink} />
-            <Text style={styles.pointsText}>{profile.points}</Text>
-          </Pressy>
-        </View>
+        {isDesktop && headerControls}
       </View>
 
       <View style={[styles.searchRow, isDesktop && styles.searchRowDesktop]}>
@@ -868,6 +895,20 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerDesktop: { paddingHorizontal: 0, paddingTop: 26 },
+  // Mobile only -- see the render site. A hairline underneath rather than a
+  // filled bar, so it reads as chrome sitting above the page instead of a
+  // second surface competing with the cards below it.
+  brandBar: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    justifyContent: 'space-between',
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+    marginBottom: 4,
+  },
   headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { ...type.title, fontSize: 21 },
   nameDesktop: { fontSize: 28 },

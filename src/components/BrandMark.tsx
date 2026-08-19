@@ -4,6 +4,7 @@ import VevatyMark from './VevatyMark';
 import { colors } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useSettings } from '../store/SettingsStore';
+import { mirrorRow } from '../lib/mirrorRow';
 
 // Renders the Vevaty brand identity -- see BRANDING.md parts 1 and 2.
 //
@@ -16,6 +17,12 @@ import { useSettings } from '../store/SettingsStore';
 // caller: the wordmark is ALWAYS lowercase, including sentence-initial;
 // and in Arabic the mark sits on the RIGHT, because the lockup mirrors
 // with the language and is never left-aligned in an RTL layout.
+//
+// That mirror goes through mirrorRow() rather than a plain
+// `isRTL && rowReverse`, which is what this used to do and what put the
+// mark on the LEFT in Arabic on the website: the browser already reverses
+// a row when the document is dir="rtl", so the manual reverse undid it.
+// See mirrorRow.ts.
 export default function BrandMark({ variant = 'hero' }: { variant?: 'hero' | 'sidebar' }) {
   const { language, isRTL } = useLanguage();
   const { siteSettings } = useSettings();
@@ -31,7 +38,7 @@ export default function BrandMark({ variant = 'hero' }: { variant?: 'hero' | 'si
       return <Image source={{ uri: logoUrl }} style={styles.sidebarLogo} resizeMode="contain" />;
     }
     return (
-      <View style={[styles.row, isRTL && styles.rowRTL]}>
+      <View style={[styles.row, mirrorRow(isRTL)]}>
         <VevatyMark size={26} color={colors.primary} />
         <Text style={[styles.sidebarText, isAr && styles.sidebarTextAr]}>{wordmark}</Text>
       </View>
@@ -43,7 +50,7 @@ export default function BrandMark({ variant = 'hero' }: { variant?: 'hero' | 'si
   }
   // The hero sits on the dark green gradient, so the mark reverses to white.
   return (
-    <View style={[styles.row, styles.heroRow, isRTL && styles.rowRTL]}>
+    <View style={[styles.row, styles.heroRow, mirrorRow(isRTL)]}>
       <VevatyMark size={44} color={colors.white} />
       <Text style={[styles.heroText, isAr && styles.heroTextAr]}>{wordmark}</Text>
     </View>
@@ -53,7 +60,6 @@ export default function BrandMark({ variant = 'hero' }: { variant?: 'hero' | 'si
 const styles = StyleSheet.create({
   // The gap is 0.30 x the mark height, per the lockup spec in BRANDING.md.
   row: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  rowRTL: { flexDirection: 'row-reverse' },
   heroRow: { gap: 13 },
   sidebarText: { fontSize: 19, fontWeight: '700', color: colors.ink, letterSpacing: -0.3 },
   sidebarTextAr: { fontSize: 17 },

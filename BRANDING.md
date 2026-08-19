@@ -117,7 +117,9 @@ display the logo. What the *interface* is set in is a separate decision
 
 Mark on the leading side, wordmark following — so the mark is on the left
 in English and **on the right in Arabic**. The lockup mirrors with the
-language; it is never left-aligned in an RTL layout.
+language; it is never left-aligned in an RTL layout. (Mirroring it
+correctly on both web and native is subtler than it looks — see "The RTL
+double-flip" below.)
 
 - Gap between mark and wordmark: **0.30 × the mark's height**.
 - Mark height ≈ **1.15 × the Latin cap height**, optically centred on the
@@ -326,6 +328,64 @@ a PNG in an editor — the next regeneration silently reverts it.
 
 ---
 
+## Where the lockup appears
+
+The desktop site has carried the lockup in its sidebar since the beginning.
+Phones never had an equivalent, so on a phone — app *and* mobile web — the
+brand was visible exactly once, on the first-run language picker, and then
+never again. Mobile web is the weaker of the two: there is no app icon on a
+home screen doing the remembering, just a browser tab.
+
+The fix is a **slim brand bar at the top of the mobile home screen**: the
+lockup on the leading edge, the language toggle and points pill trailing,
+a hairline underneath, and the greeting on its own line below it. The
+language and points controls moved *up* into it from the greeting row
+rather than being duplicated, so the bar earns its height instead of only
+holding a logo.
+
+| Surface | Version | Why |
+|---|---|---|
+| App icon, favicon | Mark only | No room for type at 48 px, let alone 16 px |
+| Splash screen | Full lockup | A whole screen, and the one moment to state the name outright |
+| Language picker (first run) | Full lockup, reversed (`variant="hero"`) | The literal first impression, on the dark green |
+| Desktop sidebar | Full lockup (`variant="sidebar"`) | Persistent chrome with horizontal room |
+| **Mobile home — brand bar** | **Full lockup (`variant="sidebar"`)** | The gap this closes. Same component, so an admin-uploaded logo follows |
+| Other mobile tabs (Messages, Profile) | Nothing | They have their own titles. Repeating the logo on every tab is noise, not branding |
+| Listing detail | Nothing | The top bar already carries a back arrow, a breadcrumb and the language toggle |
+| Share / OG card | Full lockup | Seen by people who have never opened the app |
+| Empty states | Nothing | A logo where content failed to load reads as an error page |
+
+Desktop is unchanged: the sidebar already carries the lockup permanently,
+so the brand bar renders on mobile only (`!isDesktop`) and would otherwise
+be a second copy of the same mark on the same screen.
+
+An admin-uploaded logo (`logo_en_url` / `logo_ar_url`) flows into the
+mobile bar automatically, because it is the same `BrandMark` component. It
+is drawn into a fixed 140×32 box with `resizeMode="contain"`, so a wide
+upload scales down rather than pushing the pills off a 390 px screen.
+
+### The RTL double-flip
+
+The lockup mirrors with the language — mark on the right in Arabic. Getting
+that right is not just `isRTL && { flexDirection: 'row-reverse' }`, which is
+what `BrandMark` used to do and what put the mark on the **wrong** side in
+Arabic on the website while looking correct in the app.
+
+On web, `LanguageContext` sets `document.documentElement.dir = 'rtl'`, and
+the browser already reverses the main axis of every row container. Adding
+`row-reverse` on top flips it *back* to left-to-right. Native has no
+ambient direction at all — this app never flips `I18nManager.isRTL` — so
+there the mirror has to be spelled out.
+
+`src/lib/mirrorRow.ts` holds that one line of platform logic; row layouts
+that must mirror should go through `mirrorRow(isRTL)` rather than applying
+`row-reverse` directly. It is the same web-has-real-direction-support /
+native-doesn't split that `useRtlCarousel` documents for horizontal
+scrollers, and the same reason `textAlign: 'auto'` silently did nothing on
+device.
+
+---
+
 ## Where the brand lives in the code
 
 | Concern | File |
@@ -334,6 +394,8 @@ a PNG in an editor — the next regeneration silently reverts it.
 | Brand colour defaults (feed `applyBrandColors`) | `src/data/categories.ts` → `DEFAULT_SITE_SETTINGS` |
 | The mark, as a component | `src/components/VevatyMark.tsx` |
 | The lockup (mark + wordmark, RTL-aware) | `src/components/BrandMark.tsx` |
+| Mobile brand bar (home screen only) | `src/screens/HomeScreen.tsx` → `brandBar` |
+| Which side a mirrored row starts on | `src/lib/mirrorRow.ts` |
 | Icons, splash, adaptive icon config | `app.json` |
 | Favicon, theme-colour, share-image meta | `build-standalone.mjs` |
 | Brand name in copy (EN + AR) | `src/i18n/translations.ts` |
