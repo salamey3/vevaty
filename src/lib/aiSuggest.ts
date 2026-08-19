@@ -108,6 +108,11 @@ export async function suggestListingFromWeb(
         specs: specs && specs.length > 0 ? specs : undefined,
         photos: photos && photos.length > 0 ? photos : undefined,
         attributes: attributes && attributes.length > 0 ? attributes : undefined,
+        // Identify and write only. Price research is a separate call
+        // (estimateListingPrice below) because it costs three web
+        // searches to this one's one, and the seller should not be
+        // watching a spinner for a number they usually overwrite.
+        mode: 'describe',
       },
     });
     if (error) {
@@ -148,5 +153,57 @@ export async function suggestListingFromWeb(
     };
   } catch (e: any) {
     return { error: { notConfigured: false, rateLimited: false, message: e?.message || 'AI suggestions are not available right now.' } };
+  }
+}
+
+export interface AiPriceResult {
+  priceRangeLow: number | null;
+  priceRangeHigh: number | null;
+  confidence: 'low' | 'medium' | 'high';
+  sources: AiSuggestSource[];
+}
+
+// Researches what the item is worth secondhand, as its own request.
+//
+// Split out of the suggestion because of what it costs in time, not in
+// money: the single combined call spent four web searches and measured
+// 19-27 seconds in production, and roughly 17 of those were the searches.
+// Identifying the item takes one search; pricing it takes three. Since
+// the seller can read and edit a title and description the moment they
+// appear, only the identification actually has to block.
+//
+// Never throws. A missing price is a field the seller fills in
+// themselves, which is what they'd do with a wrong one anyway -- it must
+// never surface as an error over a listing that is otherwise complete.
+export async function estimateListingPrice(
+  roughTitle: string,
+  categoryName: string,
+  language: 'en' | 'ar',
+  // What the describe call worked out from the photos. This is the whole
+  // reason the price call can skip re-sending the images: it is handed the
+  // conclusion they produced.
+  identification: string,
+  specs?: string[]
+): Promise<AiPriceResult | null> {
+  try {
+    const { data, error } = await supabase.functions.invoke('ai-suggest-listing', {
+      body: {
+        title: roughTitle,
+        categoryName,
+        language,
+        identification,
+        specs: specs && specs.length > 0 ? specs : undefined,
+        mode: 'price',
+      },
+    });
+    if (error || !data) return null;
+    return {
+      priceRangeLow: typeof data.priceRangeLow === 'number' ? data.priceRangeLow : null,
+      priceRangeHigh: typeof data.priceRangeHigh === 'number' ? data.priceRangeHigh : null,
+      confidence: data.confidence === 'medium' || data.confidence === 'high' ? data.confidence : 'low',
+      sources: Array.isArray(data.sources) ? data.sources : [],
+    };
+  } catch (e) {
+    return null;
   }
 }

@@ -20,7 +20,7 @@ import { AttributeValue, Category, CategoryAttribute, CategoryId, ListingVideo, 
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
-import { suggestListingFromWeb, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
+import { estimateListingPrice, suggestListingFromWeb, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { photosForVision } from '../lib/imageToBase64';
 import { mirrorRow } from '../lib/mirrorRow';
 import { supabase } from '../lib/supabase';
@@ -256,6 +256,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // quietly guessed at the model, the capacity, or which of two pictured
   // objects was actually for sale.
   const [aiUncertain, setAiUncertain] = useState<string[]>([]);
+  // Price research resolves seconds after the copy does, and the seller is
+  // editing the form the whole time. This counter is what stops a reply
+  // from a suggestion they've already moved past (re-ran it, changed
+  // category, typed their own price) landing in the field later and
+  // overwriting them.
+  const priceRunRef = useRef(0);
+  // Mirrors `price` so the async price callback can tell whether the
+  // seller has typed one, without closing over a stale render's value.
+  // Assigned during render rather than in an effect: it only ever needs to
+  // be as fresh as the last render, and the seller cannot type between
+  // that render and this microtask without causing another one.
+  const priceRef = useRef(price);
+  priceRef.current = price;
   const [aiPriceFilled, setAiPriceFilled] = useState(false);
   // True once at least one blank category-attribute field has been filled
   // in by the AI suggestion (see applyAiSuggestion) -- drives a summary
@@ -795,10 +808,37 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       setUsedDraft(true);
       setAiSources(data.sources);
       setAiUncertain(data.uncertain);
-      if (!price.trim() && data.priceRangeLow != null && data.priceRangeHigh != null) {
-        setPrice(String(Math.round((data.priceRangeLow + data.priceRangeHigh) / 2)));
-        setAiPriceFilled(true);
-      }
+      // Price is researched separately and NOT awaited. The describe call
+      // measures ~9s; adding price research to it took the whole thing to
+      // 19-27s, because pricing needs three web searches to identification's
+      // one and each search is a round trip the model waits on. The title
+      // and description are on screen and editable by now, so the seller
+      // reads and edits while this lands rather than watching a spinner
+      // for a number they usually overwrite anyway.
+      const run = ++priceRunRef.current;
+      estimateListingPrice(data.title || seedTitle, categoryName, language, data.identification, specsLines)
+        .then((priced) => {
+          if (!priced || run !== priceRunRef.current) return;
+          if (priced.priceRangeLow == null || priced.priceRangeHigh == null) return;
+          // Fill only if still empty -- anything the seller typed while
+          // this was researching is theirs and wins.
+          if (!priceRef.current.trim()) {
+            const mid = String(Math.round((priced.priceRangeLow + priced.priceRangeHigh) / 2));
+            priceRef.current = mid;
+            setPrice(mid);
+            setAiPriceFilled(true);
+          }
+          if (priced.sources.length > 0) {
+            setAiSources((prev) => {
+              const seen = new Set(prev.map((x) => x.url));
+              return [...prev, ...priced.sources.filter((x) => !seen.has(x.url))].slice(0, 3);
+            });
+          }
+        })
+        .catch(() => {
+          // Best effort by design: no price is a field the seller fills
+          // in, never an error over an otherwise complete listing.
+        });
       // Fill in whatever blank attribute fields the AI could confidently
       // determine -- never overwrite anything the seller already set,
       // same fill-only-if-empty convention (reading current state via
