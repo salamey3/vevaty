@@ -57,6 +57,51 @@ export async function uriToCompressedBase64(
   }
 }
 
+// What the AI is allowed to SEE, and why these numbers.
+//
+// The vision suggestion used to send every photo at 1024px / quality 0.6,
+// on the reasoning that the model "only needs enough detail to identify the
+// item, not a print-quality image". That reasoning was wrong in one
+// specific, expensive way: identifying a product usually means READING
+// something printed on it -- a brand name, a model number, a capacity --
+// and JPEG quality 0.6 at 1024px is where small printed text turns to
+// mush. The model then does what anyone does with a blurry word: it
+// pattern-matches to something plausible. That is how "SanDisk" came back
+// as "Samisk", and how two drives came back as two carrying cases.
+//
+// 1568px is not arbitrary: Claude downscales anything longer than that on
+// its long edge before looking at it, so pixels beyond 1568 cost bytes and
+// buy nothing. Quality 0.85 is where fine text stops smearing.
+//
+// The lead photos get that treatment; the rest ride along at the old
+// setting as context for shape and condition, which is all they are really
+// doing. Full fidelity on every photo would roughly triple the request on
+// a connection that is already the app's weakest link.
+export const AI_LEAD_PHOTOS = 2;
+const AI_LEAD_MAX_DIM = 1568;
+const AI_LEAD_QUALITY = 0.85;
+const AI_CONTEXT_MAX_DIM = 1024;
+const AI_CONTEXT_QUALITY = 0.65;
+
+export interface VisionPhoto {
+  data: string;
+  mediaType: string;
+}
+
+// Builds the photo payload for a vision call: the first AI_LEAD_PHOTOS at
+// text-legible fidelity, the remainder as cheaper context. Photos that
+// fail to read or encode are dropped rather than blocking the call.
+export async function photosForVision(uris: string[], max: number): Promise<VisionPhoto[]> {
+  const results = await Promise.all(
+    uris.slice(0, max).map((uri, i) =>
+      i < AI_LEAD_PHOTOS
+        ? uriToCompressedBase64(uri, AI_LEAD_MAX_DIM, AI_LEAD_QUALITY)
+        : uriToCompressedBase64(uri, AI_CONTEXT_MAX_DIM, AI_CONTEXT_QUALITY)
+    )
+  );
+  return results.filter((p): p is VisionPhoto => !!p);
+}
+
 // Caps a local photo URI to a sane upload size before it ever leaves the
 // device, returning a new local URI (not base64 -- this one gets uploaded
 // as a file, see photoUpload.ts). Sellers' camera/gallery photos routinely

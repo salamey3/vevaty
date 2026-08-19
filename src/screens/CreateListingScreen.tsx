@@ -21,7 +21,8 @@ import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
 import { suggestListingFromWeb, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
-import { uriToCompressedBase64 } from '../lib/imageToBase64';
+import { photosForVision } from '../lib/imageToBase64';
+import { mirrorRow } from '../lib/mirrorRow';
 import { supabase } from '../lib/supabase';
 import { getVehicleBrandNames, getModelsForBrand } from '../data/vehicleBrands';
 import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
@@ -249,6 +250,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [suggesting, setSuggesting] = useState(false);
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSources, setAiSources] = useState<AiSuggestSource[]>([]);
+  // What the AI told us it could NOT pin down. Shown to the seller above
+  // the title, because the expensive failure here is not "the AI didn't
+  // know" -- it's the seller publishing a confident-sounding listing that
+  // quietly guessed at the model, the capacity, or which of two pictured
+  // objects was actually for sale.
+  const [aiUncertain, setAiUncertain] = useState<string[]>([]);
   const [aiPriceFilled, setAiPriceFilled] = useState(false);
   // True once at least one blank category-attribute field has been filled
   // in by the AI suggestion (see applyAiSuggestion) -- drives a summary
@@ -320,9 +327,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     const source = override ?? magicPhotos;
     setMagicBusy(true);
     setMagicError(null);
-    const payload = (
-      await Promise.all(source.slice(0, AI_VISION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
-    ).filter((p): p is { data: string; mediaType: string } => !!p);
+    const payload = await photosForVision(source, AI_VISION_MAX_PHOTOS);
     if (payload.length === 0) {
       setMagicBusy(false);
       setMagicError(t('createListing.magicPhotoReadFailed'));
@@ -774,15 +779,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     setAiAttributesFilled(false);
     setAiRateLimited(false);
     const categoryName = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : '';
-    // Resize/compress client-side (see imageToBase64.ts) before sending --
-    // keeps the request small and cheap regardless of the original photo
-    // size. A photo that fails to read/encode (shouldn't normally happen)
-    // is just skipped rather than blocking the whole suggestion.
-    const photoPayload = hasPhotoSignal
-      ? (await Promise.all(photos.slice(0, AI_VISION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))).filter(
-          (p): p is { data: string; mediaType: string } => !!p
-        )
-      : [];
+    // Resize/compress client-side before sending -- the first couple of
+    // photos at a fidelity where printed brand/model text survives, the
+    // rest cheaper (see photosForVision in imageToBase64.ts for why that
+    // split exists). A photo that fails to read/encode is skipped rather
+    // than blocking the whole suggestion.
+    const photoPayload = hasPhotoSignal ? await photosForVision(photos, AI_VISION_MAX_PHOTOS) : [];
     const attributeSchema = hasSpecs ? buildAttributeSchemaForSuggestion() : [];
     const { data, error } = await suggestListingFromWeb(seedTitle, categoryName, language, specsLines, photoPayload, attributeSchema);
     setSuggesting(false);
@@ -792,6 +794,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       setDescription(data.description);
       setUsedDraft(true);
       setAiSources(data.sources);
+      setAiUncertain(data.uncertain);
       if (!price.trim() && data.priceRangeLow != null && data.priceRangeHigh != null) {
         setPrice(String(Math.round((data.priceRangeLow + data.priceRangeHigh) / 2)));
         setAiPriceFilled(true);
@@ -826,6 +829,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             price_range_high: data.priceRangeHigh,
             price_sources: data.sources,
             confidence: data.confidence,
+            uncertain: data.uncertain,
+            observed: data.observed,
+            identification: data.identification,
+            model: data.model,
             seller_accepted: true,
           })
           .then(() => {}, () => {});
@@ -837,6 +844,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // outcome than just surfacing the error and letting them retry or
       // keep writing it themselves.
       setAiSources([]);
+      setAiUncertain([]);
       setAiError(error.message);
       setAiRateLimited(error.rateLimited);
     }
@@ -1283,11 +1291,22 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             ) : (
               !!aiError && <Text style={styles.aiErrorText}>{t('createListing.aiFallbackNotice')}</Text>
             )}
+            {aiUncertain.length > 0 && (
+              <View style={styles.aiCheckBox}>
+                <View style={[styles.aiCheckHead, mirrorRow(isRTL)]}>
+                  <Icon name="sparkle" size={13} color={colors.accentDeep} />
+                  <Text style={styles.aiCheckTitle}>{t('createListing.aiCheckTitle')}</Text>
+                </View>
+                {aiUncertain.map((u) => (
+                  <Text key={u} style={styles.aiCheckItem}>{`\u2022 ${u}`}</Text>
+                ))}
+              </View>
+            )}
             <Text style={styles.fieldLabel}>{t('createListing.title')}</Text>
             <TextInput
               onFocus={onInputFocus}
               value={title}
-              onChangeText={(v) => { setTitle(v); setTitleIsMagicSeed(false); setUsedDraft(false); setAiSources([]); }}
+              onChangeText={(v) => { setTitle(v); setTitleIsMagicSeed(false); setUsedDraft(false); setAiSources([]); setAiUncertain([]); }}
               placeholder={categoryTitlePlaceholder}
               style={styles.input}
             />
@@ -1295,7 +1314,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <TextInput
               onFocus={onInputFocus}
               value={description}
-              onChangeText={(v) => { setDescription(v); setUsedDraft(false); setAiSources([]); }}
+              onChangeText={(v) => { setDescription(v); setUsedDraft(false); setAiSources([]); setAiUncertain([]); }}
               placeholder={categoryDescriptionPlaceholder}
               multiline
               style={[styles.input, styles.textarea]}
@@ -1795,6 +1814,21 @@ const styles = StyleSheet.create({
   draftBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
   aiErrorText: { fontSize: 12, color: colors.inkSoft, marginTop: -12, marginBottom: 16 },
   aiSourcesBox: { marginTop: -4, marginBottom: 16, gap: 3 },
+  // Deliberately the accent tint rather than the danger colour: this is
+  // "have a look at this", not "you did something wrong". It sits above
+  // the title field so it is read before the copy it is warning about.
+  aiCheckBox: {
+    backgroundColor: colors.warnBg,
+    borderRadius: radius.md,
+    paddingHorizontal: 12,
+    paddingVertical: 10,
+    marginTop: -4,
+    marginBottom: 16,
+    gap: 4,
+  },
+  aiCheckHead: { flexDirection: 'row', alignItems: 'center', gap: 6, marginBottom: 2 },
+  aiCheckTitle: { fontSize: 12.5, fontWeight: '700', color: colors.accentInk },
+  aiCheckItem: { fontSize: 12.5, color: colors.accentInk, lineHeight: 18 },
   aiSourcesLabel: { ...type.tiny, textTransform: 'none', letterSpacing: 0, marginTop: 6 },
   aiSourceItem: { fontSize: 12, color: colors.ink, textDecorationLine: 'underline', marginTop: 2 },
   // Deliberately styled like a real button (border, fill, centered) rather

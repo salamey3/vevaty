@@ -30,6 +30,21 @@ export interface AiSuggestResult {
   priceRangeLow: number | null;
   priceRangeHigh: number | null;
   confidence: 'low' | 'medium' | 'high';
+  // Short phrases naming what the model could NOT pin down -- "exact
+  // model number", "whether the case is included". Shown to the seller
+  // directly, because a confident-sounding listing that quietly guessed
+  // at the model is the failure mode that actually costs them a sale.
+  // Empty when the model is genuinely sure of everything it wrote.
+  uncertain: string[];
+  // The model's own working-out: what it could literally read in the
+  // photos, and what it concluded from it. Not shown to the seller --
+  // recorded so identification mistakes can be traced back to whether
+  // the text was unreadable or the reasoning was wrong.
+  observed: string;
+  identification: string;
+  // Which model actually served this (the edge function falls back if the
+  // primary is unavailable), so a sudden quality drop is attributable.
+  model: string;
   sources: AiSuggestSource[];
 }
 
@@ -124,6 +139,10 @@ export async function suggestListingFromWeb(
         priceRangeLow: typeof data.priceRangeLow === 'number' ? data.priceRangeLow : null,
         priceRangeHigh: typeof data.priceRangeHigh === 'number' ? data.priceRangeHigh : null,
         confidence: data.confidence === 'medium' || data.confidence === 'high' ? data.confidence : 'low',
+        uncertain: Array.isArray(data.uncertain) ? data.uncertain.filter((u: unknown) => typeof u === 'string') : [],
+        observed: typeof data.observed === 'string' ? data.observed : '',
+        identification: typeof data.identification === 'string' ? data.identification : '',
+        model: typeof data.model === 'string' ? data.model : '',
         sources: Array.isArray(data.sources) ? data.sources : [],
       },
     };
