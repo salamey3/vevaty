@@ -5,10 +5,10 @@ import Pressy from './Pressy';
 import { colors, radius, type } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
 
-// The Magic Listing entry point, and its one piece of theatre: three
-// brand-coloured arcs run twice around the button's outline, then peel off
-// and land on the wand's three stars, colouring them one by one, ending
-// with a glow on the topmost.
+// The Magic Listing entry point, and its one piece of theatre: a single
+// gold line runs twice around the button's outline, then peels off and
+// lands on the wand's three stars, colouring them one by one, ending with
+// a glow on the topmost.
 //
 // It resolves rather than loops. A permanent animation on a screen the
 // seller sees on every post stops being a highlight and becomes something
@@ -27,32 +27,25 @@ import { useLanguage } from '../i18n/LanguageContext';
 // stroke at full colour and animates strokeDashoffset, which is how the
 // effect is actually built.
 
-const ARC_COLORS = ['#7c3aed', '#4f46e5', '#ff5757'];
-
-// Light grey face, dark contents. The button was charcoal, and charcoal was
-// working against the one thing it exists to show: violet and indigo are
-// dark colours, so on a dark panel the arcs had to fight the background for
-// every bit of separation, and the moment they landed on the stars -- the
-// payoff of the whole sequence -- the coloured stars were darker than the
-// white outline they replaced, so the icon appeared to dim rather than
-// light up. On light grey the same three colours read at full strength and
-// the stars get visibly more saturated, not less.
+// Forest green face, white contents, one gold line. This used to be a
+// light grey panel carrying three borrowed colours -- violet, indigo and
+// red -- which predated the brand and belonged to nothing. The button is
+// the most prominent single control in the app; it should be the brand
+// stating itself, not a fourth palette.
 //
-// Not colors.surface (#f0f0ee): against a #f5f5f3 page that is a 5-value
-// difference, which is a seam rather than a shape. This is a deliberate
-// step darker so the button reads as its own object, while still being
-// light enough for ink text to sit at roughly 11:1.
-const FACE = '#e7e7e2';
-// The permanent outline the arcs run along. Dark now, for the same reason
-// everything else on the button is: white on light grey is invisible.
-const EDGE = 'rgba(43,43,47,0.14)';
+// Gold on forest green measures 5.4:1, so the line reads at full strength
+// without the panel having to be pale to accommodate it, and the stars end
+// visibly brighter than the white they start as rather than dimmer -- which
+// was the actual reason the panel went light in the first place.
+const FACE = colors.primary;
+// The permanent outline the line runs along: a hint of the gold it will
+// be, so the path exists before anything travels it.
+const EDGE = 'rgba(217,164,65,0.22)';
+const ARC_COLOR = colors.accent;
 
-// Which colour each of the wand's stars ends up. The top star takes the
-// primary violet because it's the one that glows last, so the sequence
-// finishes on the brand's own colour.
-const STAR_TOP = '#7c3aed';
-const STAR_UPPER_LEFT = '#4f46e5';
-const STAR_LOWER_RIGHT = '#ff5757';
+// All three stars land on gold. One colour, arriving three times, reads as
+// the same light spreading; three different colours read as decoration.
+const STAR_COLOR = colors.accent;
 
 const LAP_MS = 1800;
 const LAPS = 2;
@@ -69,7 +62,10 @@ const at = (ms: number) => Math.min(1, ms / TOTAL_MS);
 const TRAVEL = at(TRAVEL_MS);
 
 const STROKE = 2.5;
-const ARC_SHARE = 0.13;
+// Just under a quarter of the perimeter. Long enough to read as a line
+// travelling rather than a dot orbiting, short enough that the gap behind
+// it is always obvious and the button never looks merely outlined.
+const ARC_SHARE = 0.22;
 
 const AnimatedRect = Animated.createAnimatedComponent(Rect);
 const AnimatedPath = Animated.createAnimatedComponent(Path);
@@ -163,7 +159,7 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
             <Svg width={22} height={22} viewBox="0 0 24 24">
               <Path
                 d={WAND_SHAFT}
-                stroke={colors.ink}
+                stroke={colors.white}
                 strokeWidth={1.6}
                 strokeLinecap="round"
                 strokeLinejoin="round"
@@ -174,14 +170,14 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
                   so the icon reads normally before the sequence reaches
                   it, and visibly gains colour when it does. */}
               {[
-                { d: WAND_STAR_UPPER_LEFT, color: STAR_UPPER_LEFT, order: 0 },
-                { d: WAND_STAR_LOWER_RIGHT, color: STAR_LOWER_RIGHT, order: 1 },
-                { d: WAND_STAR_TOP, color: STAR_TOP, order: 2 },
+                { d: WAND_STAR_UPPER_LEFT, order: 0 },
+                { d: WAND_STAR_LOWER_RIGHT, order: 1 },
+                { d: WAND_STAR_TOP, order: 2 },
               ].map((star) => (
                 <React.Fragment key={star.d}>
                   <Path
                     d={star.d}
-                    stroke={colors.ink}
+                    stroke={colors.white}
                     strokeWidth={1.6}
                     strokeLinecap="round"
                     strokeLinejoin="round"
@@ -189,17 +185,17 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
                   />
                   <AnimatedPath
                     d={star.d}
-                    stroke={star.color}
+                    stroke={STAR_COLOR}
                     strokeWidth={1.9}
                     strokeLinecap="round"
                     strokeLinejoin="round"
-                    fill={star.color}
+                    fill={STAR_COLOR}
                     opacity={starOpacity(star.order)}
                   />
                 </React.Fragment>
               ))}
               {/* Centred on the top star's own centre point. */}
-              <AnimatedCircle cx={17.5} cy={7} r={glowRadius} fill={STAR_TOP} opacity={glowOpacity} />
+              <AnimatedCircle cx={17.5} cy={7} r={glowRadius} fill={STAR_COLOR} opacity={glowOpacity} />
             </Svg>
           </View>
           <Text style={styles.label}>{t('createListing.magicButton')}</Text>
@@ -224,34 +220,27 @@ export default function MagicListingButton({ onPress }: { onPress: () => void })
               stroke={EDGE}
               strokeWidth={STROKE}
             />
-            {ARC_COLORS.map((color, i) => {
-              const start = -i * (perimeter / ARC_COLORS.length);
-              return (
-                <AnimatedRect
-                  key={color}
-                  x={inset}
-                  y={inset}
-                  width={w}
-                  height={h}
-                  rx={r}
-                  ry={r}
-                  fill="none"
-                  stroke={color}
-                  strokeWidth={STROKE}
-                  strokeLinecap="round"
-                  strokeDasharray={`${arc},${perimeter - arc}`}
-                  // Negative offset moves the dash forward along the path.
-                  // Each colour starts a third of a lap behind the last, so
-                  // they stay evenly spaced the whole way round, and all
-                  // three cover LAPS laps in the travel phase.
-                  strokeDashoffset={progress.interpolate({
-                    inputRange: [0, TRAVEL, 1],
-                    outputRange: [start, start - perimeter * LAPS, start - perimeter * LAPS],
-                  })}
-                  opacity={arcOpacity}
-                />
-              );
-            })}
+            <AnimatedRect
+              x={inset}
+              y={inset}
+              width={w}
+              height={h}
+              rx={r}
+              ry={r}
+              fill="none"
+              stroke={ARC_COLOR}
+              strokeWidth={STROKE}
+              strokeLinecap="round"
+              strokeDasharray={`${arc},${perimeter - arc}`}
+              // Negative offset moves the dash forward along the path, so
+              // the line travels clockwise and covers LAPS laps across the
+              // travel phase.
+              strokeDashoffset={progress.interpolate({
+                inputRange: [0, TRAVEL, 1],
+                outputRange: [0, -perimeter * LAPS, -perimeter * LAPS],
+              })}
+              opacity={arcOpacity}
+            />
           </Svg>
         </View>
       )}
@@ -269,6 +258,8 @@ const styles = StyleSheet.create({
   content: { paddingVertical: 16, paddingHorizontal: 18 },
   row: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   wand: { width: 22, height: 22 },
-  label: { ...type.h3, color: colors.ink },
-  sub: { ...type.tiny, color: colors.inkSoft, marginTop: 5 },
+  label: { ...type.h3, color: colors.white },
+  // Not a flat grey: on a dark panel, grey text reads as disabled. A
+  // held-back white keeps it clearly secondary while still looking lit.
+  sub: { ...type.tiny, color: 'rgba(255,255,255,0.72)', marginTop: 5 },
 });

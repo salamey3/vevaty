@@ -1,5 +1,6 @@
 import React from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
+import Pressy from './Pressy';
 import VevatyMark from './VevatyMark';
 import { colors } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -23,7 +24,16 @@ import { mirrorRow } from '../lib/mirrorRow';
 // mark on the LEFT in Arabic on the website: the browser already reverses
 // a row when the document is dir="rtl", so the manual reverse undid it.
 // See mirrorRow.ts.
-export default function BrandMark({ variant = 'hero' }: { variant?: 'hero' | 'sidebar' }) {
+export default function BrandMark({
+  variant = 'hero',
+  onPress,
+}: {
+  variant?: 'hero' | 'sidebar';
+  // When given, the whole lockup becomes a tap target -- which is how the
+  // logo sends people home from anywhere in the app. Left off on the
+  // language picker, where there is no home to go to yet.
+  onPress?: () => void;
+}) {
   const { language, isRTL } = useLanguage();
   const { siteSettings } = useSettings();
   const logoUrl = language === 'ar' ? siteSettings.logoArUrl : siteSettings.logoEnUrl;
@@ -33,27 +43,43 @@ export default function BrandMark({ variant = 'hero' }: { variant?: 'hero' | 'si
   // lockup look inflated beside the English one.
   const wordmark = isAr ? 'ڤيڤاتي' : 'vevaty';
 
-  if (variant === 'sidebar') {
-    if (logoUrl) {
-      return <Image source={{ uri: logoUrl }} style={styles.sidebarLogo} resizeMode="contain" />;
-    }
-    return (
-      <View style={[styles.row, mirrorRow(isRTL)]}>
-        <VevatyMark size={26} color={colors.primary} />
-        <Text style={[styles.sidebarText, isAr && styles.sidebarTextAr]}>{wordmark}</Text>
+  // Built as one value rather than early returns, so the tap target below
+  // wraps every variant -- an admin-uploaded logo image should be just as
+  // clickable as the drawn lockup.
+  const inner =
+    variant === 'sidebar' ? (
+      logoUrl ? (
+        <Image source={{ uri: logoUrl }} style={styles.sidebarLogo} resizeMode="contain" />
+      ) : (
+        <View style={[styles.row, mirrorRow(isRTL)]}>
+          <VevatyMark size={26} color={colors.primary} />
+          <Text style={[styles.sidebarText, isAr && styles.sidebarTextAr]}>{wordmark}</Text>
+        </View>
+      )
+    ) : logoUrl ? (
+      <Image source={{ uri: logoUrl }} style={styles.heroLogo} resizeMode="contain" />
+    ) : (
+      // The hero sits on the dark green gradient, so the mark reverses to white.
+      <View style={[styles.row, styles.heroRow, mirrorRow(isRTL)]}>
+        <VevatyMark size={44} color={colors.white} />
+        <Text style={[styles.heroText, isAr && styles.heroTextAr]}>{wordmark}</Text>
       </View>
     );
-  }
 
-  if (logoUrl) {
-    return <Image source={{ uri: logoUrl }} style={styles.heroLogo} resizeMode="contain" />;
-  }
-  // The hero sits on the dark green gradient, so the mark reverses to white.
+  if (!onPress) return inner;
+
+  // Announced as a link rather than a button: it navigates, which is what
+  // a screen reader user expects of a logo in a header. The label says
+  // where it goes -- "vevaty" alone tells someone who cannot see it
+  // nothing about what tapping it does.
   return (
-    <View style={[styles.row, styles.heroRow, mirrorRow(isRTL)]}>
-      <VevatyMark size={44} color={colors.white} />
-      <Text style={[styles.heroText, isAr && styles.heroTextAr]}>{wordmark}</Text>
-    </View>
+    <Pressy
+      onPress={onPress}
+      accessibilityRole="link"
+      accessibilityLabel={isAr ? 'ڤيڤاتي — الصفحة الرئيسية' : 'vevaty — home'}
+    >
+      {inner}
+    </Pressy>
   );
 }
 

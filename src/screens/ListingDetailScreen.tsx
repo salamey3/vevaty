@@ -7,6 +7,7 @@ import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import LanguageSwitch from '../components/LanguageSwitch';
+import HomeMarkButton from '../components/HomeMarkButton';
 import ConfirmDialog from '../components/ConfirmDialog';
 import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
 import CarouselArrows from '../components/CarouselArrows';
@@ -786,6 +787,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       <Pressy onPress={goBack} style={styles.iconBtn}>
         <Icon name="back" size={18} />
       </Pressy>
+      <HomeMarkButton />
       <Text style={styles.topBarTitle} numberOfLines={1}>
         {cat
           ? [...catAncestors, cat].map((c) => (language === 'ar' ? c.nameAr : c.nameEn)).join(' · ')

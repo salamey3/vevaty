@@ -49,6 +49,13 @@ export const colors = {
   accentInk: '#2A1F06',
   accentTint: '#F6EBD3',
   accentDeep: '#7A5A16',
+  // The brand gold, taken down just far enough to work as an outline on
+  // a pale surface: same hue (39deg) and saturation (67%) as `accent`,
+  // 12% darker. #D9A441 measures 2.02:1 against the page, under the 3:1
+  // WCAG asks of anything carrying state, and a selection ring is
+  // exactly that. This is 3.02:1 -- the lightest same-hue gold that
+  // clears it, so it still reads as the brand's gold and not as brown.
+  accentRing: '#B68324',
   ink: '#1C2420',
   // #626A67 and not a shade lighter. The first value tried (#6B7370)
   // measured 4.38:1 against `bg`, under the 4.5 body text needs; this is

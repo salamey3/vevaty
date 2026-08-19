@@ -155,6 +155,7 @@ screen has gold in three places, two of them are wrong.
 | `accentInk` | `#2A1F06` | text **on** accent (never white — it fails contrast) |
 | `accentTint` | `#F6EBD3` | badge backgrounds |
 | `accentDeep` | `#7A5A16` | text on `accentTint` |
+| `accentRing` | `#B68324` | gold **outlines** on pale surfaces — see below |
 | `ink` | `#1C2420` | body text — near-black, warmed green so it sits with the brand |
 | `inkSoft` | `#626A67` | secondary text, captions, metadata |
 | `bg` | `#F4F3EE` | page background |
@@ -168,6 +169,14 @@ screen has gold in three places, two of them are wrong.
 `primary` and `accent` map to the existing `--vevaty-primary` and
 `--vevaty-accent` CSS custom properties, so the admin branding editor keeps
 working and can still override them live without a rebuild.
+
+**Why `accentRing` exists.** The brand gold measures **2.02:1** against the
+page — fine as a fill, too weak as a line. WCAG 1.4.11 asks 3:1 of any
+visual information that identifies a *state*, and a selection ring is
+exactly that. `accentRing` is the same hue (39°) and saturation (67%) as
+`accent`, 12% darker, which is the lightest same-hue gold clearing the bar
+at **3.02:1**. Use it wherever gold has to be an outline rather than a
+fill; use `accent` for fills.
 
 ### Contrast
 
@@ -428,18 +437,19 @@ buttons, selected states, the mark, prices — is `primary`.
 ## Category icons
 
 The icon disc carries the brand: **forest green disc, cream glyph**, label
-underneath unchanged in `ink`. It used to be a pale grey disc with a dark
-glyph, which read as a disabled control rather than a category.
+underneath in `ink`.
 
-Selection can no longer be "turn the disc green", because every disc is
-green now. The selected disc flips to **accent gold with an `accentDeep`
-ring**, and its label goes bold.
+The selected chip **inverts**: `accentTint` disc, `primary` glyph, and an
+`accentRing` outline. The inversion is what carries the state — 10.9:1
+between the two fills, so the selected chip is unmistakably the one reading
+backwards in a row of green discs. The ring is what gives the pale disc an
+edge at all: cream on a cream page is 1.07:1, and without a boundary the
+glyph would float with no shape around it.
 
-The ring is not decoration. The gold fill reads clearly against its green
-siblings (5.4:1) — which is what actually communicates *which* one is
-selected — but only 2:1 against the cream page, under the 3:1 WCAG asks of
-a state indicator's own edge. The darker ring gives the disc a defined
-boundary (5.7:1) without dulling the fill.
+This replaced a gold *fill*, which read well against its green siblings but
+turned the selected chip into the loudest thing on the screen — gold is
+meant to be the one moment of emphasis on a page, and a category strip is
+not that moment.
 
 Two components must stay in step, because they sit side by side in the same
 strip and any drift between them is immediately visible:
@@ -451,3 +461,48 @@ Uploaded category icons (`categories.icon_url`) are inset to 72% rather
 than filling the disc, so a custom icon sits *inside* the brand colour
 instead of painting over it. No category uses one today; this only shapes
 what happens the first time one does.
+
+---
+
+## The Magic Listing button
+
+Forest green face, white copy, and one gold line that runs twice around the
+outline before landing on the wand's stars and colouring them gold.
+
+It was a light grey panel carrying three borrowed colours — violet, indigo
+and red — that predated the brand and belonged to nothing. This is the most
+prominent single control in the app; it should be the brand stating itself,
+not a fourth palette.
+
+- The line is just under **a quarter of the perimeter** (`ARC_SHARE = 0.22`)
+  — long enough to read as a line travelling rather than a dot orbiting,
+  short enough that the gap behind it is always obvious.
+- Gold on forest green is 5.4:1, so the stars end **brighter** than the
+  white they start as. Making them dimmer than the outline they replaced is
+  what forced the old panel to be pale in the first place.
+- It resolves rather than loops. A permanent animation on a screen the
+  seller sees on every post stops being a highlight and becomes something to
+  sit through.
+
+---
+
+## Where the logo is clickable
+
+The lockup and the mark are a way home from anywhere:
+
+- Desktop sidebar lockup and the mobile home brand bar → `HomeRoot`
+- Listing detail and seller profile carry the **mark alone**
+  (`HomeMarkButton`) — those top bars already hold a back arrow, a two-level
+  breadcrumb and the language toggle, and the wordmark would push the
+  breadcrumb into an ellipsis on a phone.
+
+It targets `HomeRoot` rather than the Home tab, because the tab remembers
+where it was — navigating to it from a listing would drop you back into the
+category you were browsing, which is the one thing tapping the logo is
+meant to escape.
+
+Deliberately **not** on create-listing, payment or auth. Leaving those
+mid-way loses work or abandons a transaction, so a one-tap exit dressed as a
+logo would be a trap rather than a shortcut.
+
+---

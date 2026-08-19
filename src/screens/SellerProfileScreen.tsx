@@ -13,6 +13,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useGoBack } from '../hooks/useGoBack';
+import HomeMarkButton from '../components/HomeMarkButton';
 
 // Same coarse "Month Year" formatting as the member-since line on
 // ListingDetailScreen's seller panel -- kept as its own local copy rather
@@ -145,6 +146,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
       <Pressy onPress={goBack} style={styles.backBtn}>
         <Icon name="back" size={18} />
       </Pressy>
+      <HomeMarkButton />
       <Text style={type.title}>{t('sellerProfile.title')}</Text>
     </View>
   );

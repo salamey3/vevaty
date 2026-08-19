@@ -1,9 +1,10 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { Platform, StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
+import { BackHandler, Platform, StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
+import { useFocusEffect } from '@react-navigation/native';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -919,6 +920,45 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKind, hasSpecs, hasPhotoSignal, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
 
+  // Android's hardware back closed the entire create flow from any step,
+  // dropping the seller on the home screen with everything they had
+  // entered gone. On a seven-step form reached from a floating button,
+  // back means "the previous step" -- that is what the on-screen arrow
+  // does, and the hardware button is the same gesture by another route.
+  //
+  // Deliberately NOT `beforeRemove`, which would also intercept the web
+  // build's browser-back and leave the URL pointing at /sell after we had
+  // cancelled the navigation. This is the Android-only affordance, handled
+  // where it lives.
+  //
+  // Scoped with useFocusEffect so the handler stops existing when the
+  // screen is not on top -- otherwise it would keep swallowing back
+  // presses from whatever screen was pushed above it. Modals in this flow
+  // (Magic Listing, spin preview, confirm dialogs) all pass onRequestClose
+  // and consume the press natively before it reaches here, so back closes
+  // an open sheet first and only then walks the steps.
+  const goBackOneStep = React.useCallback(() => {
+    if (step === 0) {
+      navigation.goBack();
+      return;
+    }
+    setStep((prev) => Math.max(0, prev - 1));
+  }, [step, navigation]);
+
+  useFocusEffect(
+    React.useCallback(() => {
+      if (Platform.OS !== 'android') return;
+      const sub = BackHandler.addEventListener('hardwareBackPress', () => {
+        // false at step 0 lets React Navigation close the modal as usual --
+        // back out of the flow is the right answer from its first screen.
+        if (step === 0) return false;
+        setStep((prev) => Math.max(0, prev - 1));
+        return true;
+      });
+      return () => sub.remove();
+    }, [step])
+  );
+
   const setAttrValue = (slug: string, value: AttributeValue) => setAttrValues((prev) => ({ ...prev, [slug]: value }));
   const toggleMultiselectValue = (slug: string, optionValue: string) => {
     setAttrValues((prev) => {
@@ -1075,7 +1115,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   return (
     <Screen maxWidth={640}>
       <View style={styles.topBar}>
-        <Pressy onPress={() => (step === 0 ? navigation.goBack() : setStep((s) => s - 1))} style={styles.iconBtn}>
+        <Pressy onPress={goBackOneStep} style={styles.iconBtn}>
           <Icon name="back" size={18} />
         </Pressy>
         <Text style={type.h3}>{isEditMode ? t('createListing.editTitle') : STEPS[step]}</Text>

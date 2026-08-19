@@ -5,6 +5,7 @@ import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
 import Pressy from '../components/Pressy';
 import BrandMark from '../components/BrandMark';
+import { useGoHome } from '../hooks/useGoHome';
 import Icon, { IconName } from '../icons/Icon';
 import { colors, radius } from '../theme/theme';
 import { useIsDesktop, SIDEBAR_WIDTH } from '../hooks/useResponsive';
@@ -30,6 +31,8 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
   // the screen remounts rather than being restored with its old state.
   // Only HomeTab has a nested stack today; the others are single screens,
   // where popToTop is a no-op and this stays harmless.
+  const goHome = useGoHome();
+
   const resetTabToTop = (routeName: string) => {
     navigation.navigate(routeName as never);
     navigation.reset({
@@ -78,7 +81,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
     return (
       <View style={[styles.sidebar, isRTL ? styles.sidebarRTL : styles.sidebarLTR]}>
         <View style={styles.brandRow}>
-          <BrandMark variant="sidebar" />
+          <BrandMark variant="sidebar" onPress={goHome} />
         </View>
 
         <View style={styles.navList}>

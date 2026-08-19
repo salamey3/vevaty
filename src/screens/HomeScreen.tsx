@@ -16,6 +16,7 @@ import RangeSlider from '../components/RangeSlider';
 import SaveSearchModal from '../components/SaveSearchModal';
 import BrandMark from '../components/BrandMark';
 import { mirrorRow } from '../lib/mirrorRow';
+import { useGoHome } from '../hooks/useGoHome';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
 import { colors, type, radius } from '../theme/theme';
@@ -75,6 +76,7 @@ export default function HomeScreen() {
   const { categories, categoryById, childrenOf, categoryMatches, resolveFilterFacetsForCategory } = useSettings();
   const { saveSearch } = useSavedSearches();
   const { t, language, isRTL } = useLanguage();
+  const goHome = useGoHome();
   // True for exactly the render right after this screen instance mounted
   // with a saved search's criteria to apply (see applyCriteria below) --
   // set once by the lazy state initializers and consumed by the very next
@@ -679,7 +681,7 @@ export default function HomeScreen() {
           leaves the greeting below on a line of its own. */}
       {!isDesktop && (
         <View style={[styles.brandBar, mirrorRow(isRTL)]}>
-          <BrandMark variant="sidebar" />
+          <BrandMark variant="sidebar" onPress={goHome} />
           {headerControls}
         </View>
       )}
@@ -843,7 +845,7 @@ export default function HomeScreen() {
                   c === 'all' ? (
                     <Pressy key="all" onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
                       <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
-                        <Icon name="grip" size={20} color={topCat === 'all' ? colors.accentInk : colors.bg} />
+                        <Icon name="grip" size={20} color={topCat === 'all' ? colors.primary : colors.bg} />
                       </View>
                       <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
                         {t('common.all')}
@@ -1025,9 +1027,10 @@ const styles = StyleSheet.create({
     width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
-  // Ring matches CategoryCard's selected disc -- see the note there for
-  // why the gold fill alone is not enough of an edge on a cream page.
-  allChipIconWrapActive: { backgroundColor: colors.accent, borderWidth: 2, borderColor: colors.accentDeep },
+  // Must stay identical to CategoryCard's iconWrapSelected -- these two sit
+  // side by side in the same strip, so any drift between them is visible
+  // as one chip selecting differently from the rest. See the note there.
+  allChipIconWrapActive: { backgroundColor: colors.accentTint, borderWidth: 2, borderColor: colors.accentRing },
   allChipText: { ...type.tiny, fontWeight: '600', color: colors.ink, textAlign: 'center' },
   allChipTextActive: { fontWeight: '700' },
 

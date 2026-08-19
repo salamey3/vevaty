@@ -31,7 +31,7 @@ export default function CategoryCard({
         {category.iconUrl ? (
           <Image source={{ uri: category.iconUrl }} style={styles.iconImg} resizeMode="contain" />
         ) : (
-          <Icon name={category.icon as any} size={24} color={selected ? colors.accentInk : colors.bg} />
+          <Icon name={category.icon as any} size={24} color={selected ? colors.primary : colors.bg} />
         )}
       </View>
       {/* Two lines, centred under the icon. On one line "Electronics &
@@ -78,14 +78,20 @@ const styles = StyleSheet.create({
   // green now. It flips to the accent instead, which is legible at a
   // glance in a row of green discs and is exactly the kind of single
   // moment gold exists for.
+  // It INVERTS: the disc goes cream and the glyph goes green, so the
+  // selected chip is the one reading backwards next to its siblings. That
+  // inversion is what carries the state (10.9:1 between the two fills).
+  // The gold ring is what gives the pale disc an edge at all -- cream on a
+  // cream page is 1.07:1, and without a boundary the glyph would just
+  // float with no shape around it.
+  //
+  // accentRing, not accent: see theme.ts. A selection ring is precisely
+  // the "visual information required to identify a state" that WCAG 1.4.11
+  // asks 3:1 of, and the brand gold is 2.02:1 against this page.
   iconWrapSelected: {
-    backgroundColor: colors.accent,
-    // The gold fill reads clearly against its green siblings (5.4:1), but
-    // only 2:1 against the cream page -- under the 3:1 WCAG asks of a
-    // state indicator's own edge. The darker gold ring gives the disc a
-    // defined boundary (5.7:1) without dulling the fill.
+    backgroundColor: colors.accentTint,
     borderWidth: 2,
-    borderColor: colors.accentDeep,
+    borderColor: colors.accentRing,
   },
   // Inset rather than filling the disc: an admin-uploaded icon used to
   // cover the circle edge to edge, which would now paint over the brand
