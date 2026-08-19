@@ -7,6 +7,7 @@ import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import ConfirmDialog from '../components/ConfirmDialog';
+import BuildStamp from '../components/BuildStamp';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
@@ -261,6 +262,9 @@ export default function ProfileScreen() {
             {!!deleteError && <Text style={styles.rowError}>{deleteError}</Text>}
           </View>
         )}
+
+        {/* Which bundle this phone is actually running -- see BuildStamp. */}
+        <BuildStamp />
       </ScrollView>
 
       <ConfirmDialog
