@@ -50,6 +50,7 @@ interface CreateCategoryInput {
   titleExampleAr: string | null;
   descriptionExampleEn: string | null;
   descriptionExampleAr: string | null;
+  stockMode: 'unique' | 'multiple';
 }
 
 interface UpdateCategoryPatch {
@@ -66,6 +67,7 @@ interface UpdateCategoryPatch {
   titleExampleAr: string | null;
   descriptionExampleEn: string | null;
   descriptionExampleAr: string | null;
+  stockMode: 'unique' | 'multiple';
 }
 
 interface CreateAttributeInput {
@@ -78,6 +80,7 @@ interface CreateAttributeInput {
   unitEn: string | null;
   unitAr: string | null;
   required: boolean;
+  isVariant: boolean;
 }
 
 interface UpdateAttributePatch {
@@ -88,6 +91,7 @@ interface UpdateAttributePatch {
   unitEn: string | null;
   unitAr: string | null;
   required: boolean;
+  isVariant: boolean;
 }
 
 interface SettingsValue {
@@ -201,6 +205,7 @@ function dbToCategory(row: any): Category {
     descriptionExampleAr: row.description_example_ar || null,
     areaFilterPriority: row.area_filter_priority ?? null,
     subcategoryFilterPriority: row.subcategory_filter_priority ?? null,
+    stockMode: row.stock_mode === 'multiple' ? 'multiple' : 'unique',
   };
 }
 
@@ -220,6 +225,9 @@ function dbToCategoryAttribute(row: any): CategoryAttribute {
     required: !!row.required,
     sortOrder: row.sort_order ?? 0,
     filterPriority: row.filter_priority ?? null,
+    bound: row.bound === 'min' || row.bound === 'max' ? row.bound : null,
+    cardPriority: row.card_priority ?? null,
+    isVariant: !!row.is_variant,
   };
 }
 
@@ -235,6 +243,12 @@ function dbToSiteSettings(row: any): SiteSettings {
 
 function friendlyError(e: any, context: 'category' | 'attribute' = 'category'): string {
   const msg = e?.message || String(e);
+  if (/one_variant_per_category/i.test(msg)) {
+    return 'This category already has a different "is variant" attribute -- turn that one off first.';
+  }
+  if (/variant_type_check/i.test(msg)) {
+    return 'Only a "Select (many)" field can be used as the variant attribute.';
+  }
   if (/duplicate key|already exists/i.test(msg)) {
     return context === 'attribute'
       ? 'That attribute ID is already used on this category.'
@@ -547,6 +561,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         title_example_ar: input.titleExampleAr,
         description_example_en: input.descriptionExampleEn,
         description_example_ar: input.descriptionExampleAr,
+        stock_mode: input.stockMode,
       });
       if (error) throw new Error(friendlyError(error, 'category'));
       await refreshFromSupabase();
@@ -573,6 +588,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
       if (patch.descriptionExampleEn !== undefined) dbPatch.description_example_en = patch.descriptionExampleEn;
       if (patch.descriptionExampleAr !== undefined) dbPatch.description_example_ar = patch.descriptionExampleAr;
+      if (patch.stockMode !== undefined) dbPatch.stock_mode = patch.stockMode;
 
       // Update local state immediately so the admin UI feels instant.
       setAllCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
@@ -640,6 +656,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         unit_ar: input.unitAr || null,
         required: input.required,
         sort_order: nextSortOrder,
+        is_variant: input.isVariant,
       });
       if (error) throw new Error(friendlyError(error, 'attribute'));
       await refreshFromSupabase();
@@ -657,6 +674,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.unitEn !== undefined) dbPatch.unit_en = patch.unitEn;
       if (patch.unitAr !== undefined) dbPatch.unit_ar = patch.unitAr;
       if (patch.required !== undefined) dbPatch.required = patch.required;
+      if (patch.isVariant !== undefined) dbPatch.is_variant = patch.isVariant;
 
       setAllCategoryAttributes((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
 

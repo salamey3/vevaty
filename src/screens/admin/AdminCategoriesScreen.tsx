@@ -27,12 +27,14 @@ type FormState = {
   titleExampleAr: string;
   descriptionExampleEn: string;
   descriptionExampleAr: string;
+  stockMode: 'unique' | 'multiple';
 };
 
 function blankForm(): FormState {
   return {
     id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: false, shotListEn: '', shotListAr: '',
     isService: false, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
+    stockMode: 'unique',
   };
 }
 
@@ -50,6 +52,7 @@ function formFor(c: Category): FormState {
     titleExampleAr: c.titleExampleAr || '',
     descriptionExampleEn: c.descriptionExampleEn || '',
     descriptionExampleAr: c.descriptionExampleAr || '',
+    stockMode: c.stockMode,
   };
 }
 
@@ -117,6 +120,7 @@ export default function AdminCategoriesScreen() {
     titleExampleAr: f.titleExampleAr.trim() || null,
     descriptionExampleEn: f.descriptionExampleEn.trim() || null,
     descriptionExampleAr: f.descriptionExampleAr.trim() || null,
+    stockMode: f.stockMode,
   });
 
   const doAutosave = async (id: string, f: FormState) => {
@@ -350,6 +354,21 @@ export default function AdminCategoriesScreen() {
           <Text style={styles.fieldHint}>Listings under this category get a "Contact to hire" button instead of buy/rent. Applies to all its subcategories too.</Text>
         </View>
         <Switch value={form.isService} onValueChange={(v) => updateForm({ isService: v })} />
+      </View>
+
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.fieldLabel}>Shops carry stock (vs. one-of-a-kind)</Text>
+          <Text style={styles.fieldHint}>
+            On: posting a listing in this category (or its subcategories) shows a Stock step -- per-size quantities if
+            the category has a "Stock variant" attribute (see its Attributes screen), otherwise a single quantity
+            field. Off (default): every listing is one specific item, same as today.
+          </Text>
+        </View>
+        <Switch
+          value={form.stockMode === 'multiple'}
+          onValueChange={(v) => updateForm({ stockMode: v ? 'multiple' : 'unique' })}
+        />
       </View>
 
       <Text style={styles.fieldLabel}>Title placeholder (English)</Text>

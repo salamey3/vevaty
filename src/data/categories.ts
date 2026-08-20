@@ -38,6 +38,10 @@ function topLevel(
     descriptionExampleAr: null,
     areaFilterPriority: null,
     subcategoryFilterPriority: 1,
+    // Offline/first-paint fallback only (see the file header comment) --
+    // the real value always comes from Supabase once loaded, so 'unique'
+    // here just matches every category's default until that fetch lands.
+    stockMode: 'unique',
   };
 }
 

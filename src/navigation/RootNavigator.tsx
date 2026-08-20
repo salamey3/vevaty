@@ -10,6 +10,10 @@ import PaymentScreen from '../screens/PaymentScreen';
 import ChatThreadScreen from '../screens/ChatThreadScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
 import SellerProfileScreen from '../screens/SellerProfileScreen';
+import ShopsDirectoryScreen from '../screens/ShopsDirectoryScreen';
+import StorefrontScreen from '../screens/StorefrontScreen';
+import MyStorefrontScreen from '../screens/MyStorefrontScreen';
+import AdminShopsScreen from '../screens/admin/AdminShopsScreen';
 import AdminGateScreen from '../screens/admin/AdminGateScreen';
 import AdminCategoriesScreen from '../screens/admin/AdminCategoriesScreen';
 import AdminCategoryAttributesScreen from '../screens/admin/AdminCategoryAttributesScreen';
@@ -52,6 +56,10 @@ const linking: LinkingOptions<RootStackParamList> = {
       ChatThread: 'messages/:threadId',
       Favorites: 'favorites',
       SellerProfile: 'seller/:sellerId',
+      Shops: 'shops',
+      Storefront: 'shop/:shopSlug',
+      MyStorefront: 'storefront/manage',
+      AdminShops: 'admin/storefronts',
       Admin: 'admin',
       AdminCategories: 'admin/categories',
       AdminCategoryAttributes: 'admin/categories/:categoryId/attributes',
@@ -84,6 +92,10 @@ export default function RootNavigator() {
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
         <Stack.Screen name="SellerProfile" component={SellerProfileScreen} />
+        <Stack.Screen name="Shops" component={ShopsDirectoryScreen} />
+        <Stack.Screen name="Storefront" component={StorefrontScreen} />
+        <Stack.Screen name="MyStorefront" component={MyStorefrontScreen} />
+        <Stack.Screen name="AdminShops" component={AdminShopsScreen} />
         <Stack.Screen name="Admin" component={AdminGateScreen} />
         <Stack.Screen name="AdminCategories" component={AdminCategoriesScreen} />
         <Stack.Screen name="AdminCategoryAttributes" component={AdminCategoryAttributesScreen} />

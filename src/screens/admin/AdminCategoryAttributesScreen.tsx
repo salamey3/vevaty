@@ -31,10 +31,11 @@ type FormState = {
   unitEn: string;
   unitAr: string;
   required: boolean;
+  isVariant: boolean;
 };
 
 function blankForm(): FormState {
-  return { slug: '', labelEn: '', labelAr: '', type: 'text', optionsText: '', unitEn: '', unitAr: '', required: false };
+  return { slug: '', labelEn: '', labelAr: '', type: 'text', optionsText: '', unitEn: '', unitAr: '', required: false, isVariant: false };
 }
 
 function optionsToText(options: AttributeOption[]): string {
@@ -63,6 +64,7 @@ function formFor(a: CategoryAttribute): FormState {
     unitEn: a.unitEn || '',
     unitAr: a.unitAr || '',
     required: a.required,
+    isVariant: a.isVariant,
   };
 }
 
@@ -172,6 +174,15 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
   const [form, setForm] = useState<FormState>(blankForm());
   const [saving, setSaving] = useState(false);
 
+  // At most one is_variant attribute per category (DB-enforced, see the
+  // one_variant_per_category index) -- this is what the "is variant"
+  // switch below disables against when a DIFFERENT attribute already has
+  // it on, rather than letting the save fail and surfacing a DB error.
+  const otherVariantAttr = useMemo(
+    () => ownAttributes.find((a) => a.isVariant && a.id !== editingId) || null,
+    [ownAttributes, editingId]
+  );
+
   const startCreate = () => {
     setForm(blankForm());
     setCreating(true);
@@ -218,6 +229,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
           unitEn: form.unitEn.trim() || null,
           unitAr: form.unitAr.trim() || null,
           required: form.required,
+          isVariant: form.type === 'multiselect' && form.isVariant,
         });
       } else if (editingId) {
         await updateAttribute(editingId, {
@@ -228,6 +240,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
           unitEn: form.unitEn.trim() || null,
           unitAr: form.unitAr.trim() || null,
           required: form.required,
+          isVariant: form.type === 'multiselect' && form.isVariant,
         });
       }
       cancel();
@@ -292,7 +305,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
         {TYPE_OPTIONS.map((opt) => (
           <Pressy
             key={opt.value}
-            onPress={() => setForm((f) => ({ ...f, type: opt.value }))}
+            onPress={() => setForm((f) => ({ ...f, type: opt.value, isVariant: opt.value === 'multiselect' ? f.isVariant : false }))}
             style={[styles.typePill, form.type === opt.value && styles.typePillActive]}
           >
             <Text style={[styles.typePillText, form.type === opt.value && styles.typePillTextActive]}>{opt.label}</Text>
@@ -330,6 +343,26 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
         <Text style={styles.fieldLabel}>Required</Text>
         <Switch value={form.required} onValueChange={(v) => setForm((f) => ({ ...f, required: v }))} />
       </View>
+
+      {form.type === 'multiselect' && (
+        <>
+          <View style={styles.switchRow}>
+            <View style={{ flex: 1, paddingRight: 12 }}>
+              <Text style={styles.fieldLabel}>Stock variant (e.g. "Size")</Text>
+              <Text style={styles.rowSub}>
+                {otherVariantAttr
+                  ? `"${otherVariantAttr.labelEn}" is already this category's variant attribute -- turn that one off first.`
+                  : 'Lets a "multiple" stock-mode listing track separate stock per option (e.g. per size) instead of one total quantity. Only one attribute per category can be the variant.'}
+              </Text>
+            </View>
+            <Switch
+              value={form.isVariant}
+              onValueChange={(v) => setForm((f) => ({ ...f, isVariant: v }))}
+              disabled={!!otherVariantAttr}
+            />
+          </View>
+        </>
+      )}
 
       <View style={styles.formActions}>
         <Pressy onPress={cancel} style={styles.cancelBtn}>
@@ -460,6 +493,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
                 <Text style={styles.rowSub}>
                   {a.labelAr} · {TYPE_OPTIONS.find((t) => t.value === a.type)?.label}
                   {a.unitEn ? ` · ${a.unitEn}` : ''}
+                  {a.isVariant ? ' · Stock variant' : ''}
                 </Text>
               </View>
               <View style={styles.rowControls}>

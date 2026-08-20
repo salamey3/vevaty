@@ -659,6 +659,13 @@ export default function HomeScreen() {
   // each site where the two copies could drift apart.
   const headerControls = (
     <View style={styles.headerActions}>
+      {/* The one entry point into ShopsDirectoryScreen that doesn't require
+          already knowing a shop's slug or visiting Profile first -- see
+          that screen's own header comment for why it exists at all. */}
+      <Pressy style={styles.storefrontsBadge} onPress={() => navigation.navigate('Shops')}>
+        <Icon name="building" size={13} color={colors.ink} />
+        <Text style={styles.pointsText}>{t('home.browseStorefronts')}</Text>
+      </Pressy>
       <LanguageSwitch compact />
       <Pressy style={styles.pointsBadge} onPress={() => navigation.navigate('MainTabs')}>
         <Icon name="sparkle" size={13} color={colors.ink} />
@@ -926,6 +933,17 @@ const styles = StyleSheet.create({
     height: 34,
   },
   pointsText: { ...type.h3, fontSize: 13.5 },
+  storefrontsBadge: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 5,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    paddingHorizontal: 12,
+    height: 34,
+  },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',

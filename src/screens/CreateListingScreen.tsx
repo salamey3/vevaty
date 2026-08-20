@@ -17,7 +17,7 @@ import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
-import { AttributeValue, Category, CategoryAttribute, CategoryId, ListingVideo, SpinSet } from '../types';
+import { AttributeValue, Category, CategoryAttribute, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
@@ -47,7 +47,7 @@ import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
 
-type StepKind = 'category' | 'photos' | 'spin' | 'specs' | 'details' | 'translate' | 'review';
+type StepKind = 'category' | 'photos' | 'spin' | 'specs' | 'stock' | 'details' | 'translate' | 'review';
 
 // 360° spin capture frame count (Phase 3 item 7, raised from 8 to 12 after
 // feedback that 8 (≥45°/frame) read as too choppy for bigger items like
@@ -99,7 +99,7 @@ function vehicleSlugKind(slug: string): 'brand' | 'model' | null {
 }
 
 export default function CreateListingScreen({ navigation, route }: Props) {
-  const { addListing, updateListing, profile, listings, isVerified } = useAppStore();
+  const { addListing, updateListing, profile, listings, isVerified, authChecked, myShop } = useAppStore();
   const { categoryById, resolveAttributesForCategory, categoryMatches, allCategories, childrenOf } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
@@ -110,10 +110,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // when logged out (MainTabs.tsx), and the RLS "anonymous sessions
   // cannot create listings" policy is the real backstop -- this only
   // matters for someone deep-linking straight to /sell while anonymous.
+  // Gated on authChecked too -- isVerified STARTS false on every fresh
+  // page load (its default state, before AppStore's initial ensureSession()
+  // round-trip resolves), so without this a verified seller deep-linking
+  // or reloading straight into /sell was incorrectly bounced to the login
+  // screen every single time, before their real session even had a chance
+  // to load. See authChecked's doc comment in AppStore.tsx.
   useEffect(() => {
-    if (!isVerified) navigation.replace('Auth', { returnTo: 'CreateListing', returnToParams: route.params });
+    if (authChecked && !isVerified) navigation.replace('Auth', { returnTo: 'CreateListing', returnToParams: route.params });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [isVerified]);
+  }, [authChecked, isVerified]);
 
   const initialCategory: CategoryId | null = editingListing?.cat || route.params?.initialCategory || null;
 
@@ -152,6 +158,28 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // assembled result before moving on -- see SpinPreviewModal.
   const [spinPreviewOpen, setSpinPreviewOpen] = useState(false);
   const [attrValues, setAttrValues] = useState<Record<string, AttributeValue>>(editingListing?.attributes || {});
+  // Stock/variants -- kept as its own state rather than folded into
+  // attrValues, the same way price/title/district each get their own
+  // state instead of living in a generic bag: the variant attribute's
+  // "value" (the array of in-stock option values) is DERIVED from this,
+  // computed once at submit time (see buildStock in post() below), never
+  // something the seller edits directly or the AI suggestion fills in.
+  // `variantStock` is per-option-value quantity text, keyed by the
+  // variant attribute's option value (e.g. { s: '3', m: '0', l: '5' });
+  // `plainStockQty` is the single quantity field shown instead when the
+  // category is 'multiple' stock mode but defines no is_variant attribute
+  // (e.g. a shop selling one kind of accessory with no size to track).
+  const [variantStock, setVariantStock] = useState<Record<string, string>>(() => {
+    const m: Record<string, string> = {};
+    (editingListing?.variants || []).forEach((v) => {
+      const val = Object.values(v.attributes)[0];
+      if (typeof val === 'string') m[val] = String(v.stockQty);
+    });
+    return m;
+  });
+  const [plainStockQty, setPlainStockQty] = useState<string>(
+    editingListing && !editingListing.variants ? String(editingListing.stockQty ?? '') : ''
+  );
   // The seller writes title/description once, in whatever language the app
   // is currently set to -- that's the "source" language. The translate step
   // suggests the other language automatically instead of asking the seller
@@ -287,6 +315,37 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // page. Defaults to 'both' (existing behavior) for new listings and for
   // any listing posted before this field existed.
   const [contactMethod, setContactMethod] = useState<'phone' | 'chat' | 'both'>(editingListing?.contactMethod || 'both');
+  // Storefronts -- only offered at all once the seller has a VERIFIED shop
+  // (an unverified one would just bounce off enforce_listing_shop_ownership
+  // server-side); defaults to whatever this listing is already attached to
+  // when editing, off otherwise. See the ListingInput doc comment in
+  // AppStore.tsx for why the form only ever needs to send a shop id, never
+  // a denormalized copy of the shop's own name/slug.
+  const [attachToShop, setAttachToShop] = useState<boolean>(!!editingListing?.shopId && editingListing.shopId === myShop?.id);
+  // A verified storefront owner starting a brand-new listing (never an
+  // edit -- editing an existing listing has its own established shop,
+  // corrected via the toggle on the Details step below, not this
+  // upfront gate) sees a one-time fork before the ordinary wizard even
+  // starts: "standalone listing" or "into <shop>". This is a bigger call
+  // than any other create-listing setting (it decides which flow's rules
+  // -- and, once storefront-specific fields like variants/stock_qty exist,
+  // which FORM -- the seller is about to fill out), so it gets its own
+  // screen rather than living as a toggle buried mid-form where a seller
+  // who wanted their storefront could easily miss it and publish standalone
+  // by default.
+  const shouldAskShopChoice = !isEditMode && !!myShop?.verifiedAt;
+  // Deliberately NOT initialized from `!shouldAskShopChoice` -- myShop is
+  // still null on the very first render of a fresh page load/deep link
+  // (AppStore's shop fetch is async, same story as authChecked above), so
+  // shouldAskShopChoice is always false at that instant even for a real
+  // storefront owner. useState's initializer only runs once, at mount, so
+  // seeding this from that not-yet-loaded value would freeze it at `true`
+  // forever and the chooser would never show once myShop actually arrives.
+  // Starting at `false` unconditionally is safe: for anyone shouldAskShopChoice
+  // is false for (no shop, or editing), the early-return below is gated on
+  // shouldAskShopChoice too, so this only ever matters once a real shop is
+  // confirmed.
+  const [shopChoiceResolved, setShopChoiceResolved] = useState<boolean>(false);
 
   // --- Magic Listing -----------------------------------------------------
   // The photo-first path: instead of picking a category and filling a form,
@@ -396,7 +455,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const cat = categoryById(category || '');
   const resolvedAttrs = useMemo(() => (category ? resolveAttributesForCategory(category) : []), [category, resolveAttributesForCategory]);
-  const hasSpecs = resolvedAttrs.length > 0;
+  // The one attribute (if any) this category uses to break stock into
+  // variants -- see the isVariant field's own doc comment. Kept out of
+  // specAttrs/hasSpecs below: it never shows as a normal spec field, only
+  // in the dedicated Stock step.
+  const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
+  const specAttrs = useMemo(() => resolvedAttrs.filter((a) => !a.isVariant), [resolvedAttrs]);
+  const hasSpecs = specAttrs.length > 0;
+  // Category.stockMode -- see its own doc comment. 'unique' (everything
+  // until this feature existed, and still the vast majority of
+  // categories) never shows a Stock step at all.
+  const hasStockStep = cat?.stockMode === 'multiple';
   // Whether there's at least one gallery photo -- the strongest signal the
   // AI vision suggestion (see applyAiSuggestion below) can work from, and
   // the trigger for starting that research immediately rather than waiting
@@ -418,11 +487,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       'photos',
       ...(cat?.supports3d ? (['spin'] as const) : []),
       ...(hasSpecs ? (['specs'] as const) : []),
+      ...(hasStockStep ? (['stock'] as const) : []),
       'details',
       'translate',
       'review',
     ],
-    [hasSpecs, cat?.supports3d]
+    [hasSpecs, cat?.supports3d, hasStockStep]
   );
 
   useEffect(() => {
@@ -455,6 +525,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     photos: t('createListing.stepPhotos'),
     spin: t('createListing.stepSpin'),
     specs: t('createListing.stepSpecs'),
+    stock: t('createListing.stepStock'),
     details: t('createListing.stepDetails'),
     translate: t('createListing.stepTranslate'),
     review: t('createListing.stepReview'),
@@ -698,7 +769,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // (hasSpecs), this is what lets the AI write a title/description without
   // the seller having to type anything into Details first.
   const buildSpecsLines = (): string[] =>
-    resolvedAttrs
+    specAttrs
       .filter((a) => attrHasValue(attrValues[a.slug]))
       .map((a) => `${language === 'ar' ? a.labelAr : a.labelEn}: ${formatAttrValue(a, attrValues[a.slug], language)}`);
 
@@ -714,7 +785,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // deliberately excluded here (they're already represented in
   // buildSpecsLines() as confirmed ground truth).
   const buildAttributeSchemaForSuggestion = (): AiSuggestAttributeSchema[] =>
-    resolvedAttrs
+    specAttrs
       .filter((a) => !attrHasValue(attrValues[a.slug]))
       .slice(0, AI_ATTRIBUTE_SUGGEST_MAX)
       .map((a) => ({
@@ -846,7 +917,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // closure, not a functional updater) as the price field above.
       if (data.attributes && Object.keys(data.attributes).length > 0) {
         const additions: Record<string, AttributeValue> = {};
-        for (const a of resolvedAttrs) {
+        for (const a of specAttrs) {
           if (attrHasValue(attrValues[a.slug])) continue;
           const v = validateAiAttributeValue(a, data.attributes[a.slug]);
           if (v === undefined) continue;
@@ -939,24 +1010,46 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // an open sheet first and only then walks the steps.
   const goBackOneStep = React.useCallback(() => {
     if (step === 0) {
+      // A verified storefront owner backing out of the very first wizard
+      // step lands back on the standalone-vs-storefront chooser rather
+      // than exiting the whole flow -- they were just on that screen a
+      // moment ago, and re-deciding shouldn't cost starting over. Gated
+      // on shopChoiceResolved too: this component also renders the
+      // chooser screen itself (the early return above), and back FROM
+      // the chooser must exit like any other first screen, not loop back
+      // into itself.
+      if (shouldAskShopChoice && shopChoiceResolved) {
+        setShopChoiceResolved(false);
+        return;
+      }
       navigation.goBack();
       return;
     }
     setStep((prev) => Math.max(0, prev - 1));
-  }, [step, navigation]);
+  }, [step, navigation, shouldAskShopChoice, shopChoiceResolved]);
 
   useFocusEffect(
     React.useCallback(() => {
       if (Platform.OS !== 'android') return;
       const sub = BackHandler.addEventListener('hardwareBackPress', () => {
-        // false at step 0 lets React Navigation close the modal as usual --
-        // back out of the flow is the right answer from its first screen.
-        if (step === 0) return false;
+        // Same "return to the chooser, don't exit" reasoning as
+        // goBackOneStep above -- and the same shopChoiceResolved gate, so
+        // pressing back while the chooser itself is showing exits instead
+        // of looping back into itself.
+        if (step === 0) {
+          if (shouldAskShopChoice && shopChoiceResolved) {
+            setShopChoiceResolved(false);
+            return true;
+          }
+          // false lets React Navigation close the modal as usual -- back
+          // out of the flow is the right answer from its first screen.
+          return false;
+        }
         setStep((prev) => Math.max(0, prev - 1));
         return true;
       });
       return () => sub.remove();
-    }, [step])
+    }, [step, shouldAskShopChoice, shopChoiceResolved])
   );
 
   const setAttrValue = (slug: string, value: AttributeValue) => setAttrValues((prev) => ({ ...prev, [slug]: value }));
@@ -968,13 +1061,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     });
   };
 
-  const specsValid = !hasSpecs || resolvedAttrs.every((a) => !a.required || attrHasValue(attrValues[a.slug]));
+  const specsValid = !hasSpecs || specAttrs.every((a) => !a.required || attrHasValue(attrValues[a.slug]));
 
   const canNextByKind: Record<StepKind, boolean> = {
     category: !!category,
     photos: true, // photos optional in prototype
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
+    // Never blocks Next -- a shop can post with everything at 0 (e.g.
+    // "coming soon"), same "optional, not a gate" treatment as photos/spin.
+    stock: true,
     details: title.trim().length > 0 && price.trim().length > 0,
     translate: true, // translation is a suggestion, never blocks posting
     review: true,
@@ -1042,14 +1138,40 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [video?.status]);
 
+  // Stock/variants -- computed once, here, from the Stock step's own
+  // state (never from attrValues, see that state's doc comment above).
+  // For a variant category, attributes[variantAttr.slug] is always
+  // exactly the list of option values that ended up with stock > 0 --
+  // the single fact that keeps every existing multiselect-based
+  // filter/spec-display path (HomeScreen, StorefrontScreen, ListingCard,
+  // formatAttrValue) working for it with zero special-casing.
+  const buildStock = (): { stockQty: number; variants: ListingVariant[] | null; variantValues: string[] } => {
+    if (!hasStockStep) return { stockQty: 1, variants: null, variantValues: [] };
+    if (variantAttr) {
+      const variants: ListingVariant[] = variantAttr.options
+        .map((o) => ({ id: `v-${o.value}`, attributes: { [variantAttr.slug]: o.value }, stockQty: Number(variantStock[o.value]) || 0 }))
+        .filter((v) => v.stockQty > 0);
+      return {
+        stockQty: variants.reduce((sum, v) => sum + v.stockQty, 0),
+        variants,
+        variantValues: variants.map((v) => v.attributes[variantAttr.slug]),
+      };
+    }
+    return { stockQty: Number(plainStockQty) || 0, variants: null, variantValues: [] };
+  };
+
   const post = async () => {
     if (!category) return;
     setPosting(true);
     const attributes: Record<string, AttributeValue> = {};
-    resolvedAttrs.forEach((a) => {
+    specAttrs.forEach((a) => {
       const v = attrValues[a.slug];
       if (attrHasValue(v)) attributes[a.slug] = v as AttributeValue;
     });
+    const stock = buildStock();
+    if (variantAttr && stock.variantValues.length > 0) {
+      attributes[variantAttr.slug] = stock.variantValues;
+    }
     const trimmedDistrict = district.trim() || 'Lebanon';
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
     const payload = {
@@ -1071,6 +1193,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       aiGenerated: usedDraft,
       attributes,
       contactMethod,
+      shopId: attachToShop && myShop?.verifiedAt ? myShop.id : null,
+      stockQty: stock.stockQty,
+      variants: stock.variants,
     };
     if (isEditMode && editListingId) {
       await updateListing(editListingId, payload);
@@ -1111,6 +1236,44 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         </Text>
       </View>
     ) : null;
+
+  if (shouldAskShopChoice && !shopChoiceResolved) {
+    return (
+      <Screen maxWidth={640}>
+        <View style={styles.topBar}>
+          <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
+            <Icon name="back" size={18} />
+          </Pressy>
+          <Text style={type.h3}>{t('createListing.shopChooserTitle')}</Text>
+          <View style={styles.iconBtn} />
+        </View>
+        <View style={fieldStyles.shopChooserWrap}>
+          <Pressy
+            onPress={() => { setAttachToShop(true); setShopChoiceResolved(true); }}
+            style={fieldStyles.shopChooserCard}
+          >
+            <View style={fieldStyles.shopChooserIcon}>
+              <Icon name="building" size={22} color={colors.primary} />
+            </View>
+            <Text style={fieldStyles.shopChooserCardTitle}>{t('createListing.shopChooserStorefrontTitle')}</Text>
+            <Text style={fieldStyles.shopChooserCardBody}>
+              {t('createListing.shopChooserStorefrontBody', { name: myShop!.nameEn })}
+            </Text>
+          </Pressy>
+          <Pressy
+            onPress={() => { setAttachToShop(false); setShopChoiceResolved(true); }}
+            style={fieldStyles.shopChooserCard}
+          >
+            <View style={fieldStyles.shopChooserIcon}>
+              <Icon name="bag" size={22} color={colors.primary} />
+            </View>
+            <Text style={fieldStyles.shopChooserCardTitle}>{t('createListing.shopChooserStandaloneTitle')}</Text>
+            <Text style={fieldStyles.shopChooserCardBody}>{t('createListing.shopChooserStandaloneBody')}</Text>
+          </Pressy>
+        </View>
+      </Screen>
+    );
+  }
 
   return (
     <Screen maxWidth={640}>
@@ -1306,7 +1469,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           <View>
             <Text style={type.soft}>{t('createListing.specsIntro')}</Text>
             {aiBackgroundNotice}
-            {resolvedAttrs.map((a) => {
+            {specAttrs.map((a) => {
               // Brand/model (and "compatible brand/model" on Spare
               // Parts/Accessories) get suggestion-backed inputs instead
               // of the generic AttributeField -- makes/models are a
@@ -1348,6 +1511,50 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 />
               );
             })}
+          </View>
+        )}
+
+        {currentKind === 'stock' && (
+          <View>
+            <Text style={type.soft}>
+              {variantAttr
+                ? t('createListing.stockVariantIntro', { label: language === 'ar' ? variantAttr.labelAr : variantAttr.labelEn })
+                : t('createListing.stockPlainIntro')}
+            </Text>
+            {variantAttr ? (
+              <View style={fieldStyles.stockVariantList}>
+                {variantAttr.options.map((o) => {
+                  const label = language === 'ar' ? o.labelAr : o.labelEn;
+                  return (
+                    <View key={o.value} style={fieldStyles.stockVariantRow}>
+                      <Text style={fieldStyles.stockVariantLabel}>{label}</Text>
+                      <TextInput
+                        onFocus={onInputFocus}
+                        value={variantStock[o.value] ?? ''}
+                        onChangeText={(v) =>
+                          setVariantStock((prev) => ({ ...prev, [o.value]: v.replace(/[^0-9]/g, '') }))
+                        }
+                        keyboardType="numeric"
+                        placeholder="0"
+                        style={fieldStyles.stockVariantInput}
+                      />
+                    </View>
+                  );
+                })}
+              </View>
+            ) : (
+              <>
+                <Text style={fieldStyles.fieldLabel}>{t('createListing.stockQtyLabel')}</Text>
+                <TextInput
+                  onFocus={onInputFocus}
+                  value={plainStockQty}
+                  onChangeText={(v) => setPlainStockQty(v.replace(/[^0-9]/g, ''))}
+                  keyboardType="numeric"
+                  placeholder="1"
+                  style={fieldStyles.input}
+                />
+              </>
+            )}
           </View>
         )}
 
@@ -1500,6 +1707,30 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 </Pressy>
               ))}
             </View>
+
+            {/* Only shown when editing -- a fresh listing's shop attachment
+                is decided upfront by the chooser screen (shouldAskShopChoice
+                above), so this is purely the "I published standalone by
+                mistake, or changed my mind" correction path the user asked
+                for, not the primary way to attach a new listing. */}
+            {isEditMode && !!myShop?.verifiedAt && (
+              <>
+                <Text style={styles.fieldLabel}>{t('createListing.storefrontLabel')}</Text>
+                <View style={fieldStyles.pillRow}>
+                  {([true, false] as const).map((opt) => (
+                    <Pressy
+                      key={String(opt)}
+                      onPress={() => setAttachToShop(opt)}
+                      style={[fieldStyles.optPill, attachToShop === opt && fieldStyles.optPillActive]}
+                    >
+                      <Text style={[fieldStyles.optPillText, attachToShop === opt && fieldStyles.optPillTextActive]}>
+                        {opt ? t('createListing.storefrontYes', { name: myShop.nameEn }) : t('createListing.storefrontNo')}
+                      </Text>
+                    </Pressy>
+                  ))}
+                </View>
+              </>
+            )}
           </View>
         )}
 
@@ -1573,9 +1804,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <Text style={[styles.title, isRTL && styles.rtlText]}>{title || t('createListing.untitled')}</Text>
             <Text style={[type.soft, { marginBottom: 8 }]}>{district || 'Lebanon'}</Text>
             <Text style={[type.body, isRTL && styles.rtlText]}>{description}</Text>
-            {resolvedAttrs.length > 0 && (
+            {specAttrs.length > 0 && (
               <View style={styles.specsReview}>
-                {resolvedAttrs
+                {specAttrs
                   .filter((a) => attrHasValue(attrValues[a.slug]))
                   .map((a) => (
                     <View key={a.id} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
@@ -1583,6 +1814,29 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                       <Text style={type.body}>{formatAttrValue(a, attrValues[a.slug], language)}</Text>
                     </View>
                   ))}
+              </View>
+            )}
+            {hasStockStep && (
+              <View style={styles.specsReview}>
+                {variantAttr
+                  ? Object.entries(variantStock)
+                      .filter(([, q]) => Number(q) > 0)
+                      .map(([val, q]) => {
+                        const opt = variantAttr.options.find((o) => o.value === val);
+                        const label = opt ? (language === 'ar' ? opt.labelAr : opt.labelEn) : val;
+                        return (
+                          <View key={val} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
+                            <Text style={type.soft}>{label}</Text>
+                            <Text style={type.body}>{t('createListing.stockQtyValue', { n: q })}</Text>
+                          </View>
+                        );
+                      })
+                  : (
+                    <View style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
+                      <Text style={type.soft}>{t('createListing.stockQtyLabel')}</Text>
+                      <Text style={type.body}>{plainStockQty || '0'}</Text>
+                    </View>
+                  )}
               </View>
             )}
             {usedDraft && (
@@ -1809,6 +2063,33 @@ const fieldStyles = StyleSheet.create({
   optPillActive: { backgroundColor: colors.primary, borderColor: colors.ink },
   optPillText: { fontSize: 13, fontWeight: '600', color: colors.ink },
   optPillTextActive: { color: colors.white },
+  // The upfront "standalone or storefront?" chooser shown to a verified
+  // storefront owner before the ordinary wizard starts (shouldAskShopChoice
+  // above) -- two big equally-weighted cards rather than a pill pair, since
+  // this is a bigger decision than any in-form toggle and deserves to read
+  // that way.
+  shopChooserWrap: { paddingHorizontal: 18, paddingTop: 20, gap: 14 },
+  shopChooserCard: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
+    borderRadius: radius.lg, padding: 20,
+  },
+  shopChooserIcon: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: colors.primaryTint,
+    alignItems: 'center', justifyContent: 'center', marginBottom: 12,
+  },
+  shopChooserCardTitle: { fontSize: 16.5, fontWeight: '700', color: colors.ink, marginBottom: 5 },
+  shopChooserCardBody: { fontSize: 13, color: colors.inkSoft, lineHeight: 18 },
+  // Stock step -- one row per variant option (e.g. one per clothing
+  // size), a plain label + a small quantity box rather than the
+  // AttributeField/pill styling used for specs, since this reads more
+  // like a small inventory sheet than a spec form.
+  stockVariantList: { marginTop: 8, gap: 10 },
+  stockVariantRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 12 },
+  stockVariantLabel: { fontSize: 14.5, color: colors.ink, flex: 1 },
+  stockVariantInput: {
+    width: 72, height: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.card, textAlign: 'center', fontSize: 14.5, color: colors.ink,
+  },
 });
 
 // Bottom padding of the form when the keyboard is closed; the keyboard's

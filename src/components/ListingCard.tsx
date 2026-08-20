@@ -11,7 +11,7 @@ import { useSettings } from '../store/SettingsStore';
 import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
-import { listingTitle, listingDistrict } from '../lib/listingText';
+import { listingTitle, listingDistrict, listingShopName } from '../lib/listingText';
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
@@ -48,7 +48,7 @@ export default function ListingCard({
   const { categoryById, resolveAttributesForCategory } = useSettings();
   const { isVerified, profile } = useAppStore();
   const { isFavorite, toggleFavorite } = useFavorites();
-  const { language, isRTL } = useLanguage();
+  const { language, isRTL, t } = useLanguage();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const cat = categoryById(listing.cat);
   // Gutter between cards, as a percentage of the row. 3% reads well at two
@@ -170,6 +170,17 @@ export default function ListingCard({
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
         )}
         {previewing && <CardPreview photos={listing.photos} spinSets={listing.spinSets ?? []} />}
+        {/* Only ever true for a 'multiple' stock-mode listing a seller has
+            stocked down to zero -- every 'unique'-mode listing defaults to
+            (and stays at) stockQty 1, so this never fires for the vast
+            majority of the catalog. Still browsable, just clearly marked,
+            same "don't hide it, just say so" treatment as an expired
+            listing on the seller's own Profile screen. */}
+        {listing.stockQty === 0 && (
+          <View style={styles.outOfStockRibbon}>
+            <Text style={styles.outOfStockRibbonText}>{t('listingCard.outOfStock')}</Text>
+          </View>
+        )}
         {(listing.spinSets?.length ?? 0) > 0 && (
           <View style={styles.spinBadge}>
             <Icon name="rotate" size={11} color={colors.white} />
@@ -203,6 +214,38 @@ export default function ListingCard({
         <Text style={[styles.posted, isRTL && styles.rtlText]} numberOfLines={1}>
           {relativeTimeFrom(listing.createdAt, language)}
         </Text>
+        {/* Storefront attribution -- only present on listings posted
+            through a shop (see the Listing type's shopId doc comment).
+            Two separate elements doing two separate jobs, per the
+            approved design: a plain, non-interactive "Storefront" label
+            says what kind of listing this is; the pill below it is its
+            own tap target that jumps straight to the shop's page, so it
+            needs the same stopPropagation treatment as the favorite
+            badge above -- otherwise a tap on the pill would also fire
+            the card's own onPress and open the listing instead. */}
+        {listing.shopId && listing.shopSlug && (
+          <>
+            <Text style={styles.storefrontLabel} numberOfLines={1}>
+              {t('listingCard.storefront')}
+            </Text>
+            <Pressy
+              onPress={(e: any) => {
+                e?.stopPropagation?.();
+                navigation.push('Storefront', { shopSlug: listing.shopSlug! });
+              }}
+              style={[styles.storefrontPill, isRTL && styles.storefrontPillRTL]}
+              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+            >
+              <Icon name="building" size={11} color={colors.accentDeep} />
+              <Text style={styles.storefrontPillName} numberOfLines={1}>
+                {listingShopName(listing, language)}
+              </Text>
+              <View style={isRTL ? styles.storefrontChevRTL : undefined}>
+                <Icon name="chevronRight" size={10} color={colors.accentRing} />
+              </View>
+            </Pressy>
+          </>
+        )}
       </View>
     </Pressy>
   );
@@ -263,6 +306,14 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 6, left: 6, width: 26, height: 26, borderRadius: 13,
     backgroundColor: 'rgba(20,20,22,0.4)', alignItems: 'center', justifyContent: 'center',
   },
+  outOfStockRibbon: {
+    position: 'absolute', bottom: 0, left: 0, right: 0,
+    backgroundColor: 'rgba(20,20,22,0.72)', paddingVertical: 5, alignItems: 'center',
+  },
+  outOfStockRibbonText: {
+    fontSize: 10.5, fontWeight: '700', color: colors.white,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
   info: { paddingHorizontal: 10, paddingVertical: 9 },
   specs: { ...type.tiny, color: colors.ink, marginBottom: 3 },
   posted: { ...type.tiny, color: colors.inkSoft, marginTop: 3 },
@@ -281,4 +332,24 @@ const styles = StyleSheet.create({
   // the card (title) was fixed.
   metaRowRTL: { flexDirection: 'row-reverse' },
   district: { ...type.tiny },
+  // Plain uppercase text, not a pill -- deliberately inert, unlike the
+  // clickable name pill below it. Mirrors the aiTag pattern's text scale
+  // (ListingDetailScreen) but stays outside any background shape, since
+  // its only job is to say "this is a storefront listing", not to invite
+  // a tap.
+  storefrontLabel: {
+    fontSize: 10, fontWeight: '700', color: colors.inkSoft,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 6,
+  },
+  // Same pill shape as ListingDetailScreen's aiTag (warnBg fill,
+  // radius.pill) -- reused here as the visual basis per the approved
+  // design, at a smaller card-appropriate scale.
+  storefrontPill: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    backgroundColor: colors.warnBg, borderRadius: radius.pill,
+    paddingHorizontal: 8, height: 22, marginTop: 4,
+  },
+  storefrontPillRTL: { flexDirection: 'row-reverse', alignSelf: 'flex-end' },
+  storefrontPillName: { fontSize: 11, fontWeight: '800', color: colors.primary },
+  storefrontChevRTL: { transform: [{ scaleX: -1 }] },
 });

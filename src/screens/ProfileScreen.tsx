@@ -22,7 +22,7 @@ const DAY_MS = 1000 * 60 * 60 * 24;
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, extendListing, republishListing } = useAppStore();
+  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, extendListing, republishListing, myShop } = useAppStore();
   // isAdmin only ever becomes true by signing in with admin (email+password)
   // credentials through the same Auth screen regular users see -- there is
   // no separate admin-login entry point anywhere in the UI anymore, so the
@@ -112,8 +112,15 @@ export default function ProfileScreen() {
           )}
         </LinearGradient>
 
+        <View style={[styles.section, { marginTop: 18 }]}>
+          <Pressy onPress={() => navigation.navigate('Shops')} style={styles.adminBtn}>
+            <Icon name="building" size={15} color={colors.inkSoft} />
+            <Text style={styles.adminBtnText}>{t('profile.browseStorefronts')}</Text>
+          </Pressy>
+        </View>
+
         {isVerified && (
-          <View style={[styles.section, { marginTop: 18 }]}>
+          <View style={styles.section}>
             <Pressy onPress={() => navigation.navigate('Favorites')} style={styles.adminBtn}>
               <Icon name="heart" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('profile.savedListings')}</Text>
@@ -121,8 +128,20 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {isVerified && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('MyStorefront')} style={styles.adminBtn}>
+              <Icon name="building" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t(myShop ? 'profile.myStorefront' : 'profile.createStorefront')}</Text>
+              {myShop && !myShop.verifiedAt && (
+                <View style={styles.pendingDot} />
+              )}
+            </Pressy>
+          </View>
+        )}
+
         {isAdmin && (
-          <View style={[styles.section, { marginTop: isVerified ? 10 : 18 }]}>
+          <View style={[styles.section, { marginTop: isVerified ? 10 : 26 }]}>
             <Pressy onPress={() => navigation.navigate('Admin')} style={styles.adminBtn}>
               <Icon name="gear" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('profile.admin')}</Text>
@@ -347,6 +366,11 @@ const styles = StyleSheet.create({
     height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
   },
   adminBtnText: { fontSize: 14.5, fontWeight: '600', color: colors.inkSoft },
+  // Unobtrusive "still pending review" signal on the My Storefront row --
+  // a small dot rather than a text badge, since the full status (pending
+  // vs. declined-with-reason vs. live) is already spelled out on
+  // MyStorefrontScreen itself once tapped.
+  pendingDot: { width: 7, height: 7, borderRadius: 3.5, backgroundColor: colors.accentRing },
   logOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,

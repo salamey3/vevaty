@@ -26,7 +26,7 @@ import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
-import { listingTitle, listingDescription, listingDistrict } from '../lib/listingText';
+import { listingTitle, listingDescription, listingDistrict, listingShopName } from '../lib/listingText';
 import { absoluteDate, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 
@@ -387,6 +387,19 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
         {editButton}
       </View>
+      {/* Only for a 'multiple' stock-mode category -- every 'unique'-mode
+          listing (still the vast majority) is one specific item and this
+          line would just be noise ("1 in stock" on an apartment). Which
+          sizes/variants are actually available already shows in the specs
+          list below via the ordinary multiselect spec row (its value is
+          kept in sync with stock at post time -- see CreateListingScreen's
+          buildStock) -- this is just the total count, the one thing that
+          isn't visible there. */}
+      {cat?.stockMode === 'multiple' && (
+        <Text style={[styles.stockText, listing.stockQty === 0 && styles.stockTextEmpty]}>
+          {listing.stockQty > 0 ? t('listingDetail.inStock', { count: listing.stockQty }) : t('listingDetail.outOfStock')}
+        </Text>
+      )}
       {ownerModerationNotice}
       {ownerRejectedNotice}
       <Text style={[styles.title, isRTL && styles.rtlText]}>{listingTitle(listing, language)}</Text>
@@ -458,37 +471,66 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         </>
       )}
 
-      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.seller')}</Text>
-      <Pressy
-        onPress={() => navigation.push('SellerProfile', { sellerId: listing.sellerId })}
-        style={[styles.sellerRow, isRTL && styles.sellerRowRTL]}
-        accessibilityLabel="View seller profile"
-      >
-        <View style={styles.sellerAvatar}>
-          <Icon name="user" size={18} color={colors.inkSoft} />
-        </View>
-        <View style={{ flex: 1 }}>
-          <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
-            <Text style={type.h3}>{listing.sellerName}</Text>
-            {listing.sellerVerified && (
-              <View style={styles.verifiedBadge}>
-                <Icon name="checkCircle" size={11} color={colors.success} />
-                <Text style={styles.verifiedBadgeText}>{t('listingDetail.verifiedSeller')}</Text>
-              </View>
-            )}
+      {/* Storefront-sourced listings get a shop panel here instead of the
+          plain seller panel -- same row shape (avatar, name, chevron to a
+          dedicated page), because a buyer on this screen wants to know
+          the same thing either way ("who am I buying from, show me what
+          else they have"), just answered by a shop identity instead of a
+          personal one. See the Listing type's shopId doc comment. */}
+      <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>
+        {listing.shopId ? t('listingDetail.storefront') : t('listingDetail.seller')}
+      </Text>
+      {listing.shopId && listing.shopSlug ? (
+        <Pressy
+          onPress={() => navigation.push('Storefront', { shopSlug: listing.shopSlug! })}
+          style={[styles.sellerRow, isRTL && styles.sellerRowRTL]}
+          accessibilityLabel="View storefront"
+        >
+          <View style={styles.sellerAvatar}>
+            <Icon name="building" size={18} color={colors.inkSoft} />
           </View>
-          <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
-            <Icon name="star" size={12} color={colors.inkSoft} />
-            <Text style={type.tiny}>{listing.rating.toFixed(1)} {t('listingDetail.rating')}</Text>
+          <View style={{ flex: 1 }}>
+            <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
+              <Text style={type.h3}>{listingShopName(listing, language)}</Text>
+            </View>
+            <Text style={[styles.memberSince, isRTL && styles.rtlText]}>{t('listingDetail.storefront')}</Text>
           </View>
-          <Text style={[styles.memberSince, isRTL && styles.rtlText]}>
-            {t('listingDetail.memberSince', { date: formatMemberSince(listing.sellerMemberSince, language) })}
-          </Text>
-        </View>
-        <View style={isRTL && styles.chevronRTL}>
-          <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-        </View>
-      </Pressy>
+          <View style={isRTL && styles.chevronRTL}>
+            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+          </View>
+        </Pressy>
+      ) : (
+        <Pressy
+          onPress={() => navigation.push('SellerProfile', { sellerId: listing.sellerId })}
+          style={[styles.sellerRow, isRTL && styles.sellerRowRTL]}
+          accessibilityLabel="View seller profile"
+        >
+          <View style={styles.sellerAvatar}>
+            <Icon name="user" size={18} color={colors.inkSoft} />
+          </View>
+          <View style={{ flex: 1 }}>
+            <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
+              <Text style={type.h3}>{listing.sellerName}</Text>
+              {listing.sellerVerified && (
+                <View style={styles.verifiedBadge}>
+                  <Icon name="checkCircle" size={11} color={colors.success} />
+                  <Text style={styles.verifiedBadgeText}>{t('listingDetail.verifiedSeller')}</Text>
+                </View>
+              )}
+            </View>
+            <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+              <Icon name="star" size={12} color={colors.inkSoft} />
+              <Text style={type.tiny}>{listing.rating.toFixed(1)} {t('listingDetail.rating')}</Text>
+            </View>
+            <Text style={[styles.memberSince, isRTL && styles.rtlText]}>
+              {t('listingDetail.memberSince', { date: formatMemberSince(listing.sellerMemberSince, language) })}
+            </Text>
+          </View>
+          <View style={isRTL && styles.chevronRTL}>
+            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+          </View>
+        </Pressy>
+      )}
 
     </>
   );
@@ -943,6 +985,8 @@ const styles = StyleSheet.create({
   // price (and, for the owner, the edit actions alongside it) anchors to
   // the right instead.
   priceRowRTL: { flexDirection: 'row-reverse' },
+  stockText: { ...type.soft, marginTop: 4, fontWeight: '600' },
+  stockTextEmpty: { color: colors.danger },
   ownerModerationNotice: {
     flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 10,
     padding: 10, borderRadius: radius.sm, backgroundColor: colors.warnBg,

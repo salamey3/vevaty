@@ -30,6 +30,15 @@ export interface Category {
   // physical item for sale/rent -- changes the listing detail page's
   // call-to-action to "Contact to hire".
   isService: boolean;
+  // 'unique' (the default, and every category until this field existed):
+  // a listing is one specific physical item -- an apartment, a car, a
+  // single phone -- so stock/variant intake never shows on the create
+  // form and Listing.stockQty/variants stay at their defaults. 'multiple':
+  // a listing represents a stocked product a shop carries more than one
+  // of (typically clothing/accessories) -- CreateListingScreen shows a
+  // stock-intake step, either per-variant (if the category has an
+  // is_variant attribute, e.g. "Size") or a single quantity field.
+  stockMode: 'unique' | 'multiple';
   // Shown as the placeholder text on the title/description fields when
   // posting a listing in this category, so the example is relevant
   // (an apartment listing shouldn't see a hardcoded phone example).
@@ -77,6 +86,28 @@ export interface CategoryAttribute {
   // is a spec/create-form field only, not offered as a search filter.
   // Separate from sortOrder, which only governs spec/create-form order.
   filterPriority: number | null;
+  // For a 'number' attribute used as a filter, which end of the range
+  // this attribute's own value represents -- e.g. a car's "Year" is a
+  // 'min' bound ("Year from"), its "Mileage" a 'max' bound ("Mileage up
+  // to"). Not yet consumed anywhere (HomeScreen/StorefrontScreen both
+  // show a full min-max range regardless); carried on the type now since
+  // the DB column already exists, left for a future refinement.
+  bound: 'min' | 'max' | null;
+  // Which spec values print directly on a listing card (vs. only showing
+  // on the detail page), in order. Not yet consumed anywhere -- carried
+  // on the type now since the DB column already exists, left for a
+  // future refinement.
+  cardPriority: number | null;
+  // True for the one attribute (must be 'multiselect' -- see the admin
+  // toggle in AdminCategoryAttributesScreen) a 'multiple' stock-mode
+  // category uses to break a listing's stock into variants, e.g. "Size"
+  // on a clothing category. See Listing.variants for how a listing's
+  // per-variant stock is actually stored; this attribute's own value on
+  // such a listing is always exactly the list of variant values that
+  // currently have stock > 0 (kept in sync by CreateListingScreen), so
+  // every existing multiselect-based filter/spec-display path already
+  // works for it with no special-casing.
+  isVariant: boolean;
 }
 
 // One step in a category's Home-screen filter drill-down, in the order
@@ -217,7 +248,90 @@ export interface Listing {
   // fetch. Mirrors profiles.is_phone_verified / profiles.created_at.
   sellerVerified: boolean;
   sellerMemberSince: number;
+  // Storefronts -- null for the vast majority of listings (a normal
+  // seller-posted item has no shop at all). Set when this listing was
+  // posted through a merchant's storefront (myazar.listings.shop_id).
+  // Denormalized onto the listing at read time (dbListingToLocal, via a
+  // `shop:shops(...)` join) the same way sellerName/sellerVerified are --
+  // every place that renders a card or the detail page already has what
+  // it needs with no second fetch. shopNameEn/shopNameAr mirror
+  // titleEn/titleAr's same-listing-fallback pattern; use
+  // listingShopName() (src/lib/listingText.ts) to read the right one.
+  shopId: string | null;
+  shopNameEn: string | null;
+  shopNameAr: string | null;
+  // vevaty.com/shop/:shopSlug -- what ListingCard's storefront pill and
+  // ListingDetailScreen's storefront panel link to (see the Storefront
+  // route). Always set together with shopId/shopNameEn/shopNameAr (all
+  // four come from the same `shop:shops(...)` join), but kept as its own
+  // nullable field rather than derived, since a listing whose shop was
+  // since deleted would otherwise dangle.
+  shopSlug: string | null;
+  // Stock/variants -- see Category.stockMode. `stockQty` is the single
+  // source of truth for "does this listing have anything left" (used for
+  // the out-of-stock badge/notice regardless of whether it's variant- or
+  // plain-quantity-tracked): for a variant listing it's always the sum of
+  // every variant's own stockQty (kept in sync by CreateListingScreen,
+  // never edited directly); for a plain 'multiple'-mode listing with no
+  // is_variant attribute, it's the seller's own entered quantity. Stays
+  // at the DB default of 1 (and variants null) for every 'unique'-mode
+  // listing, which is still the vast majority of the catalog.
+  stockQty: number;
+  variants: ListingVariant[] | null;
 }
+
+// One size/variant's own stock count on a 'multiple'-mode listing whose
+// category has an is_variant attribute -- e.g. { attributes: { size: 'm'
+// }, stockQty: 5 }. `attributes` only ever has one key today (the single
+// is_variant attribute a category may define), kept as a map rather than
+// a bare `{ value: string }` in case a category ever needs more than one
+// variant-defining attribute later (e.g. size + color) without another
+// schema change.
+export interface ListingVariant {
+  id: string;
+  attributes: Record<string, string>;
+  stockQty: number;
+}
+
+// A merchant storefront -- myazar.shops. Not carried on every Listing in
+// full (only the four display/link fields above are denormalized there);
+// StorefrontScreen fetches the full row directly by slug, the same way
+// SellerProfileScreen falls back to a direct profiles read for a seller
+// with zero active listings.
+export interface Shop {
+  id: string;
+  ownerId: string;
+  slug: string;
+  nameEn: string;
+  nameAr: string | null;
+  taglineEn: string | null;
+  taglineAr: string | null;
+  logoUrl: string | null;
+  coverUrl: string | null;
+  governorate: string | null;
+  caza: string | null;
+  addressLine: string | null;
+  whatsapp: string | null;
+  phone: string | null;
+  primaryCategoryId: CategoryId | null;
+  // null = not yet verified -- the shop row exists (its owner created it)
+  // but isn't publicly visible yet (see shops_select RLS: verified_at is
+  // not null OR owner_id = auth.uid()). StorefrontScreen treats a
+  // not-yet-verified shop the same as a not-found one for any visitor who
+  // isn't its owner.
+  verifiedAt: number | null;
+  // Set by an admin on decline (AdminShopsScreen), mirrors
+  // Listing.moderationReason -- shown to the owner on MyStorefrontScreen so
+  // they know what to fix. Cleared automatically the next time the owner
+  // saves an edit (same "editing resubmits for review" convention as a
+  // rejected listing).
+  verificationNote: string | null;
+}
+
+// Fields the merchant-facing create/edit form supplies -- everything else
+// on Shop (id, ownerId, verifiedAt, verificationNote) is server-assigned
+// or admin-only. Mirrors ListingInput's shape in AppStore.tsx.
+export type ShopInput = Omit<Shop, 'id' | 'ownerId' | 'slug' | 'verifiedAt' | 'verificationNote'>;
 
 export interface Profile {
   id: string;

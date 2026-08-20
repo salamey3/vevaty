@@ -20,6 +20,15 @@ export function listingDescription(listing: Listing, language: 'en' | 'ar'): str
   return pickText(listing.descriptionEn, listing.descriptionAr, language);
 }
 
+// The shop name for a storefront-sourced listing's label/pill (ListingCard)
+// and storefront panel (ListingDetailScreen). Callers must already know
+// listing.shopId is set -- this returns '' for a listing with no shop
+// rather than throwing, so a stray call site fails quietly instead of
+// crashing a render.
+export function listingShopName(listing: Listing, language: 'en' | 'ar'): string {
+  return pickText(listing.shopNameEn || '', listing.shopNameAr || '', language);
+}
+
 function normalizeDistrictKey(s: string): string {
   return s.trim().toLowerCase().replace(/[^a-z\s]/g, ' ').replace(/\s+/g, ' ').trim();
 }

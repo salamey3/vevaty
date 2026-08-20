@@ -155,6 +155,14 @@ export default function AdminGateScreen() {
             <Icon name="chevronRight" size={16} color={colors.inkSoft} />
           </Pressy>
 
+          <Pressy onPress={() => navigation.navigate('AdminShops')} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>{t('admin.manageStorefronts')}</Text>
+              <Text style={styles.rowSub}>{t('admin.manageStorefrontsSub')}</Text>
+            </View>
+            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+          </Pressy>
+
           <Pressy onPress={() => navigation.navigate('AdminUsers')} style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{t('admin.manageUsers')}</Text>

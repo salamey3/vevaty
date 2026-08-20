@@ -15,6 +15,14 @@ export type RootStackParamList = {
   ChatThread: { threadId: string };
   Favorites: undefined;
   SellerProfile: { sellerId: string };
+  // The public "browse every verified shop" directory -- no params, always
+  // shows the full live set (see ShopsDirectoryScreen).
+  Shops: undefined;
+  Storefront: { shopSlug: string };
+  // The signed-in seller's own shop -- create or manage. No params: it
+  // always operates on AppStore's myShop, never someone else's.
+  MyStorefront: undefined;
+  AdminShops: undefined;
   Admin: undefined;
   AdminCategories: undefined;
   AdminCategoryAttributes: { categoryId: string; focusFilters?: boolean };

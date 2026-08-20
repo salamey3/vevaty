@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Listing, ListingVideo, Profile, PointsEvent, SpinSet } from '../types';
+import { Listing, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
@@ -8,6 +8,7 @@ import { uploadPhotos } from '../lib/photoUpload';
 import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
 import { uriToCompressedBase64 } from '../lib/imageToBase64';
 import { triggerListingModeration } from '../lib/moderateListing';
+import { slugify } from '../lib/slugify';
 
 // Photos sent to the moderate-listing AI check -- capped the same way the
 // other vision calls (Magic Listing/AI suggest) cap theirs, since the model
@@ -42,6 +43,15 @@ type ListingInput = Omit<
   // moderation_status 'pending' server-side (the DB trigger enforces this
   // for non-privileged callers too); the create-listing form never sets it.
   | 'moderationStatus' | 'moderationReason'
+  // Storefronts -- shopId IS settable by the form now (CreateListingScreen's
+  // "List this in my storefront" toggle, only shown when the seller has a
+  // verified shop). shopNameEn/shopNameAr/shopSlug stay excluded: they're
+  // read-only display/link fields derived from the shops join (see
+  // dbListingToLocal) -- addListing/updateListing below fill them in
+  // optimistically from AppStore's own myShop rather than trusting the
+  // form to supply them, since the form only ever knows its own shop's id,
+  // not a denormalized copy of that shop's current name/slug.
+  | 'shopNameEn' | 'shopNameAr' | 'shopSlug'
 >;
 
 interface AppStoreValue {
@@ -53,9 +63,27 @@ interface AppStoreValue {
   // posting a listing and revealing a seller's contact info -- see
   // MainTabs' "Sell an item" tab and ListingDetailScreen's contact CTA.
   isVerified: boolean;
+  // False until the initial ensureSession() round-trip below has resolved
+  // at least once. isVerified STARTS false on every launch (its default
+  // state) and only flips true once that async check actually completes --
+  // so a screen that gates on "if (!isVerified) bounce to Auth" and checks
+  // that on first render, before this flag exists, incorrectly bounces a
+  // verified user straight back out on a fresh page load / deep link,
+  // before their real session has had a chance to load at all. Screens
+  // with such a gate (CreateListingScreen, MyStorefrontScreen) must wait
+  // for authChecked before treating isVerified===false as a real signal.
+  authChecked: boolean;
   listings: Listing[];
   profile: Profile;
   pointsHistory: PointsEvent[];
+  // The signed-in user's own storefront, if they've created one -- null
+  // for the overwhelming majority of accounts (ordinary buyers/sellers
+  // with no shop). Unlike `listings`, this is never a cache of other
+  // people's data, so it's fetched once per sign-in (syncFromSupabase)
+  // rather than needing its own AsyncStorage persistence.
+  myShop: Shop | null;
+  createShop: (s: ShopInput) => Promise<Shop>;
+  updateShop: (s: ShopInput) => Promise<void>;
   addListing: (l: ListingInput) => Promise<Listing>;
   updateListing: (id: string, l: ListingInput) => Promise<void>;
   deleteListing: (id: string) => Promise<void>;
@@ -183,6 +211,20 @@ function normalizeListing(l: any): Listing {
     governorate: typeof l?.governorate === 'string' ? l.governorate : null,
     caza: typeof l?.caza === 'string' ? l.caza : null,
     geonameId: typeof l?.geonameId === 'number' ? l.geonameId : null,
+    // Storefronts -- same defensive story once more: a listing cached by a
+    // build that predates shop_id won't have these fields at all, and the
+    // overwhelming majority of listings (anyone not posted through a shop)
+    // never have them regardless of build age.
+    shopId: typeof l?.shopId === 'string' ? l.shopId : null,
+    shopNameEn: typeof l?.shopNameEn === 'string' ? l.shopNameEn : null,
+    shopNameAr: typeof l?.shopNameAr === 'string' ? l.shopNameAr : null,
+    shopSlug: typeof l?.shopSlug === 'string' ? l.shopSlug : null,
+    // Stock/variants -- same defensive story once more: a listing cached
+    // by a build that predates this feature won't have these fields, and
+    // the DB default (stock_qty 1, variants null) is exactly what every
+    // 'unique'-mode listing should read as anyway.
+    stockQty: typeof l?.stockQty === 'number' ? l.stockQty : 1,
+    variants: Array.isArray(l?.variants) ? l.variants : null,
   };
 }
 
@@ -242,6 +284,49 @@ function dbListingToLocal(row: any): Listing {
     sellerMemberSince: row.seller?.created_at
       ? new Date(row.seller.created_at).getTime()
       : (row.created_at ? new Date(row.created_at).getTime() : Date.now()),
+    // Storefronts -- row.shop is null for the vast majority of listings
+    // (shop_id itself is null, so PostgREST's embed has nothing to join).
+    // See the Listing type's doc comment for why these four travel
+    // together rather than being looked up again downstream.
+    shopId: row.shop_id ?? null,
+    shopNameEn: row.shop?.name_en ?? null,
+    shopNameAr: row.shop?.name_ar ?? null,
+    shopSlug: row.shop?.slug ?? null,
+    // Stock/variants -- variants is app-defined JSONB (not a join), so its
+    // shape on the wire already matches ListingVariant[] one-for-one; this
+    // just guards against a malformed/legacy row rather than converting
+    // anything. stock_qty has a DB-level NOT NULL default of 1, but Number()
+    // still guards the same way price/lat/lng above do.
+    stockQty: row.stock_qty != null ? Number(row.stock_qty) : 1,
+    variants: Array.isArray(row.variants) ? row.variants : null,
+  };
+}
+
+// Maps a myazar.shops row to the local Shop shape -- used for the
+// signed-in user's own shop (myShop below). StorefrontScreen does its own
+// smaller version of this for a public by-slug fetch, which doesn't need
+// (and per RLS's column-blind-but-row-gated visibility, shouldn't bother
+// requesting) verification_note -- that's private bookkeeping for the
+// owner, not something a visitor's storefront view has any use for.
+function dbShopToLocal(row: any): Shop {
+  return {
+    id: row.id,
+    ownerId: row.owner_id,
+    slug: row.slug,
+    nameEn: row.name_en,
+    nameAr: row.name_ar ?? null,
+    taglineEn: row.tagline_en ?? null,
+    taglineAr: row.tagline_ar ?? null,
+    logoUrl: row.logo_url ?? null,
+    coverUrl: row.cover_url ?? null,
+    governorate: row.governorate ?? null,
+    caza: row.caza ?? null,
+    addressLine: row.address_line ?? null,
+    whatsapp: row.whatsapp ?? null,
+    phone: row.phone ?? null,
+    primaryCategoryId: row.primary_category_id ?? null,
+    verifiedAt: row.verified_at ? new Date(row.verified_at).getTime() : null,
+    verificationNote: row.verification_note ?? null,
   };
 }
 
@@ -249,9 +334,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [online, setOnline] = useState(false);
   const [isVerified, setIsVerified] = useState(false);
+  const [authChecked, setAuthChecked] = useState(false);
   const [listings, setListings] = useState<Listing[]>([]);
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
   const [pointsHistory, setPointsHistory] = useState<PointsEvent[]>([]);
+  const [myShop, setMyShop] = useState<Shop | null>(null);
   const userIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile>(DEFAULT_PROFILE);
   const listingsRef = useRef<Listing[]>([]);
@@ -323,13 +410,31 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         }));
       }
 
+      // The signed-in user's own shop, if any -- at most one row (no
+      // unique constraint enforces that today, but nothing in the app
+      // creates a second one; see createShop below). Not part of the
+      // listings/profile error handling above since a shop lookup failing
+      // shouldn't be treated as seriously as the listings feed failing --
+      // it only affects the "My Storefront" entry point, not browsing.
+      const { data: shopRow } = await supabase
+        .from('shops')
+        .select('id, owner_id, slug, name_en, name_ar, tagline_en, tagline_ar, logo_url, cover_url, governorate, caza, address_line, whatsapp, phone, primary_category_id, verified_at, verification_note')
+        .eq('owner_id', uid)
+        .maybeSingle();
+      setMyShop(shopRow ? dbShopToLocal(shopRow) : null);
+
       const { data: listingRows, error } = await supabase
         .from('listings')
         .select(
           '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at), ' +
             'photos:listing_photos(url, sort_order, kind, spin_set_id), ' +
             'spinSets:listing_spin_sets(id, label, sort_order), ' +
-            'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions)'
+            'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions), ' +
+            // Storefronts -- null for the ~all listings with no shop_id;
+            // PostgREST returns null (not []) for a to-one embed via a
+            // plain FK, so row.shop is a single object or null, matching
+            // the ?. access in dbListingToLocal.
+            'shop:shops(slug, name_en, name_ar)'
         )
         .order('created_at', { ascending: false });
 
@@ -354,10 +459,17 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   useEffect(() => {
     (async () => {
-      const session = await ensureSession().catch(() => null);
-      setIsVerified(!!session && session.user?.is_anonymous === false);
-      const uid = session?.user?.id;
-      if (uid) await syncFromSupabase(uid);
+      try {
+        const session = await ensureSession().catch(() => null);
+        setIsVerified(!!session && session.user?.is_anonymous === false);
+        const uid = session?.user?.id;
+        if (uid) await syncFromSupabase(uid);
+      } finally {
+        // Only after this resolves does isVerified===false actually mean
+        // "not verified" rather than "haven't checked yet" -- see
+        // authChecked's doc comment above.
+        setAuthChecked(true);
+      }
     })();
     // Intentionally only runs once, on launch — the auth-state-change
     // subscription below handles re-syncing after that (e.g. the admin
@@ -586,6 +698,16 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         // with the real DB-joined value on the next syncFromSupabase anyway.
         sellerVerified: isVerified,
         sellerMemberSince: Date.now(),
+        // l.shopId came straight from the form; the display fields are
+        // filled in from AppStore's own myShop rather than trusted from
+        // the caller -- see ListingInput's doc comment above. The
+        // `myShop?.id === l.shopId` guard is really just defensive: the
+        // only shop CreateListingScreen could have offered is the
+        // signed-in seller's own, so in practice this is always true
+        // whenever l.shopId is set at all.
+        shopNameEn: l.shopId && myShop?.id === l.shopId ? myShop.nameEn : null,
+        shopNameAr: l.shopId && myShop?.id === l.shopId ? myShop.nameAr : null,
+        shopSlug: l.shopId && myShop?.id === l.shopId ? myShop.slug : null,
       };
 
       if (uid) {
@@ -610,6 +732,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             ai_generated: l.aiGenerated,
             attributes: l.attributes || {},
             contact_method: l.contactMethod || 'both',
+            shop_id: l.shopId,
+            stock_qty: l.stockQty ?? 1,
+            variants: l.variants ?? null,
           })
           .select()
           .single();
@@ -668,7 +793,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       await awardPoints(POINTS_RULES.postListing, `Posted "${l.titleEn || l.titleAr}"`);
       return newListing;
     },
-    [profile, awardPoints, persistNewPhotos, persistNewSpinSets, isVerified]
+    [profile, awardPoints, persistNewPhotos, persistNewSpinSets, isVerified, myShop]
   );
 
   const updateListing = useCallback(
@@ -680,6 +805,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       // ProfileScreen's "Edit & resubmit" action, which both funnel here.
       const wasRejected = listingsRef.current.find((it) => it.id === id)?.status === 'rejected';
 
+      // Same reasoning as addListing above: the display fields are derived
+      // from AppStore's own myShop, never trusted from the caller.
+      const shopDisplayFields =
+        l.shopId && myShop?.id === l.shopId
+          ? { shopNameEn: myShop.nameEn, shopNameAr: myShop.nameAr, shopSlug: myShop.slug }
+          : { shopNameEn: null, shopNameAr: null, shopSlug: null };
+
       // Update local state immediately so the edit feels instant.
       setListings((prev) =>
         prev.map((it) =>
@@ -687,6 +819,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             ? {
                 ...it,
                 ...l,
+                ...shopDisplayFields,
                 ...(wasRejected ? { status: 'pending_review' as const, moderationStatus: 'pending' as const, moderationReason: null } : {}),
               }
             : it
@@ -712,8 +845,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           lat: l.lat,
           lng: l.lng,
           ai_generated: l.aiGenerated,
+          shop_id: l.shopId,
           attributes: l.attributes || {},
           contact_method: l.contactMethod || 'both',
+          stock_qty: l.stockQty ?? 1,
+          variants: l.variants ?? null,
           ...(wasRejected ? { status: 'pending_review', moderation_status: 'pending', moderation_reason: null } : {}),
         })
         .eq('id', id);
@@ -764,7 +900,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         await deleteVideo(previousGuid).catch(() => {});
       }
     },
-    [syncPhotoKind, syncSpinSets]
+    [syncPhotoKind, syncSpinSets, myShop]
   );
 
   const deleteListing = useCallback(async (id: string) => {
@@ -849,6 +985,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setListings(SEED_LISTINGS);
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
+    setMyShop(null);
   }, []);
 
   // Delete Account (OLX-comparison follow-up, item 3) -- two-step contract
@@ -892,16 +1029,115 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setListings(SEED_LISTINGS);
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
+    setMyShop(null);
   }, []);
+
+  // Slugs are unique (myazar.shops.slug has a unique constraint) --
+  // rather than pre-checking availability with a SELECT (a second round
+  // trip, and still racy against a concurrent signup), this just tries the
+  // base slug and retries with -2, -3, ... on a unique-violation error.
+  // Five attempts is generous: it only ever loops past 1 when two
+  // merchants pick the same name, which is rare, and a merchant whose name
+  // is *itself* a duplicate business name colliding five times in a row
+  // is not a case worth engineering around silently -- createShop surfaces
+  // the error to MyStorefrontScreen instead of trying forever.
+  const MAX_SLUG_ATTEMPTS = 5;
+
+  const createShop = useCallback(
+    async (s: ShopInput): Promise<Shop> => {
+      const uid = userIdRef.current;
+      if (!uid) throw new Error('You need to be logged in to create a storefront.');
+      const base = slugify(s.nameEn) || 'shop';
+
+      let lastError: any = null;
+      for (let attempt = 0; attempt < MAX_SLUG_ATTEMPTS; attempt++) {
+        const slug = attempt === 0 ? base : `${base}-${attempt + 1}`;
+        const { data, error } = await supabase
+          .from('shops')
+          .insert({
+            owner_id: uid,
+            slug,
+            name_en: s.nameEn,
+            name_ar: s.nameAr,
+            tagline_en: s.taglineEn,
+            tagline_ar: s.taglineAr,
+            logo_url: s.logoUrl,
+            cover_url: s.coverUrl,
+            governorate: s.governorate,
+            caza: s.caza,
+            address_line: s.addressLine,
+            whatsapp: s.whatsapp,
+            phone: s.phone,
+            primary_category_id: s.primaryCategoryId,
+          })
+          .select()
+          .single();
+        if (!error && data) {
+          const shop = dbShopToLocal(data);
+          setMyShop(shop);
+          return shop;
+        }
+        lastError = error;
+        // 23505 = unique_violation -- only case worth retrying with a
+        // different slug. Anything else (RLS denial, a bad FK on
+        // primary_category_id, offline) fails immediately rather than
+        // burning through five attempts for an error retrying won't fix.
+        if (error?.code !== '23505') break;
+      }
+      throw new Error(lastError?.message || 'Could not create your storefront. Please try again.');
+    },
+    []
+  );
+
+  const updateShop = useCallback(
+    async (s: ShopInput): Promise<void> => {
+      const current = myShop;
+      if (!current) throw new Error('No storefront to update.');
+      const { data, error } = await supabase
+        .from('shops')
+        .update({
+          name_en: s.nameEn,
+          name_ar: s.nameAr,
+          tagline_en: s.taglineEn,
+          tagline_ar: s.taglineAr,
+          logo_url: s.logoUrl,
+          cover_url: s.coverUrl,
+          governorate: s.governorate,
+          caza: s.caza,
+          address_line: s.addressLine,
+          whatsapp: s.whatsapp,
+          phone: s.phone,
+          primary_category_id: s.primaryCategoryId,
+          // Editing counts as resubmitting for review -- clears a prior
+          // decline note the same way saving a rejected listing clears
+          // moderationReason (see updateListing above). verified_at itself
+          // is left untouched here (and the DB trigger would silently
+          // revert it even if it weren't): editing an already-verified
+          // shop's tagline shouldn't knock it back to unverified, only a
+          // fresh shop or one an admin explicitly un-verifies should be.
+          verification_note: null,
+        })
+        .eq('id', current.id)
+        .select()
+        .single();
+      if (error) throw new Error(error.message || 'Could not update your storefront. Please try again.');
+      if (data) setMyShop(dbShopToLocal(data));
+    },
+    [myShop]
+  );
 
   const value = useMemo(
     () => ({
       ready,
       online,
       isVerified,
+      authChecked,
       listings,
       profile,
       pointsHistory,
+      myShop,
+      createShop,
+      updateShop,
       addListing,
       updateListing,
       deleteListing,
@@ -915,9 +1151,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       ready,
       online,
       isVerified,
+      authChecked,
       listings,
       profile,
       pointsHistory,
+      myShop,
+      createShop,
+      updateShop,
       addListing,
       updateListing,
       deleteListing,
