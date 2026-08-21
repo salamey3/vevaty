@@ -14,14 +14,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useGoBack } from '../hooks/useGoBack';
 import HomeMarkButton from '../components/HomeMarkButton';
-
-// Same coarse "Month Year" formatting as the member-since line on
-// ListingDetailScreen's seller panel -- kept as its own local copy rather
-// than a shared import since it's a two-line function and this is the only
-// other place it's needed.
-function formatMemberSince(ts: number, language: 'en' | 'ar'): string {
-  return new Date(ts).toLocaleDateString(language === 'ar' ? 'ar' : 'en-US', { month: 'long', year: 'numeric' });
-}
+import { monthYear } from '../lib/relativeTime';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SellerProfile'>;
 
@@ -168,7 +161,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
         )}
       </View>
       {sellerMemberSince != null && (
-        <Text style={styles.memberSince}>{t('listingDetail.memberSince', { date: formatMemberSince(sellerMemberSince, language) })}</Text>
+        <Text style={styles.memberSince}>{t('listingDetail.memberSince', { date: monthYear(sellerMemberSince, language) })}</Text>
       )}
       <View style={styles.adsPill}>
         <Text style={styles.adsPillText}>{t('sellerProfile.publishedAds', { count: sellerListings.length })}</Text>

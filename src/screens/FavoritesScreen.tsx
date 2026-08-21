@@ -17,6 +17,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from '../navigation/types';
 import { SavedSearch } from '../types';
 import { useGoBack } from '../hooks/useGoBack';
+import { absoluteDate } from '../lib/relativeTime';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Favorites'>;
 
@@ -129,11 +130,7 @@ export default function FavoritesScreen({ navigation }: Props) {
           renderItem={({ item }) => {
             const cat = categoryById(item.cat);
             const catLabel = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : item.cat;
-            const dateLabel = new Date(item.createdAt).toLocaleDateString(language === 'ar' ? 'ar' : 'en-US', {
-              month: 'short',
-              day: 'numeric',
-              year: 'numeric',
-            });
+            const dateLabel = absoluteDate(item.createdAt, language);
             return (
               <View style={styles.searchRow}>
                 <Pressy style={styles.searchRowMain} onPress={() => runSavedSearch(item)}>

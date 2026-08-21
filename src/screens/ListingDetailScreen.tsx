@@ -27,17 +27,8 @@ import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingTitle, listingDescription, listingDistrict, listingShopName } from '../lib/listingText';
-import { absoluteDate, relativeTimeFrom } from '../lib/relativeTime';
+import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
-
-// Phase 4 item 16 -- "Member since Month Year", derived from the seller's
-// join-date timestamp already carried on the listing (see AppStore's
-// dbListingToLocal). Deliberately coarse (month + year, not a full date) --
-// matches how every marketplace app shows this, and avoids implying a
-// precision ("member since Aug 14") the data isn't meant to convey.
-function formatMemberSince(ts: number, language: 'en' | 'ar'): string {
-  return new Date(ts).toLocaleDateString(language === 'ar' ? 'ar' : 'en-US', { month: 'long', year: 'numeric' });
-}
 
 const REPORT_REASONS = ['spam', 'prohibited', 'scam', 'other'] as const;
 type ReportReason = (typeof REPORT_REASONS)[number];
@@ -523,7 +514,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
               <Text style={type.tiny}>{listing.rating.toFixed(1)} {t('listingDetail.rating')}</Text>
             </View>
             <Text style={[styles.memberSince, isRTL && styles.rtlText]}>
-              {t('listingDetail.memberSince', { date: formatMemberSince(listing.sellerMemberSince, language) })}
+              {t('listingDetail.memberSince', { date: monthYear(listing.sellerMemberSince, language) })}
             </Text>
           </View>
           <View style={isRTL && styles.chevronRTL}>

@@ -24,7 +24,11 @@ const DAY = 24 * HOUR;
 type Lang = 'en' | 'ar';
 
 const EN_MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec'];
-const AR_MONTHS = ['يناير', 'فبراير', 'مارس', 'أبريل', 'مايو', 'يونيو', 'يوليو', 'أغسطس', 'سبتمبر', 'أكتوبر', 'نوفمبر', 'ديسمبر'];
+// Levantine month names (Lebanon/Syria/Jordan/Iraq usage), not the
+// Modern Standard Arabic set ("يناير"...) that generic Intl locale data
+// and most transliteration tables default to -- the latter reads as
+// foreign/Gulf-inflected to a Lebanese audience.
+const AR_MONTHS = ['كانون الثاني', 'شباط', 'آذار', 'نيسان', 'أيار', 'حزيران', 'تموز', 'آب', 'أيلول', 'تشرين الأول', 'تشرين الثاني', 'كانون الأول'];
 
 // Arabic marks 1 and 2 of a unit with their own words rather than a
 // number, and uses a different plural form from 3 upward -- "منذ يومين",
@@ -86,4 +90,13 @@ export function absoluteDate(ms: number, language: Lang): string {
   const d = new Date(ms);
   const months = language === 'ar' ? AR_MONTHS : EN_MONTHS;
   return `${d.getDate()} ${months[d.getMonth()]} ${d.getFullYear()}`;
+}
+
+// "Month Year" only -- for "member since" style lines where a day would
+// imply more precision than the data is meant to convey. Same hand-rolled
+// months as above, for the same reason (no Intl.DateTimeFormat).
+export function monthYear(ms: number, language: Lang): string {
+  const d = new Date(ms);
+  const months = language === 'ar' ? AR_MONTHS : EN_MONTHS;
+  return `${months[d.getMonth()]} ${d.getFullYear()}`;
 }
