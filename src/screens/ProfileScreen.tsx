@@ -22,6 +22,7 @@ import { uploadPhoto } from '../lib/photoUpload';
 import { Alert } from '../lib/alertShim';
 import { openLegalPage } from '../lib/legalLinks';
 import ImageCropModal from '../components/ImageCropModal';
+import ActionSheet from '../components/ActionSheet';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -33,6 +34,12 @@ export default function ProfileScreen() {
   // confirmAvatarCrop below (shared component with MyStorefrontScreen's
   // logo picker).
   const [avatarCropUri, setAvatarCropUri] = useState<string | null>(null);
+  // Tapping an EXISTING avatar opens this (Delete photo / Upload a new
+  // photo) instead of jumping straight to the picker -- there was
+  // previously no way to remove a photo once set, only replace it. A
+  // fresh/no-photo avatar has nothing to delete, so it skips the menu
+  // entirely and behaves as it always did (see the Pressy below).
+  const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
 
   const pickAvatar = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -53,6 +60,17 @@ export default function ProfileScreen() {
       await updateAvatar(hosted);
     } catch {
       Alert.alert(t('profile.avatarUploadFailedTitle'), t('profile.avatarUploadFailedMessage'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
+
+  const deleteAvatar = async () => {
+    setUploadingAvatar(true);
+    try {
+      await updateAvatar(null);
+    } catch {
+      Alert.alert(t('profile.avatarDeleteFailedTitle'), t('profile.avatarDeleteFailedMessage'));
     } finally {
       setUploadingAvatar(false);
     }
@@ -136,7 +154,12 @@ export default function ProfileScreen() {
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={[colors.heroA, colors.heroB]} style={styles.hero}>
           {isVerified ? (
-            <Pressy onPress={pickAvatar} disabled={uploadingAvatar} style={styles.avatar} accessibilityLabel={t('profile.changePhoto')}>
+            <Pressy
+              onPress={profile.avatarUrl ? () => setAvatarMenuOpen(true) : pickAvatar}
+              disabled={uploadingAvatar}
+              style={styles.avatar}
+              accessibilityLabel={t('profile.changePhoto')}
+            >
               {uploadingAvatar ? (
                 <ActivityIndicator color={colors.white} />
               ) : profile.avatarUrl ? (
@@ -396,6 +419,31 @@ export default function ProfileScreen() {
         title={t('profile.changePhoto')}
         onCancel={() => setAvatarCropUri(null)}
         onConfirm={confirmAvatarCrop}
+      />
+
+      <ActionSheet
+        visible={avatarMenuOpen}
+        options={[
+          {
+            label: t('profile.uploadNewPhoto'),
+            icon: 'camera',
+            onPress: () => {
+              setAvatarMenuOpen(false);
+              pickAvatar();
+            },
+          },
+          {
+            label: t('profile.deletePhoto'),
+            icon: 'trash',
+            destructive: true,
+            onPress: () => {
+              setAvatarMenuOpen(false);
+              deleteAvatar();
+            },
+          },
+        ]}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setAvatarMenuOpen(false)}
       />
     </Screen>
   );
