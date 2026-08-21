@@ -11,6 +11,11 @@ export type RootStackParamList = {
   // opened it (e.g. the seller-contact reveal on ListingDetail, which
   // re-renders on its own once AppStore's isVerified flips true).
   Auth: { returnTo?: keyof RootStackParamList; returnToParams?: any } | undefined;
+  // Swaps an already-verified account's phone number to a new,
+  // freshly-OTP-verified one, keeping the same account (uid) and all its
+  // history -- distinct from Auth above, which signs in/up. No params:
+  // always operates on the current session, never someone else's.
+  ChangePhone: undefined;
   Payment: { listingId: string };
   ChatThread: { threadId: string };
   Favorites: undefined;

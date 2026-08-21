@@ -1,7 +1,8 @@
-import React, { useEffect, useMemo, useState } from 'react';
-import { StyleSheet, Text, View, ScrollView } from 'react-native';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { StyleSheet, Text, View, ScrollView, Image, ActivityIndicator } from 'react-native';
+import * as ImagePicker from 'expo-image-picker';
 import { LinearGradient } from 'expo-linear-gradient';
-import { useNavigation } from '@react-navigation/native';
+import { useNavigation, useFocusEffect } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
@@ -17,13 +18,32 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { TIER_LABELS } from '../i18n/translations';
 import { listingTitle } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
+import { uploadPhoto } from '../lib/photoUpload';
+import { Alert } from '../lib/alertShim';
 import { openLegalPage } from '../lib/legalLinks';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, extendListing, republishListing, myShop } = useAppStore();
+  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, extendListing, republishListing, myShop, updateAvatar } = useAppStore();
+  const [uploadingAvatar, setUploadingAvatar] = useState(false);
+
+  const pickAvatar = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) return;
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [1, 1] });
+    if (result.canceled || !result.assets[0]) return;
+    setUploadingAvatar(true);
+    try {
+      const hosted = await uploadPhoto(result.assets[0].uri);
+      await updateAvatar(hosted);
+    } catch {
+      Alert.alert(t('profile.avatarUploadFailedTitle'), t('profile.avatarUploadFailedMessage'));
+    } finally {
+      setUploadingAvatar(false);
+    }
+  };
   // isAdmin only ever becomes true by signing in with admin (email+password)
   // credentials through the same Auth screen regular users see -- there is
   // no separate admin-login entry point anywhere in the UI anymore, so the
@@ -41,10 +61,17 @@ export default function ProfileScreen() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
 
-  useEffect(() => {
-    if (!isVerified) { setMyPhone(null); return; }
-    supabase.rpc('get_my_phone').then(({ data }) => setMyPhone(data || null));
-  }, [isVerified]);
+  // useFocusEffect rather than a plain mount-only effect: this screen stays
+  // mounted underneath ChangePhoneScreen (a stack push, not a replace), so
+  // coming back from a successful number change needs a real re-fetch --
+  // isVerified itself doesn't change, so an effect keyed only on it would
+  // never re-run and the old number would keep showing.
+  useFocusEffect(
+    useCallback(() => {
+      if (!isVerified) { setMyPhone(null); return; }
+      supabase.rpc('get_my_phone').then(({ data }) => setMyPhone(data || null));
+    }, [isVerified])
+  );
 
   const nextTier = TIER_THRESHOLDS.find((tier) => tier.min > profile.points);
 
@@ -95,9 +122,28 @@ export default function ProfileScreen() {
     <Screen reserveSidebar maxWidth={1180}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={[colors.heroA, colors.heroB]} style={styles.hero}>
-          <View style={styles.avatar}>
-            <Icon name="user" size={24} color={colors.white} />
-          </View>
+          {isVerified ? (
+            <Pressy onPress={pickAvatar} disabled={uploadingAvatar} style={styles.avatar} accessibilityLabel={t('profile.changePhoto')}>
+              {uploadingAvatar ? (
+                <ActivityIndicator color={colors.white} />
+              ) : profile.avatarUrl ? (
+                <Image source={{ uri: profile.avatarUrl }} style={styles.avatarImg} />
+              ) : (
+                <Icon name="user" size={24} color={colors.white} />
+              )}
+              <View style={styles.avatarEditBadge}>
+                <Icon name="camera" size={11} color={colors.white} />
+              </View>
+            </Pressy>
+          ) : (
+            <View style={styles.avatar}>
+              {profile.avatarUrl ? (
+                <Image source={{ uri: profile.avatarUrl }} style={styles.avatarImg} />
+              ) : (
+                <Icon name="user" size={24} color={colors.white} />
+              )}
+            </View>
+          )}
           <Text style={styles.name}>{profile.name && profile.name !== 'You' ? profile.name : t('profile.yourProfile')}</Text>
           {isVerified && !!myPhone && <Text style={styles.district}>{myPhone}</Text>}
           {!!profile.district && <Text style={styles.district}>{profile.district}</Text>}
@@ -137,6 +183,15 @@ export default function ProfileScreen() {
               {myShop && !myShop.verifiedAt && (
                 <View style={styles.pendingDot} />
               )}
+            </Pressy>
+          </View>
+        )}
+
+        {isVerified && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('ChangePhone')} style={styles.adminBtn}>
+              <Icon name="phone" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('changePhone.rowLabel')}</Text>
             </Pressy>
           </View>
         )}
@@ -331,6 +386,12 @@ const styles = StyleSheet.create({
     width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center', justifyContent: 'center', marginBottom: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
+  },
+  avatarImg: { width: 54, height: 54, borderRadius: 27 },
+  avatarEditBadge: {
+    position: 'absolute', bottom: 6, right: -2, width: 20, height: 20, borderRadius: 10,
+    backgroundColor: colors.ink, alignItems: 'center', justifyContent: 'center',
+    borderWidth: 2, borderColor: colors.heroA,
   },
   name: { fontSize: 19, fontWeight: '700', color: colors.white },
   district: { fontSize: 12.5, color: 'rgba(255,255,255,0.65)', marginTop: 2 },

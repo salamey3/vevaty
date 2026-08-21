@@ -27,6 +27,7 @@ const DEFAULT_PROFILE: Profile = {
   district: 'Beirut',
   points: 0,
   tier: 'Bronze',
+  avatarUrl: null,
 };
 
 // Fields the caller never supplies directly -- addListing/updateListing
@@ -38,7 +39,7 @@ type ListingInput = Omit<
   'id' | 'createdAt' | 'sellerId' | 'sellerName' | 'rating' | 'status' | 'expiresAt' | 'expiryReminderSentAt'
   // Phase 4 item 16 -- computed from the poster's own account (join or
   // isVerified), never something the create-listing form itself supplies.
-  | 'sellerVerified' | 'sellerMemberSince'
+  | 'sellerVerified' | 'sellerMemberSince' | 'sellerAvatarUrl'
   // Content moderation -- addListing always starts a listing at
   // moderation_status 'pending' server-side (the DB trigger enforces this
   // for non-privileged callers too); the create-listing form never sets it.
@@ -95,6 +96,10 @@ interface AppStoreValue {
   // fresh 15-day clock.
   republishListing: (id: string) => Promise<void>;
   awardPoints: (amount: number, label: string) => Promise<void>;
+  // Persists a new avatar (already uploaded to Bunny by the caller, same
+  // as shop logos -- see MyStorefrontScreen's pickLogo) to profiles.avatar_url
+  // and local state; pass null to clear it back to the generic icon.
+  updateAvatar: (url: string | null) => Promise<void>;
   signOut: () => Promise<void>;
   // Calls the delete-account edge function (cleans up myazar-schema data
   // via a SECURITY DEFINER RPC, then removes the auth identity itself with
@@ -206,6 +211,8 @@ function normalizeListing(l: any): Listing {
     // posted it.
     sellerVerified: typeof l?.sellerVerified === 'boolean' ? l.sellerVerified : false,
     sellerMemberSince: typeof l?.sellerMemberSince === 'number' ? l.sellerMemberSince : (typeof l?.createdAt === 'number' ? l.createdAt : Date.now()),
+    // Same defensive story: a listing cached before this field existed.
+    sellerAvatarUrl: typeof l?.sellerAvatarUrl === 'string' ? l.sellerAvatarUrl : null,
     // Map-locator feature -- same defensive story again: a listing cached
     // by a build that predates governorate/caza/geonameId won't have them.
     governorate: typeof l?.governorate === 'string' ? l.governorate : null,
@@ -284,6 +291,7 @@ function dbListingToLocal(row: any): Listing {
     sellerMemberSince: row.seller?.created_at
       ? new Date(row.seller.created_at).getTime()
       : (row.created_at ? new Date(row.created_at).getTime() : Date.now()),
+    sellerAvatarUrl: row.seller?.avatar_url ?? null,
     // Storefronts -- row.shop is null for the vast majority of listings
     // (shop_id itself is null, so PostgREST's embed has nothing to join).
     // See the Listing type's doc comment for why these four travel
@@ -387,7 +395,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       // visitor and silently breaks profile sync (see AGENTS.md/session notes).
       const { data: existingProfile } = await supabase
         .from('profiles')
-        .select('id, full_name, district, points, tier')
+        .select('id, full_name, district, points, tier, avatar_url')
         .eq('id', uid)
         .maybeSingle();
       if (!existingProfile) {
@@ -407,6 +415,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           district: existingProfile.district || p.district,
           points: existingProfile.points ?? p.points,
           tier: dbTierToLocal(existingProfile.tier),
+          avatarUrl: existingProfile.avatar_url ?? p.avatarUrl,
         }));
       }
 
@@ -426,7 +435,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const { data: listingRows, error } = await supabase
         .from('listings')
         .select(
-          '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at), ' +
+          '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at, avatar_url), ' +
             'photos:listing_photos(url, sort_order, kind, spin_set_id), ' +
             'spinSets:listing_spin_sets(id, label, sort_order), ' +
             'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions), ' +
@@ -523,6 +532,20 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       supabase.from('points_transactions').insert({ user_id: uid, points: amount, reason: label }).then();
       supabase.from('profiles').update({ points: nextPoints, tier: nextTier.toLowerCase() }).eq('id', uid).then();
     }
+  }, []);
+
+  // Local state updates immediately (the profile hero re-renders with the
+  // new photo right away); the DB write is awaited so the caller -- the
+  // avatar picker on ProfileScreen -- can show an error if it fails,
+  // rather than the change silently not sticking past this app session.
+  // Doesn't touch listings' already-denormalized sellerAvatarUrl -- same as
+  // every other profile field, that catches up on the next syncFromSupabase.
+  const updateAvatar = useCallback(async (url: string | null) => {
+    setProfile((p) => ({ ...p, avatarUrl: url }));
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const { error } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', uid);
+    if (error) throw error;
   }, []);
 
   // Uploads newly-added local photo URIs for the listing's "gallery" kind
@@ -698,6 +721,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         // with the real DB-joined value on the next syncFromSupabase anyway.
         sellerVerified: isVerified,
         sellerMemberSince: Date.now(),
+        sellerAvatarUrl: profile.avatarUrl,
         // l.shopId came straight from the form; the display fields are
         // filled in from AppStore's own myShop rather than trusted from
         // the caller -- see ListingInput's doc comment above. The
@@ -1144,6 +1168,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       extendListing,
       republishListing,
       awardPoints,
+      updateAvatar,
       signOut,
       deleteAccount,
     }),
@@ -1164,6 +1189,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       extendListing,
       republishListing,
       awardPoints,
+      updateAvatar,
       signOut,
       deleteAccount,
     ]

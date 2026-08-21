@@ -248,6 +248,10 @@ export interface Listing {
   // fetch. Mirrors profiles.is_phone_verified / profiles.created_at.
   sellerVerified: boolean;
   sellerMemberSince: number;
+  // Same denormalization as sellerVerified/sellerMemberSince, mirroring
+  // profiles.avatar_url. Null for the many sellers who haven't set a
+  // photo -- the seller panel/profile page fall back to a generic icon.
+  sellerAvatarUrl: string | null;
   // Storefronts -- null for the vast majority of listings (a normal
   // seller-posted item has no shop at all). Set when this listing was
   // posted through a merchant's storefront (myazar.listings.shop_id).
@@ -339,6 +343,10 @@ export interface Profile {
   district: string;
   points: number;
   tier: 'Bronze' | 'Silver' | 'Gold';
+  // Bunny CDN URL from the same upload-photo pipeline shop logos use, or
+  // null for the large majority of accounts that haven't set one -- the
+  // avatar circle falls back to a generic icon in that case.
+  avatarUrl: string | null;
 }
 
 export interface PointsEvent {

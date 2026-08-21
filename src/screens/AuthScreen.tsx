@@ -6,7 +6,7 @@ import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import { colors, type, radius } from '../theme/theme';
-import { supabase, sendPhoneOtp, verifyPhoneOtp } from '../lib/supabase';
+import { supabase, sendPhoneOtp, verifyPhoneOtp, normalizePhone } from '../lib/supabase';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -15,14 +15,6 @@ import { openLegalPage } from '../lib/legalLinks';
 type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 
 type Step = 'phone' | 'otp' | 'name' | 'adminMfaEnroll' | 'adminMfaChallenge';
-
-// Loose E.164-ish check -- a leading "+" and 8-15 digits after it. Good
-// enough to catch obviously-broken input before spending an OTP send;
-// Twilio/Supabase are the real validators.
-function normalizePhone(raw: string): string | null {
-  const trimmed = raw.replace(/[\s-]/g, '');
-  return /^\+\d{8,15}$/.test(trimmed) ? trimmed : null;
-}
 
 export default function AuthScreen({ navigation, route }: Props) {
   const { t, language } = useLanguage();

@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, StyleSheet, Text, View, FlatList } from 'react-native';
+import { ActivityIndicator, StyleSheet, Text, View, FlatList, Image } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -47,7 +47,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   // three, no extra round trip). The only time that's not true is a
   // direct/shared link to a seller who has zero active listings right
   // now, so fall back to a direct (public-column-only) profiles read.
-  const [fallbackSeller, setFallbackSeller] = useState<{ name: string; verified: boolean; memberSince: number } | null>(null);
+  const [fallbackSeller, setFallbackSeller] = useState<{ name: string; verified: boolean; memberSince: number; avatarUrl: string | null } | null>(null);
   const [fallbackLoading, setFallbackLoading] = useState(false);
 
   useEffect(() => {
@@ -66,7 +66,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
         // portable way to handle both branches.
         const { data } = await supabase
           .from('profiles')
-          .select('full_name, is_phone_verified, created_at')
+          .select('full_name, is_phone_verified, created_at, avatar_url')
           .eq('id', sellerId)
           .abortSignal(controller.signal)
           .maybeSingle();
@@ -77,6 +77,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
                 name: data.full_name || 'Vevaty user',
                 verified: !!data.is_phone_verified,
                 memberSince: data.created_at ? new Date(data.created_at).getTime() : Date.now(),
+                avatarUrl: data.avatar_url ?? null,
               }
             : null
         );
@@ -98,6 +99,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   const sellerName = sellerListings[0]?.sellerName ?? fallbackSeller?.name ?? '';
   const sellerVerified = sellerListings[0]?.sellerVerified ?? fallbackSeller?.verified ?? false;
   const sellerMemberSince = sellerListings[0]?.sellerMemberSince ?? fallbackSeller?.memberSince ?? null;
+  const sellerAvatarUrl = sellerListings[0]?.sellerAvatarUrl ?? fallbackSeller?.avatarUrl ?? null;
   const knowSeller = sellerListings.length > 0 || !!fallbackSeller;
 
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
@@ -147,7 +149,11 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   const hero = (
     <LinearGradient colors={[colors.heroA, colors.heroB]} style={styles.hero}>
       <View style={styles.avatar}>
-        <Icon name="user" size={24} color={colors.white} />
+        {sellerAvatarUrl ? (
+          <Image source={{ uri: sellerAvatarUrl }} style={styles.avatarImg} />
+        ) : (
+          <Icon name="user" size={24} color={colors.white} />
+        )}
       </View>
       <View style={styles.nameRow}>
         <Text style={styles.name} numberOfLines={1}>
@@ -249,6 +255,7 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', marginBottom: 10,
     borderWidth: 1, borderColor: 'rgba(255,255,255,0.2)',
   },
+  avatarImg: { width: 54, height: 54, borderRadius: 27 },
   nameRow: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap', justifyContent: 'center' },
   name: { fontSize: 19, fontWeight: '700', color: colors.white },
   verifiedBadge: {

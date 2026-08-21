@@ -690,6 +690,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     }
   };
 
+  // Local-only, like every other field on this form -- the server side
+  // (syncPhotoKind, in AppStore's updateListing) diffs the final `photos`
+  // array against what's on Supabase and deletes any hosted row that's no
+  // longer in it, but only once the seller actually saves. Nothing here
+  // deletes eagerly, so backing out of an edit without saving leaves the
+  // listing's real photos untouched -- unlike removeVideo below, which is
+  // architected differently (see its own comment).
+  const removePhoto = (uri: string) => setPhotos((prev) => prev.filter((p) => p !== uri));
+
   const removeVideo = async () => {
     const guid = video?.guid;
     videoUploadRef.current?.abort();
@@ -1335,7 +1344,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             {aiBackgroundNotice}
             <View style={styles.photoGrid}>
               {photos.map((uri) => (
-                <Image key={uri} source={{ uri }} style={styles.photoThumb} />
+                <View key={uri} style={styles.photoThumbWrap}>
+                  <Image source={{ uri }} style={styles.photoThumb} />
+                  <Pressy onPress={() => removePhoto(uri)} style={styles.photoRemoveBadge} accessibilityLabel={t('createListing.removePhoto')}>
+                    <Icon name="close" size={12} color={colors.white} />
+                  </Pressy>
+                </View>
               ))}
               <Pressy onPress={openPhotoCamera} style={styles.addPhoto}>
                 <Icon name="camera" size={20} color={colors.inkSoft} />
@@ -2105,7 +2119,12 @@ const styles = StyleSheet.create({
   progressDotActive: { backgroundColor: colors.primary },
   scroll: { paddingHorizontal: 18 },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
+  photoThumbWrap: { width: 84, height: 84 },
   photoThumb: { width: 84, height: 84, borderRadius: radius.sm },
+  photoRemoveBadge: {
+    position: 'absolute', top: 4, right: 4, width: 20, height: 20, borderRadius: 10,
+    backgroundColor: 'rgba(20,20,22,0.6)', alignItems: 'center', justifyContent: 'center',
+  },
   addPhoto: {
     width: 84, height: 84, borderRadius: radius.sm, backgroundColor: colors.card,
     borderWidth: 1, borderColor: colors.line, borderStyle: 'dashed',

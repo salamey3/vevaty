@@ -28,6 +28,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'common.no': 'No',
     'common.close': 'Close',
     'common.or': 'or',
+    'common.done': 'Done',
 
     // Language select (first screen, before onboarding/login)
     'language.title': 'Choose your language',
@@ -64,6 +65,18 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'auth.verify': 'Verify',
     'auth.verifyFailed': 'That code didn’t work — check it and try again.',
     'auth.changeNumber': 'Use a different number',
+
+    // Change phone number (already-verified accounts swapping to a new
+    // number, keeping the same account and history)
+    'changePhone.title': 'Change phone number',
+    'changePhone.subtitle': 'Enter your new number. You’ll need to verify it with a code before the switch takes effect.',
+    'changePhone.newNumberLabel': 'New phone number',
+    'changePhone.sendCode': 'Send code',
+    'changePhone.numberTaken': 'This number is already registered to another Vevaty account.',
+    'changePhone.successTitle': 'Number updated',
+    'changePhone.successBody': 'Your account is now linked to {phone}.',
+    'changePhone.rowLabel': 'Change phone number',
+
     'auth.nameTitle': 'What’s your name?',
     'auth.namePlaceholder': 'Your name',
     'auth.agreeToPrefix': 'I agree to the',
@@ -287,6 +300,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.add': 'Add',
     'createListing.takePhoto': 'Take Photo',
     'createListing.addFromGallery': 'From Gallery',
+    'createListing.removePhoto': 'Remove photo',
     'createListing.videoLabel': 'Video (optional)',
     'createListing.videoIntro': 'A short clip sells an item far better than photos alone. Up to {max} seconds, one per listing.',
     'createListing.videoRecord': 'Record Video',
@@ -426,6 +440,9 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     // Profile
     'profile.yourProfile': 'Your profile',
+    'profile.changePhoto': 'Change profile photo',
+    'profile.avatarUploadFailedTitle': 'Upload failed',
+    'profile.avatarUploadFailedMessage': 'Could not upload that photo. Try again.',
     'profile.points': 'points',
     'profile.pointsToTier': '{points} points to {tier}',
     'profile.myListings': 'My listings ({count})',
@@ -572,6 +589,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'common.no': 'لا',
     'common.close': 'إغلاق',
     'common.or': 'أو',
+    'common.done': 'تم',
 
     'language.title': 'اختر لغتك',
     'language.subtitle': 'اختر اللغة التي تريد استخدامها. يمكنك تغييرها في أي وقت من صفحتك الشخصية.',
@@ -602,6 +620,16 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'auth.verify': 'تحقق',
     'auth.verifyFailed': 'الرمز غير صحيح — تحقق منه وحاول مرة أخرى.',
     'auth.changeNumber': 'استخدام رقم آخر',
+
+    'changePhone.title': 'تغيير رقم الهاتف',
+    'changePhone.subtitle': 'أدخل رقمك الجديد. لازم تتحقق منه برمز قبل ما يصير التغيير فعلي.',
+    'changePhone.newNumberLabel': 'رقم الهاتف الجديد',
+    'changePhone.sendCode': 'إرسال الرمز',
+    'changePhone.numberTaken': 'هذا الرقم مسجّل مسبقًا بحساب آخر على Vevaty.',
+    'changePhone.successTitle': 'تم تحديث الرقم',
+    'changePhone.successBody': 'حسابك مرتبط الآن برقم {phone}.',
+    'changePhone.rowLabel': 'تغيير رقم الهاتف',
+
     'auth.nameTitle': 'شو اسمك؟',
     'auth.namePlaceholder': 'اسمك',
     'auth.agreeToPrefix': 'أوافق على',
@@ -805,6 +833,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.add': 'إضافة',
     'createListing.takePhoto': 'التقاط صورة',
     'createListing.addFromGallery': 'من المعرض',
+    'createListing.removePhoto': 'إزالة الصورة',
     'createListing.videoLabel': 'فيديو (اختياري)',
     'createListing.videoIntro': 'مقطع قصير يبيع السلعة أفضل بكثير من الصور وحدها. حتى {max} ثانية، فيديو واحد لكل إعلان.',
     'createListing.videoRecord': 'تسجيل فيديو',
@@ -935,6 +964,9 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'payment.backToBrowsing': 'العودة إلى التصفح',
 
     'profile.yourProfile': 'صفحتك الشخصية',
+    'profile.changePhoto': 'تغيير صورة الملف الشخصي',
+    'profile.avatarUploadFailedTitle': 'فشل الرفع',
+    'profile.avatarUploadFailedMessage': 'تعذّر رفع هذه الصورة. حاول مرة أخرى.',
     'profile.points': 'نقطة',
     'profile.pointsToTier': '{points} نقطة للوصول إلى مستوى {tier}',
     'profile.myListings': 'إعلاناتي ({count})',

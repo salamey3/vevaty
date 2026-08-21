@@ -497,7 +497,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           accessibilityLabel="View seller profile"
         >
           <View style={styles.sellerAvatar}>
-            <Icon name="user" size={18} color={colors.inkSoft} />
+            {listing.sellerAvatarUrl ? (
+              <Image source={{ uri: listing.sellerAvatarUrl }} style={styles.sellerAvatarImg} />
+            ) : (
+              <Icon name="user" size={18} color={colors.inkSoft} />
+            )}
           </View>
           <View style={{ flex: 1 }}>
             <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
@@ -1058,6 +1062,7 @@ const styles = StyleSheet.create({
     width: 42, height: 42, borderRadius: 21, backgroundColor: colors.surface,
     alignItems: 'center', justifyContent: 'center',
   },
+  sellerAvatarImg: { width: 42, height: 42, borderRadius: 21 },
   verifiedBadge: {
     flexDirection: 'row', alignItems: 'center', gap: 3,
     backgroundColor: '#e3efe8', borderRadius: radius.pill, paddingHorizontal: 8, height: 20,

@@ -6,6 +6,7 @@ import MainTabs from './MainTabs';
 import ListingDetailScreen from '../screens/ListingDetailScreen';
 import CreateListingScreen from '../screens/CreateListingScreen';
 import AuthScreen from '../screens/AuthScreen';
+import ChangePhoneScreen from '../screens/ChangePhoneScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ChatThreadScreen from '../screens/ChatThreadScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
@@ -52,6 +53,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       ListingDetail: 'listing/:listingId',
       CreateListing: 'sell',
       Auth: 'login',
+      ChangePhone: 'change-phone',
       Payment: 'listing/:listingId/payment',
       ChatThread: 'messages/:threadId',
       Favorites: 'favorites',
@@ -88,6 +90,7 @@ export default function RootNavigator() {
         <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
         <Stack.Screen name="CreateListing" component={CreateListingScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="ChangePhone" component={ChangePhoneScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Payment" component={PaymentScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />

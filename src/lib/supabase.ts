@@ -58,3 +58,37 @@ export async function verifyPhoneOtp(phone: string, token: string) {
   if (error) throw error;
   return data.session;
 }
+
+// Loose E.164-ish check -- a leading "+" and 8-15 digits after it. Good
+// enough to catch obviously-broken input before spending an OTP send;
+// Twilio/Supabase are the real validators. Shared between AuthScreen
+// (first-time verification) and ChangePhoneScreen (swapping an already-
+// verified account to a new number) rather than duplicated -- it's
+// validation logic, not just formatting, so the two copies drifting would
+// be a real bug risk, not just a style inconsistency.
+export function normalizePhone(raw: string): string | null {
+  const trimmed = raw.replace(/[\s-]/g, '');
+  return /^\+\d{8,15}$/.test(trimmed) ? trimmed : null;
+}
+
+// Changing the phone number on an ALREADY-authenticated account -- a
+// different Supabase primitive from sendPhoneOtp/verifyPhoneOtp above.
+// Those call signInWithOtp, which signs in as whichever auth.users row
+// that phone belongs to (creating one if it's new) -- exactly what you
+// want for "log in", and exactly wrong here, since it could swap the
+// caller onto a DIFFERENT existing account rather than updating this one.
+// updateUser({phone}) instead sends an OTP to confirm a *change* on the
+// CURRENT session's own user -- same uid throughout, so every listing,
+// favorite, and chat thread already tied to it just keeps working.
+export async function sendPhoneChangeOtp(newPhone: string) {
+  const { error } = await supabase.auth.updateUser({ phone: newPhone });
+  if (error) throw error;
+}
+
+export async function verifyPhoneChangeOtp(newPhone: string, token: string) {
+  // `type: 'phone_change'` (not 'sms') is Supabase's distinct constant for
+  // confirming a pending phone-change OTP, as opposed to a fresh sign-in.
+  const { data, error } = await supabase.auth.verifyOtp({ phone: newPhone, token, type: 'phone_change' });
+  if (error) throw error;
+  return data.session;
+}
