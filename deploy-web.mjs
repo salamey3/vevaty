@@ -15,6 +15,7 @@
 // person's hosting account and don't belong in shared code.
 import { execFileSync } from 'node:child_process';
 import { existsSync, readFileSync } from 'node:fs';
+import { basename } from 'node:path';
 
 const CONFIG = 'deploy.config.json';
 
@@ -91,6 +92,25 @@ export function deployWeb() {
   } catch {
     console.log('  retrying with the legacy scp protocol...');
     execFileSync('scp', ['-O', '-P', port, ...sources, target], { stdio: 'inherit' });
+  }
+
+  // scp only applies a fresh permission mode (from the receiving sshd's
+  // umask) when it CREATES a remote file -- overwriting an existing one
+  // preserves whatever mode is already there. That means the first-ever
+  // upload of any new filename can silently land unreadable by the web
+  // server, while every already-existing file keeps working right next to
+  // it -- which is exactly what happened 2026-08-21: about.html (already
+  // on the server from an earlier upload) kept serving fine, but the
+  // brand-new about-ar.html/privacy-policy-ar.html/terms-ar.html 403'd
+  // until their permissions were corrected by hand. Force 644 on every
+  // upload, every time, so the next new file can't repeat this -- it's a
+  // no-op for files that are already 644.
+  const remoteFiles = sources.map((s) => `${cfg.remoteDir.replace(/\/$/, '')}/${basename(s)}`);
+  try {
+    execFileSync('ssh', ['-p', port, `${cfg.user}@${cfg.host}`, 'chmod', '644', ...remoteFiles], { stdio: 'inherit' });
+  } catch (e) {
+    console.log(`  WARNING: could not set permissions on the uploaded files (${e?.message || e}).`);
+    console.log('  If a page 403s after this, set it to 644 by hand (cPanel File Manager or chmod over SSH).');
   }
 }
 
