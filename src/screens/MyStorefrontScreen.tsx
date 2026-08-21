@@ -9,6 +9,7 @@ import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import FacetChipGroup, { ChipOption } from '../components/FacetChipGroup';
+import ImageCropModal from '../components/ImageCropModal';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
@@ -102,6 +103,10 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
   }, [myShop?.id]);
 
   const [uploadingLogo, setUploadingLogo] = useState(false);
+  // The picked-but-not-yet-cropped logo, queued for ImageCropModal -- see
+  // pickLogo/confirmLogoCrop below (same two-step pattern as ProfileScreen's
+  // avatar picker, both sharing ImageCropModal).
+  const [logoCropUri, setLogoCropUri] = useState<string | null>(null);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
@@ -317,11 +322,19 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
   const pickLogo = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return;
+    // No allowsEditing/aspect here -- ImageCropModal is the crop step now
+    // (it also covers web, where expo-image-picker has no editing UI at
+    // all; see ImageCropModal's own comment).
     const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9 });
     if (result.canceled || !result.assets[0]) return;
+    setLogoCropUri(result.assets[0].uri);
+  };
+
+  const confirmLogoCrop = async (croppedUri: string) => {
+    setLogoCropUri(null);
     setUploadingLogo(true);
     try {
-      const hosted = await uploadPhoto(result.assets[0].uri);
+      const hosted = await uploadPhoto(croppedUri);
       setForm((f) => ({ ...f, logoUrl: hosted }));
     } catch {
       Alert.alert(t('myStorefront.uploadFailedTitle'), t('myStorefront.uploadFailedMessage'));
@@ -675,6 +688,14 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
           </View>
         </Screen>
       </Modal>
+
+      <ImageCropModal
+        visible={!!logoCropUri}
+        uri={logoCropUri}
+        shape="circle"
+        onCancel={() => setLogoCropUri(null)}
+        onConfirm={confirmLogoCrop}
+      />
     </Screen>
   );
 }

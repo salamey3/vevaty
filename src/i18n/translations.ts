@@ -438,6 +438,13 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'payment.cashConfirm': 'You and the seller can now arrange a meetup and confirm the cash handoff in the app.',
     'payment.backToBrowsing': 'Back to browsing',
 
+    // Image crop/reposition modal, shared by the avatar picker and the
+    // storefront logo picker (see ImageCropModal.tsx)
+    'imageCrop.title': 'Adjust photo',
+    'imageCrop.hint': 'Drag to reposition, use the slider to zoom',
+    'imageCrop.loadFailed': "Couldn't load that photo. Try picking it again.",
+    'imageCrop.usePhoto': 'Use photo',
+
     // Profile
     'profile.yourProfile': 'Your profile',
     'profile.changePhoto': 'Change profile photo',
@@ -962,6 +969,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'payment.whishConfirm': 'سيؤكد البائع بمجرد استلام دفعتك عبر ويش. (محاكاة لهذه النسخة التجريبية — لم تتم أي عملية دفع حقيقية.)',
     'payment.cashConfirm': 'يمكنك أنت والبائع الآن الاتفاق على مكان اللقاء وتأكيد التسليم النقدي داخل التطبيق.',
     'payment.backToBrowsing': 'العودة إلى التصفح',
+
+    'imageCrop.title': 'تعديل الصورة',
+    'imageCrop.hint': 'اسحب لتغيير الموضع، واستخدم الشريط للتكبير',
+    'imageCrop.loadFailed': 'تعذّر تحميل هذه الصورة. حاول اختيارها مرة أخرى.',
+    'imageCrop.usePhoto': 'استخدام الصورة',
 
     'profile.yourProfile': 'صفحتك الشخصية',
     'profile.changePhoto': 'تغيير صورة الملف الشخصي',

@@ -21,6 +21,7 @@ import { supabase } from '../lib/supabase';
 import { uploadPhoto } from '../lib/photoUpload';
 import { Alert } from '../lib/alertShim';
 import { openLegalPage } from '../lib/legalLinks';
+import ImageCropModal from '../components/ImageCropModal';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -28,15 +29,27 @@ export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, extendListing, republishListing, myShop, updateAvatar } = useAppStore();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
+  // The picked-but-not-yet-cropped avatar, queued for ImageCropModal -- see
+  // confirmAvatarCrop below (shared component with MyStorefrontScreen's
+  // logo picker).
+  const [avatarCropUri, setAvatarCropUri] = useState<string | null>(null);
 
   const pickAvatar = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) return;
-    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9, allowsEditing: true, aspect: [1, 1] });
+    // No allowsEditing/aspect here -- ImageCropModal is the crop step now
+    // (it also covers web, where expo-image-picker has no editing UI at
+    // all; see ImageCropModal's own comment).
+    const result = await ImagePicker.launchImageLibraryAsync({ mediaTypes: ImagePicker.MediaTypeOptions.Images, quality: 0.9 });
     if (result.canceled || !result.assets[0]) return;
+    setAvatarCropUri(result.assets[0].uri);
+  };
+
+  const confirmAvatarCrop = async (croppedUri: string) => {
+    setAvatarCropUri(null);
     setUploadingAvatar(true);
     try {
-      const hosted = await uploadPhoto(result.assets[0].uri);
+      const hosted = await uploadPhoto(croppedUri);
       await updateAvatar(hosted);
     } catch {
       Alert.alert(t('profile.avatarUploadFailedTitle'), t('profile.avatarUploadFailedMessage'));
@@ -374,6 +387,15 @@ export default function ProfileScreen() {
         loading={deleting}
         onConfirm={handleDeleteAccount}
         onCancel={() => setDeleteConfirmOpen(false)}
+      />
+
+      <ImageCropModal
+        visible={!!avatarCropUri}
+        uri={avatarCropUri}
+        shape="circle"
+        title={t('profile.changePhoto')}
+        onCancel={() => setAvatarCropUri(null)}
+        onConfirm={confirmAvatarCrop}
       />
     </Screen>
   );

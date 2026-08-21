@@ -11,6 +11,12 @@ type SingleProps = {
   value: number;
   onChange: (value: number) => void;
   step?: number;
+  // Optional, purely for automated testing -- react-native-web compiles
+  // StyleSheet.create styles (e.g. the thumb's `cursor: grab`) into
+  // generated CSS classes rather than inline style attributes, so there's
+  // no reliable style-based selector a test could use instead. Every
+  // caller today omits this; it costs them nothing.
+  testID?: string;
 };
 type RangeProps = {
   mode: 'range';
@@ -20,6 +26,7 @@ type RangeProps = {
   valueMax: number;
   onChange: (min: number, max: number) => void;
   step?: number;
+  testID?: string;
 };
 type Props = SingleProps | RangeProps;
 
@@ -101,6 +108,7 @@ export default function RangeSlider(props: Props) {
         key={thumb}
         {...getResponder(thumb).panHandlers}
         style={[styles.thumb, { left }]}
+        testID={props.testID ? `${props.testID}-thumb-${thumb}` : undefined}
       />
     );
   };
