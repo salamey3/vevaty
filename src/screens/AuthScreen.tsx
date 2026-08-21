@@ -10,6 +10,7 @@ import { supabase, sendPhoneOtp, verifyPhoneOtp } from '../lib/supabase';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { openLegalPage } from '../lib/legalLinks';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 
@@ -35,6 +36,12 @@ export default function AuthScreen({ navigation, route }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [sentPhone, setSentPhone] = useState('');
+  // Hard gate on the 'name' step (the last step of NEW-user signup only --
+  // a returning user with an existing full_name skips straight to
+  // finishAndLeave() in verifyCode() below and never sees this). Required
+  // before finishSignup() is allowed to run; see legalLinks.ts for why
+  // these are absolute-URL static pages rather than in-app screens.
+  const [agreedToTerms, setAgreedToTerms] = useState(false);
   // Admin TOTP enroll/challenge step state -- see adminLogin()/submitAdminMfa() below.
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaQrCode, setMfaQrCode] = useState<string | null>(null);
@@ -157,7 +164,7 @@ export default function AuthScreen({ navigation, route }: Props) {
   };
 
   const finishSignup = async () => {
-    if (!name.trim()) return;
+    if (!name.trim() || !agreedToTerms) return;
     setLoading(true);
     setError(null);
     try {
@@ -304,8 +311,31 @@ export default function AuthScreen({ navigation, route }: Props) {
                 placeholderTextColor={colors.inkSoft}
                 style={styles.input}
               />
+              <View style={styles.termsRow}>
+                <Pressy onPress={() => setAgreedToTerms((v) => !v)} style={styles.checkboxHit}>
+                  <View style={[styles.checkbox, agreedToTerms && styles.checkboxChecked]}>
+                    {agreedToTerms && <Icon name="check" size={11} color={colors.white} strokeWidth={2.4} />}
+                  </View>
+                </Pressy>
+                {/* The Terms/Privacy substrings are their own nested <Text onPress>
+                    so tapping a link opens that page without also toggling the
+                    checkbox -- this outer Text carries no onPress of its own,
+                    so there's no handler for a link tap to conflict with. */}
+                <Text style={styles.termsText}>
+                  {t('auth.agreeToPrefix')}{' '}
+                  <Text style={styles.termsLink} onPress={() => openLegalPage('terms')}>{t('nav.termsOfUse')}</Text>
+                  {' '}{t('auth.agreeToAnd')}{' '}
+                  <Text style={styles.termsLink} onPress={() => openLegalPage('privacy')}>{t('nav.privacyPolicy')}</Text>
+                </Text>
+              </View>
               {!!error && <Text style={styles.error}>{error}</Text>}
-              <Button label={t('auth.finish')} onPress={finishSignup} loading={loading} style={{ marginTop: 18 }} />
+              <Button
+                label={t('auth.finish')}
+                onPress={finishSignup}
+                loading={loading}
+                disabled={!name.trim() || !agreedToTerms}
+                style={{ marginTop: 18 }}
+              />
             </>
           )}
 
@@ -368,6 +398,15 @@ const styles = StyleSheet.create({
     color: colors.ink,
   },
   error: { color: colors.danger, fontSize: 12.5, marginTop: 10 },
+  termsRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10, marginTop: 14 },
+  checkboxHit: { padding: 2 },
+  checkbox: {
+    width: 17, height: 17, borderRadius: 4, borderWidth: 1.4, borderColor: colors.line,
+    alignItems: 'center', justifyContent: 'center', backgroundColor: colors.card,
+  },
+  checkboxChecked: { backgroundColor: colors.primary, borderColor: colors.ink },
+  termsText: { flex: 1, fontSize: 13, color: colors.inkSoft, lineHeight: 18 },
+  termsLink: { color: colors.primary, fontWeight: '700', textDecorationLine: 'underline' },
   linkBtn: { alignSelf: 'center', marginTop: 16, padding: 8 },
   linkText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
   qrWrap: { alignItems: 'center', marginBottom: 16 },
