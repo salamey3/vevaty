@@ -25,7 +25,7 @@ function normalizePhone(raw: string): string | null {
 }
 
 export default function AuthScreen({ navigation, route }: Props) {
-  const { t } = useLanguage();
+  const { t, language } = useLanguage();
   const { adminSignIn, adminEnrollMfaStart, adminMfaVerify } = useSettings();
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState('+961');
@@ -323,9 +323,9 @@ export default function AuthScreen({ navigation, route }: Props) {
                     so there's no handler for a link tap to conflict with. */}
                 <Text style={styles.termsText}>
                   {t('auth.agreeToPrefix')}{' '}
-                  <Text style={styles.termsLink} onPress={() => openLegalPage('terms')}>{t('nav.termsOfUse')}</Text>
+                  <Text style={styles.termsLink} onPress={() => openLegalPage('terms', language)}>{t('nav.termsOfUse')}</Text>
                   {' '}{t('auth.agreeToAnd')}{' '}
-                  <Text style={styles.termsLink} onPress={() => openLegalPage('privacy')}>{t('nav.privacyPolicy')}</Text>
+                  <Text style={styles.termsLink} onPress={() => openLegalPage('privacy', language)}>{t('nav.privacyPolicy')}</Text>
                 </Text>
               </View>
               {!!error && <Text style={styles.error}>{error}</Text>}

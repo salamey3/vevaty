@@ -47,7 +47,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
   };
 
   const isDesktop = useIsDesktop();
-  const { t, isRTL } = useLanguage();
+  const { t, isRTL, language } = useLanguage();
   // On native Android, the system nav bar (3-button or gesture pill) sits
   // right where this floating pill used to be pinned (bottom: 0 + a fixed
   // 20px padding) -- that combo was never a problem on web, where there's
@@ -136,13 +136,13 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
           <View style={[styles.footerBlock, isRTL ? styles.footerBlockRTL : styles.footerBlockLTR]}>
             <Text style={[styles.footerTagline, isRTL && styles.textEnd]}>{t('nav.footer')}</Text>
             <View style={styles.footerLinks}>
-              <Pressy onPress={() => openLegalPage('about')}>
+              <Pressy onPress={() => openLegalPage('about', language)}>
                 <Text style={[styles.footerLink, isRTL && styles.textEnd]}>{t('nav.aboutUs')}</Text>
               </Pressy>
-              <Pressy onPress={() => openLegalPage('privacy')}>
+              <Pressy onPress={() => openLegalPage('privacy', language)}>
                 <Text style={[styles.footerLink, isRTL && styles.textEnd]}>{t('nav.privacyPolicy')}</Text>
               </Pressy>
-              <Pressy onPress={() => openLegalPage('terms')}>
+              <Pressy onPress={() => openLegalPage('terms', language)}>
                 <Text style={[styles.footerLink, isRTL && styles.textEnd]}>{t('nav.termsOfUse')}</Text>
               </Pressy>
             </View>

@@ -1,0 +1,210 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>من نحن — ڤيڤاتي</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Almarai:wght@400;700;800&display=swap" rel="stylesheet">
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1C2420;
+    background: #F4F3EE;
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+  a { color: #0F3D2E; }
+  .site-header {
+    background: #0F3D2E;
+    color: #fff;
+    padding: 18px 24px;
+  }
+  .site-header .inner { max-width: 1120px; margin: 0 auto; display:flex; align-items:center; justify-content:space-between; }
+  .vev-logo { display:inline-flex; align-items:center; gap:8px; text-decoration:none; }
+  .vev-logo-word { font-weight: 800; letter-spacing: -0.01em; }
+  .site-header nav { display:flex; gap: 22px; font-size: 14px; }
+  .site-header nav a { color: rgba(255,255,255,0.85); text-decoration:none; }
+  .site-header nav a:hover { color: #fff; }
+
+  /* --- page container: this is the "restricted width" wrapper --- */
+  .page-hero {
+    background: linear-gradient(160deg, #0F3D2E 0%, #0A2E22 100%);
+    color: #fff;
+    padding: 56px 24px 64px;
+    text-align: center;
+  }
+  .page-hero .tag { display:inline-block; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 5px 14px; border-radius: 999px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 16px; }
+  .page-hero h1 { margin: 0 0 10px 0; font-size: 34px; color: #fff; letter-spacing: -0.01em; }
+  .page-hero p { margin: 0; color: #F6EBD3; font-size: 15px; }
+  .page-hero .meta { margin-top: 18px; color: rgba(255,255,255,0.65); font-size: 12.5px; }
+
+  .page-container {
+    max-width: 820px;         /* <-- the content no longer spans the full page width */
+    margin: -32px auto 0 auto;
+    padding: 0 20px 64px 20px;
+  }
+  .page-card {
+    background: #fff;
+    border: 1px solid #E4E2DA;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(15,61,46,0.08);
+    padding: 44px 48px;
+  }
+  @media (max-width: 640px) {
+    .page-container { padding: 0 12px 48px 12px; }
+    .page-card { padding: 28px 22px; border-radius: 10px; }
+    .page-hero { padding: 40px 18px 52px; }
+    .page-hero h1 { font-size: 26px; }
+  }
+
+  h2 { font-family:'Inter',sans-serif; font-weight: 800; color: #0F3D2E; font-size: 19px; margin: 30px 0 10px 0; padding-bottom: 6px; border-bottom: 2px solid #D9A441; }
+  h2:first-child { margin-top: 0; }
+  h3 { font-family:'Inter',sans-serif; font-weight: 800; color: #0A2E22; font-size: 15px; margin: 20px 0 8px 0; }
+  p { margin: 0 0 13px 0; }
+  ul, ol { margin: 6px 0 14px 0; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px 0; font-size: 13.5px; }
+  th { background: #0F3D2E; color: white; text-align: left; padding: 9px 11px; font-weight: 700; font-size: 12.5px; }
+  td { padding: 9px 11px; border-bottom: 1px solid #E4E2DA; vertical-align: top; }
+  tr:nth-child(even) td { background: #FAF9F6; }
+  .callout { background: #F6EBD3; border-left: 4px solid #D9A441; padding: 12px 16px; border-radius: 6px; margin: 14px 0; font-size: 13.5px; }
+  .callout b { color: #0A2E22; }
+  .card { background: #FAF9F6; border: 1px solid #E4E2DA; border-radius: 10px; padding: 16px 18px; margin: 12px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+  .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #626A67; font-weight: 700; margin-bottom: 4px; }
+  .page-updated { font-size: 12.5px; color: #626A67; margin: 0 0 26px 0; padding-bottom: 18px; border-bottom: 1px solid #E4E2DA; }
+  mark.flag { background: #FCE300; color: #1C2420; font-weight: 700; padding: 1px 5px; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+  /* ---------------- SITE-WIDE FOOTER ---------------- */
+  .vev-footer { background: #0A2E22; color: rgba(255,255,255,0.75); }
+  .vev-footer .footer-inner { max-width: 1120px; margin: 0 auto; padding: 52px 24px 28px; }
+  .vev-footer .footer-grid { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 32px; }
+  @media (max-width: 760px) { .vev-footer .footer-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .vev-footer .footer-grid { grid-template-columns: 1fr; } }
+  .vev-footer .footer-brand .vev-logo { margin-bottom: 12px; }
+  .vev-footer .footer-brand .tagline { font-size: 13px; color: rgba(255,255,255,0.55); max-width: 260px; line-height: 1.6; }
+  .vev-footer h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); font-weight: 700; margin: 0 0 14px 0; }
+  .vev-footer ul { list-style:none; margin:0; padding:0; }
+  .vev-footer li { margin-bottom: 10px; }
+  .vev-footer a { color: rgba(255,255,255,0.78); text-decoration: none; font-size: 14px; }
+  .vev-footer a:hover { color: #D9A441; }
+  .vev-footer .footer-bottom { max-width: 1120px; margin: 0 auto; padding: 18px 24px 26px; border-top: 1px solid rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:space-between; flex-wrap: wrap; gap: 10px; }
+  .vev-footer .footer-bottom span { font-size: 12.5px; color: rgba(255,255,255,0.45); }
+  .vev-footer .footer-bottom .legal-links { display:flex; gap: 18px; }
+  .vev-footer .footer-bottom .legal-links a { font-size: 12.5px; }
+
+  /* ---------------- RTL (Arabic pages) ----------------
+     One shared override block rather than a parallel stylesheet: it only
+     ever matches when <html dir="rtl">, so it's a no-op on every English
+     page built from this same SITE_CSS. Almarai is the brand's Arabic
+     typeface (see BRANDING.md); it's loaded via a Google Fonts <link> only
+     on the pages that need it (see arHead() below), so this just points at
+     it with a system fallback for the (rare) case that link is missing. */
+  [dir="rtl"] body { font-family: 'Almarai', Tahoma, 'Segoe UI', Arial, sans-serif; }
+  [dir="rtl"] { text-align: right; }
+  [dir="rtl"] ul, [dir="rtl"] ol { padding-left: 0; padding-right: 22px; }
+  [dir="rtl"] th { text-align: right; }
+  [dir="rtl"] .callout { border-left: none; border-right: 4px solid #D9A441; }
+  [dir="rtl"] .site-header nav, [dir="rtl"] .vev-footer .legal-links { direction: rtl; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <span class="vev-logo"><svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:20px;">vevaty</span></span>
+    <nav>
+      <a href="/">الرئيسية</a>
+      <a href="/about-ar.html" aria-current="page">من نحن</a>
+      <a href="/privacy-policy-ar.html">الخصوصية</a>
+      <a href="/terms-ar.html">الشروط</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-hero">
+  <div class="tag">من نحن</div>
+  <h1>ڤيڤاتي</h1>
+  <p>السوق المبني على التحقق، لا على الكم.</p>
+</div>
+
+<div class="page-container">
+  <div class="page-card">
+    <h2>من نحن</h2>
+<p>ڤيڤاتي هو السوق المحلي في <mark class="flag">[السوق المستهدف]</mark> للبيع والشراء — مكان يمكنك فيه عرض سيارة أو شقة أو هاتف أو أي شيء تقريبًا، والوثوق فعليًا بالشخص الذي تتحدث معه. انطلقنا من ملاحظة بسيطة: سوقنا يحتوي أصلاً على تطبيقات إعلانات مبوّبة ومجموعات لا حصر لها للبيع والشراء على فيسبوك، لكن ما ينقصه هو منصة يثبت فيها كل بائع أنه شخص حقيقي قبل أن يُسمح له بالنشر. هذا الشرط الوحيد — التحقق الإلزامي من رقم الهاتف — هو الأساس الذي يُبنى عليه كل شيء آخر في ڤيڤاتي.</p>
+<p>المنتج متاح اليوم على <b>vevaty.com</b> وكتطبيق أندرويد، مع تطبيق iOS قيد التطوير. أُطلق المنتج في البداية تحت اسم "Myazar" ثم أُعيدت تسميته إلى ڤيڤاتي في أغسطس 2026 مع نضوج المنتج — ويبقى النطاق القديم فعّالاً حتى تستمر صور الإعلانات القديمة بالعمل.</p>
+
+<h2>لماذا أنشأنا هذا المنتج</h2>
+<p>كل من حاول بيع سيارة أو إيجاد شقة عبر منشور مجهول على فيسبوك أو لوحة إعلانات مبوّبة بلا إشراف يعرف المشكلة: لا يمكنك معرفة من هو حقيقي، والأسعار غير متسقة، والصور مضلِّلة، والتفاوض يعني تسليم رقم هاتفك الشخصي لغريب. أنشأنا ڤيڤاتي لحل هذه المشكلة — ليس بإضافة المزيد من القواعد أو التعقيدات، بل بجعل الثقة جزءًا أساسيًا من بنية المنتج نفسه لا مجرد فكرة لاحقة.</p>
+<p>كل بائع على ڤيڤاتي يوثّق رقم هاتف حقيقي قبل أن يتمكن من نشر إعلانه. يتفاوض المشترون والبائعون عبر دردشة فورية داخل التطبيق، بحيث لا يضطر أحد لتقديم رقمه الشخصي لمجرد السؤال "هل ما زال متوفرًا؟" ويمكن للإعلانات أن تتضمن صورًا دوارة بزاوية 360° ومقطع فيديو قصير، ليتمكن المشتري فعليًا من رؤية ما يفكر فيه قبل الاتفاق على اللقاء. كما أن ڤيڤاتي مبني ليكون ثنائي اللغة من الأساس — تخطيط عربي حقيقي من اليمين إلى اليسار، لا مجرد ترجمة معكوسة أو مُلحَقة.</p>
+
+<h2>ما الذي يميز ڤيڤاتي</h2>
+<div class="grid2">
+  <div class="card"><div class="kicker">موثّق، لا مجهول الهوية</div><p style="margin:0">كل بائع لديه إعلان منشور يكون قد أثبت مسبقًا ملكيته لرقم هاتف حقيقي — شرط إلزامي، لا مجرد شارة اختيارية.</p></div>
+  <div class="card"><div class="kicker">تفاوض أكثر أمانًا</div><p style="margin:0">الدردشة داخل التطبيق تتيح للمشترين والبائعين التواصل دون تبادل أرقام الهواتف الشخصية مسبقًا.</p></div>
+  <div class="card"><div class="kicker">شاهده جيدًا أولاً</div><p style="margin:0">صور دوارة بزاوية 360° ومقطع فيديو قصير للإعلان يتيحان للمشتري تقييم القطعة قبل الاتفاق على اللقاء.</p></div>
+  <div class="card"><div class="kicker">إعلانات بمساعدة الذكاء الاصطناعي</div><p style="margin:0">أداتنا "الإعلان السحري" تستطيع قراءة صور البائع والمساعدة في صياغة إعلان ثنائي اللغة خلال ثوانٍ — كتابة أقل، وإعلانات أفضل.</p></div>
+  <div class="card"><div class="kicker">مصمَّم من أجل <mark class="flag">[السوق المستهدف]</mark></div><p style="margin:0">ثنائية اللغة عربي/إنجليزي بشكل حقيقي وكامل، مع تصنيفات مصمَّمة لتناسب الطريقة التي يعرض بها البائعون المحليون فعليًا السيارات والعقارات والسلع.</p></div>
+  <div class="card"><div class="kicker">منصة تتطور باستمرار</div><p style="margin:0">البلاغات تغذّي مباشرةً عملية إشراف نشطة، والتصنيفات والفلاتر والقواعد الكامنة خلف التطبيق تتطور باستمرار كلما تعلّمنا من الاستخدام الفعلي.</p></div>
+</div>
+
+<h2>إلى أين نتجه</h2>
+<p>أطلقنا المنتج عمدًا بنطاق محدود — <mark class="flag">[مدينة الإطلاق]</mark>، بدءًا بفئة السيارات للبيع — حتى يجد أول مشترٍ يفتح التطبيق فئة حقيقية وغنية بالمحتوى بدلاً من رفّ فارغ. ومن هناك، نتوسع مدينةً تلو الأخرى وفئةً تلو الأخرى، مسترشدين بما يخبرنا به بائعونا ومشترونا أنهم يحتاجونه. كما أطلقنا أيضًا ميزة "المتاجر": صفحات واجهة متجر بعلامة تجارية لوكلاء السيارات والمكاتب العقارية وغيرهم من البائعين المتكررين الراغبين بحضور احترافي على ڤيڤاتي يتجاوز الإعلان الفردي، ومزيد من الميزات قادمة.</p>
+<p>ما زال ڤيڤاتي منتجًا فتيًا، مؤسَّسًا ومُدارًا بشكل مستقل، وما زلنا نتعلم. لكن ما لن يتغير هو المبدأ الذي انطلقنا منه: سوق يمكن للناس الوثوق به فعليًا، لأن الثقة جزء من طريقة عمل المنتج، لا مجرد وعد يقدّمه.</p>
+
+<div class="callout"><b>تواصل معنا:</b> لأي أسئلة أو ملاحظات أو اهتمام بالشراكة — راسلونا على <b>support@vevaty.com</b>.</div>
+  </div>
+</div>
+
+
+<footer class="vev-footer">
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <span class="vev-logo"><svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:22px;">vevaty</span></span>
+        <p class="tagline">السوق المبني على التحقق، لا على الكم.</p>
+      </div>
+      <div>
+        <h4>الشركة</h4>
+        <ul>
+          <li><a href="/">الرئيسية</a></li>
+          <li><a href="/about-ar.html" aria-current="page">من نحن</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>القانونية</h4>
+        <ul>
+          <li><a href="/privacy-policy-ar.html">سياسة الخصوصية</a></li>
+          <li><a href="/terms-ar.html">الشروط والأحكام</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>تواصل معنا</h4>
+        <ul>
+          <li><a href="mailto:support@vevaty.com">support@vevaty.com</a></li>
+          <li><a href="https://vevaty.com">vevaty.com</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 ڤيڤاتي. جميع الحقوق محفوظة.</span>
+    <div class="legal-links">
+      <a href="/privacy-policy-ar.html">سياسة الخصوصية</a>
+      <a href="/terms-ar.html">الشروط والأحكام</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

@@ -171,15 +171,15 @@ export default function ProfileScreen() {
         <View style={styles.section}>
           <Text style={styles.sectionLabel}>{t('profile.aboutSection')}</Text>
           <View style={styles.aboutList}>
-            <Pressy onPress={() => openLegalPage('about')} style={styles.adminBtn}>
+            <Pressy onPress={() => openLegalPage('about', language)} style={styles.adminBtn}>
               <Icon name="globe" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('nav.aboutUs')}</Text>
             </Pressy>
-            <Pressy onPress={() => openLegalPage('privacy')} style={styles.adminBtn}>
+            <Pressy onPress={() => openLegalPage('privacy', language)} style={styles.adminBtn}>
               <Icon name="lock" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('nav.privacyPolicy')}</Text>
             </Pressy>
-            <Pressy onPress={() => openLegalPage('terms')} style={styles.adminBtn}>
+            <Pressy onPress={() => openLegalPage('terms', language)} style={styles.adminBtn}>
               <Icon name="checkCircle" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('nav.termsOfUse')}</Text>
             </Pressy>
