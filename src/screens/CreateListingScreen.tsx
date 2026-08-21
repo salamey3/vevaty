@@ -32,6 +32,8 @@ import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
 import MagicListingModal, { MAGIC_MAX_PHOTOS, MAGIC_MIN_PHOTOS } from '../components/MagicListingModal';
 import { classifyListingPhotos } from '../lib/classifyPhotos';
+import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
+import ActionSheet from '../components/ActionSheet';
 import {
   MAX_VIDEO_BYTES,
   MAX_VIDEO_SECONDS,
@@ -1169,9 +1171,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     return { stockQty: Number(plainStockQty) || 0, variants: null, variantValues: [] };
   };
 
-  const post = async () => {
-    if (!category) return;
-    setPosting(true);
+  // Shared by the real Post/Save submit below and by saveAsDraftAndExit --
+  // same payload shape either way, the only difference is the `status`
+  // field draft saves add (see ListingInput's doc comment in AppStore.tsx).
+  // Deliberately built from whatever is currently in the form with no
+  // validation of its own: the wizard's own step gating (canNextByKind)
+  // already guarantees a real submit can only be reached with everything
+  // required filled in, while a draft save is allowed to carry blanks --
+  // that's the whole point of a resumable draft.
+  const buildPayload = (opts?: { asDraft?: boolean }) => {
     const attributes: Record<string, AttributeValue> = {};
     specAttrs.forEach((a) => {
       const v = attrValues[a.slug];
@@ -1183,8 +1191,8 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     }
     const trimmedDistrict = district.trim() || 'Lebanon';
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
-    const payload = {
-      cat: category,
+    return {
+      cat: category as CategoryId,
       titleEn: language === 'en' ? title.trim() : targetTitle.trim(),
       titleAr: language === 'ar' ? title.trim() : targetTitle.trim(),
       descriptionEn: language === 'en' ? description.trim() : targetDescription.trim(),
@@ -1205,7 +1213,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       shopId: attachToShop && myShop?.verifiedAt ? myShop.id : null,
       stockQty: stock.stockQty,
       variants: stock.variants,
+      ...(opts?.asDraft ? { status: 'draft' as const } : {}),
     };
+  };
+
+  const post = async () => {
+    if (!category) return;
+    setPosting(true);
+    const payload = buildPayload();
     if (isEditMode && editListingId) {
       await updateListing(editListingId, payload);
       setPosting(false);
@@ -1216,6 +1231,89 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       navigation.replace('ListingDetail', { listingId: listing.id });
     }
   };
+
+  // The unsaved-changes guard (see useUnsavedChangesGuard) fires whenever
+  // an exit is attempted while formSnapshot() differs from what it was at
+  // mount. Tracks exactly the fields buildPayload above reads, plus `step`
+  // (moving between steps with nothing else touched isn't a "change" worth
+  // warning about, so it's deliberately excluded).
+  const formSnapshot = () =>
+    JSON.stringify({
+      category,
+      photos,
+      spinSets,
+      video,
+      attrValues,
+      price,
+      district,
+      title,
+      description,
+      targetTitle,
+      targetDescription,
+      contactMethod,
+      attachToShop,
+      plainStockQty,
+      variantStock,
+      resolvedPlaceId: resolvedPlace?.id ?? null,
+      preciseCoords,
+    });
+  const baselineSnapshotRef = useRef(formSnapshot());
+  const hasUnsavedChanges = !posting && formSnapshot() !== baselineSnapshotRef.current;
+
+  // Set once this screen itself inserts a brand-new draft row (the first
+  // "Save & exit" on a listing that didn't exist yet) so a second
+  // "Save & exit" in the same session updates that row instead of inserting
+  // a duplicate -- isEditMode/editListingId stay fixed to this screen's
+  // original route params for its whole lifetime, so they alone wouldn't
+  // notice the draft that was just created.
+  const createdDraftIdRef = useRef<string | null>(null);
+
+  const saveAsDraftAndExit = async (): Promise<boolean> => {
+    // Nothing worth keeping yet (category is always the very first thing
+    // picked, before anything else in the wizard can even be reached) --
+    // let the exit proceed as if nothing needed saving.
+    if (!category) return true;
+    try {
+      const payload = buildPayload({ asDraft: true });
+      const targetId = editListingId || createdDraftIdRef.current;
+      if (targetId) {
+        await updateListing(targetId, payload);
+      } else {
+        const listing = await addListing(payload);
+        createdDraftIdRef.current = listing.id;
+      }
+      return true;
+    } catch {
+      Alert.alert(t('unsavedChanges.saveFailedTitle'), t('unsavedChanges.saveFailedMessage'));
+      return false;
+    }
+  };
+
+  // A resumable draft is either a brand-new listing that was never
+  // submitted, or an existing listing reopened while still in 'draft' --
+  // both save via saveAsDraftAndExit above. Anything else being edited
+  // (active, pending_review, expired, sold, rejected) is already a real
+  // listing; "Save & exit" there just means "save my edits", the same
+  // thing the Post/Save button at the Review step does, gated on the same
+  // minimum fields that button's own step already required before it could
+  // ever be reached.
+  const isResumableDraft = !isEditMode || editingListing?.status === 'draft';
+  const guardSaveAndExit = async (): Promise<boolean> => {
+    if (isResumableDraft) return saveAsDraftAndExit();
+    if (!category || !title.trim() || !price.trim()) {
+      Alert.alert(t('unsavedChanges.cannotSaveTitle'), t('unsavedChanges.cannotSaveMessage'));
+      return false;
+    }
+    try {
+      await updateListing(editListingId as string, buildPayload());
+      return true;
+    } catch {
+      Alert.alert(t('unsavedChanges.saveFailedTitle'), t('unsavedChanges.saveFailedMessage'));
+      return false;
+    }
+  };
+
+  const unsavedGuard = useUnsavedChangesGuard(hasUnsavedChanges, guardSaveAndExit);
 
   // Category-aware placeholders -- an admin can set an example title/
   // description per category (e.g. "3BR Apartment in Achrafieh") so the
@@ -1978,6 +2076,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           setSpinPreviewOpen(false);
           setActiveSpinIndex(null);
         }}
+      />
+      <ActionSheet
+        visible={unsavedGuard.visible}
+        title={t('unsavedChanges.title')}
+        options={[
+          { label: t('unsavedChanges.saveAndExit'), icon: 'check', onPress: unsavedGuard.saveAndExit },
+          { label: t('unsavedChanges.exitWithoutSaving'), icon: 'close', destructive: true, onPress: unsavedGuard.exitWithoutSaving },
+        ]}
+        cancelLabel={t('common.cancel')}
+        onCancel={unsavedGuard.cancel}
       />
     </Screen>
   );

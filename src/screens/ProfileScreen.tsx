@@ -288,12 +288,26 @@ export default function ProfileScreen() {
               return (
                 <Pressy
                   key={l.id}
-                  onPress={() => navigation.navigate('ListingDetail', { listingId: l.id })}
+                  onPress={() =>
+                    l.status === 'draft'
+                      ? navigation.navigate('CreateListing', { editListingId: l.id })
+                      : navigation.navigate('ListingDetail', { listingId: l.id })
+                  }
                   style={styles.listingRow}
                 >
                   <View style={{ flex: 1 }}>
-                    <Text style={styles.listingTitle} numberOfLines={1}>{listingTitle(l, language)}</Text>
+                    <Text style={styles.listingTitle} numberOfLines={1}>
+                      {l.status === 'draft' && !listingTitle(l, language) ? t('profile.draftUntitled') : listingTitle(l, language)}
+                    </Text>
 
+                    {l.status === 'draft' && (
+                      <>
+                        <View style={styles.draftBadge}>
+                          <Text style={styles.draftBadgeText}>{t('profile.draft')}</Text>
+                        </View>
+                        <Text style={styles.republishHint}>{t('profile.resumeHint')}</Text>
+                      </>
+                    )}
                     {l.status === 'expired' && (
                       <>
                         <View style={styles.unpublishedBadge}>
@@ -490,6 +504,11 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
   },
   pendingReviewBadgeText: { fontSize: 11, fontWeight: '700', color: colors.ink },
+  draftBadge: {
+    alignSelf: 'flex-start', backgroundColor: colors.surface, borderRadius: radius.pill,
+    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
+  },
+  draftBadgeText: { fontSize: 11, fontWeight: '700', color: colors.inkSoft },
   rejectedBadge: {
     alignSelf: 'flex-start', backgroundColor: '#f5e4e2', borderRadius: radius.pill,
     paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,

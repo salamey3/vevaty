@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, Modal, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { Alert } from '../lib/alertShim';
@@ -10,6 +10,8 @@ import Button from '../components/Button';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import FacetChipGroup, { ChipOption } from '../components/FacetChipGroup';
 import ImageCropModal from '../components/ImageCropModal';
+import ActionSheet from '../components/ActionSheet';
+import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
@@ -354,8 +356,11 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
 
   const canSubmit = form.nameEn.trim().length > 0;
 
-  const handleSubmit = async () => {
-    if (!canSubmit || saving) return;
+  // Returns whether the save actually went through -- used directly by the
+  // unsaved-changes guard below to decide whether it's safe to continue the
+  // exit the seller was attempting (see useUnsavedChangesGuard).
+  const handleSubmit = async (): Promise<boolean> => {
+    if (!canSubmit || saving) return false;
     setSaving(true);
     setError(null);
     try {
@@ -377,12 +382,34 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
       } else {
         await createShop(payload);
       }
+      return true;
     } catch (e: any) {
       setError(e?.message || t('myStorefront.saveFailed'));
+      return false;
     } finally {
       setSaving(false);
     }
   };
+
+  // Shops have no draft concept (unlike listings -- see AppStore's
+  // ListingInput) -- a storefront's own required minimum (just a name) is
+  // small enough that "Save & exit" always means the real save. If that
+  // minimum isn't met yet, there's nothing valid to persist, so this asks
+  // for it instead of silently discarding or silently inventing a
+  // placeholder name.
+  const storefrontSnapshot = () => JSON.stringify({ form, locationQuery });
+  const storefrontBaselineRef = useRef(storefrontSnapshot());
+  const hasUnsavedStorefrontChanges = !saving && storefrontSnapshot() !== storefrontBaselineRef.current;
+
+  const guardSaveAndExit = async (): Promise<boolean> => {
+    if (!canSubmit) {
+      Alert.alert(t('myStorefront.nameRequiredTitle'), t('myStorefront.nameRequiredMessage'));
+      return false;
+    }
+    return handleSubmit();
+  };
+
+  const unsavedGuard = useUnsavedChangesGuard(hasUnsavedStorefrontChanges, guardSaveAndExit);
 
   const header = (
     <View style={styles.header}>
@@ -695,6 +722,17 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
         shape="circle"
         onCancel={() => setLogoCropUri(null)}
         onConfirm={confirmLogoCrop}
+      />
+
+      <ActionSheet
+        visible={unsavedGuard.visible}
+        title={t('unsavedChanges.title')}
+        options={[
+          { label: t('unsavedChanges.saveAndExit'), icon: 'check', onPress: unsavedGuard.saveAndExit },
+          { label: t('unsavedChanges.exitWithoutSaving'), icon: 'close', destructive: true, onPress: unsavedGuard.exitWithoutSaving },
+        ]}
+        cancelLabel={t('common.cancel')}
+        onCancel={unsavedGuard.cancel}
       />
     </Screen>
   );

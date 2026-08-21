@@ -30,6 +30,17 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'common.or': 'or',
     'common.done': 'Done',
 
+    // Unsaved-changes guard -- shared by every form that uses
+    // useUnsavedChangesGuard (CreateListingScreen, MyStorefrontScreen, and
+    // any future form), not just one screen's copy.
+    'unsavedChanges.title': 'Unsaved changes',
+    'unsavedChanges.saveAndExit': 'Save & exit',
+    'unsavedChanges.exitWithoutSaving': 'Exit without saving',
+    'unsavedChanges.saveFailedTitle': 'Could not save',
+    'unsavedChanges.saveFailedMessage': 'Something went wrong saving your changes. Please try again.',
+    'unsavedChanges.cannotSaveTitle': 'Missing information',
+    'unsavedChanges.cannotSaveMessage': 'Add a title and price before saving, or exit without saving.',
+
     // Language select (first screen, before onboarding/login)
     'language.title': 'Choose your language',
     'language.subtitle': 'Pick the language you’d like to use. You can change it anytime from your profile.',
@@ -224,6 +235,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'myStorefront.createStorefront': 'Create storefront',
     'myStorefront.saveChanges': 'Save changes',
     'myStorefront.saveFailed': 'Could not save your storefront. Please try again.',
+    'myStorefront.nameRequiredTitle': 'Storefront name needed',
+    'myStorefront.nameRequiredMessage': 'Add a name for your storefront before saving, or exit without saving.',
     // Saved filters (shop_collections) -- the merchant-authored preset
     // chips shown on the public storefront page (StorefrontScreen's own
     // "collections" row), e.g. "Under $50" or "New arrivals".
@@ -473,6 +486,9 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.underReview': 'Under review',
     'profile.changesNeeded': 'Changes needed',
     'profile.editAndResubmit': 'Edit & resubmit',
+    'profile.draft': 'Draft',
+    'profile.draftUntitled': 'Untitled draft',
+    'profile.resumeHint': 'Tap to pick up where you left off.',
     'profile.logIn': 'Log in',
     'profile.savedListings': 'Saved listings',
     'profile.browseStorefronts': 'Browse storefronts',
@@ -601,6 +617,14 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'common.close': 'إغلاق',
     'common.or': 'أو',
     'common.done': 'تم',
+
+    'unsavedChanges.title': 'تغييرات غير محفوظة',
+    'unsavedChanges.saveAndExit': 'حفظ وخروج',
+    'unsavedChanges.exitWithoutSaving': 'خروج بدون حفظ',
+    'unsavedChanges.saveFailedTitle': 'تعذّر الحفظ',
+    'unsavedChanges.saveFailedMessage': 'حدث خطأ أثناء حفظ التغييرات. يرجى المحاولة مرة أخرى.',
+    'unsavedChanges.cannotSaveTitle': 'معلومات ناقصة',
+    'unsavedChanges.cannotSaveMessage': 'أضف عنوانًا وسعرًا قبل الحفظ، أو اخرج بدون حفظ.',
 
     'language.title': 'اختر لغتك',
     'language.subtitle': 'اختر اللغة التي تريد استخدامها. يمكنك تغييرها في أي وقت من صفحتك الشخصية.',
@@ -772,6 +796,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'myStorefront.createStorefront': 'إنشاء المتجر',
     'myStorefront.saveChanges': 'حفظ التغييرات',
     'myStorefront.saveFailed': 'تعذّر حفظ متجرك. حاول مرة أخرى.',
+    'myStorefront.nameRequiredTitle': 'اسم المتجر مطلوب',
+    'myStorefront.nameRequiredMessage': 'أضف اسمًا لمتجرك قبل الحفظ، أو اخرج بدون حفظ.',
     'myStorefront.collectionsTitle': 'الفلاتر المحفوظة',
     'myStorefront.collectionsBody': 'اختصارات يراها المشترون أعلى متجرك، مثل "أقل من 50$" -- اجمع بين نطاق سعر وأي خاصية تختارها.',
     'myStorefront.collectionsEmpty': 'لا توجد فلاتر محفوظة بعد.',
@@ -1006,6 +1032,9 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.underReview': 'قيد المراجعة',
     'profile.changesNeeded': 'يتطلب تعديلات',
     'profile.editAndResubmit': 'تعديل وإعادة الإرسال',
+    'profile.draft': 'مسودة',
+    'profile.draftUntitled': 'مسودة بلا عنوان',
+    'profile.resumeHint': 'اضغط للمتابعة من حيث توقفت.',
     'profile.logIn': 'تسجيل الدخول',
     'profile.savedListings': 'الإعلانات المحفوظة',
     'profile.browseStorefronts': 'تصفّح المتاجر',

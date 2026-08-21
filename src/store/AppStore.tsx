@@ -53,7 +53,17 @@ type ListingInput = Omit<
   // form to supply them, since the form only ever knows its own shop's id,
   // not a denormalized copy of that shop's current name/slug.
   | 'shopNameEn' | 'shopNameAr' | 'shopSlug'
->;
+> & {
+  // Only ever set to 'draft' -- the unsaved-changes guard's "Save & exit"
+  // uses this to park an incomplete new listing (or keep re-saving an
+  // already-parked one) without running it through moderation or awarding
+  // posting points. Omit entirely for a real submit; addListing/
+  // updateListing compute the actual published status themselves rather
+  // than trusting the caller with it, same reasoning as moderationStatus
+  // above. See useUnsavedChangesGuard and CreateListingScreen's
+  // buildPayload/saveAsDraftAndExit.
+  status?: 'draft';
+};
 
 interface AppStoreValue {
   ready: boolean;
@@ -697,6 +707,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
 
   const addListing = useCallback(
     async (l: ListingInput) => {
+      // "Save & exit" on an incomplete new listing (see
+      // useUnsavedChangesGuard) parks it as a draft instead of submitting
+      // it -- no moderation call, no posting points, and it stays invisible
+      // to everyone but the seller (same RLS as pending_review/rejected).
+      const asDraft = l.status === 'draft';
       const uid = userIdRef.current;
       let newListing: Listing = {
         ...l,
@@ -709,8 +724,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         // AI first pass (or a human moderator) rather than going live
         // immediately. The DB trigger (enforce_listing_moderation_gate)
         // enforces this server-side too, so this optimistic value is
-        // purely cosmetic, not the actual gate.
-        status: 'pending_review',
+        // purely cosmetic, not the actual gate. A draft save skips all of
+        // that -- it isn't a submission yet.
+        status: asDraft ? 'draft' : 'pending_review',
         moderationStatus: 'pending',
         moderationReason: null,
         expiresAt: Date.now() + LISTING_LIFETIME_MS,
@@ -752,7 +768,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             geoname_id: l.geonameId,
             lat: l.lat,
             lng: l.lng,
-            status: 'pending_review',
+            status: asDraft ? 'draft' : 'pending_review',
             ai_generated: l.aiGenerated,
             attributes: l.attributes || {},
             contact_method: l.contactMethod || 'both',
@@ -804,17 +820,27 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           // "instant-feeling" submit). It publishes itself (status ->
           // active) on a pass, or leaves it flagged for a human on a
           // fail/error -- see moderate-listing and AdminModerationScreen.
-          Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
-            .then((results) => {
-              const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
-              return triggerListingModeration(listingId, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
-            })
-            .catch(() => {});
+          // Skipped entirely for a draft save -- there is nothing to
+          // moderate yet, and moderate-listing would just flag an
+          // incomplete listing that was never actually submitted.
+          if (!asDraft) {
+            Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+              .then((results) => {
+                const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
+                return triggerListingModeration(listingId, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
+              })
+              .catch(() => {});
+          }
         }
       }
 
       setListings((prev) => [newListing, ...prev]);
-      await awardPoints(POINTS_RULES.postListing, `Posted "${l.titleEn || l.titleAr}"`);
+      // Saving a draft isn't posting a listing -- only award points once it
+      // actually goes out for review (here, or on the draft->submit path in
+      // updateListing below).
+      if (!asDraft) {
+        await awardPoints(POINTS_RULES.postListing, `Posted "${l.titleEn || l.titleAr}"`);
+      }
       return newListing;
     },
     [profile, awardPoints, persistNewPhotos, persistNewSpinSets, isVerified, myShop]
@@ -828,6 +854,17 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       // unreviewed -- see AdminModerationScreen's reject flow and
       // ProfileScreen's "Edit & resubmit" action, which both funnel here.
       const wasRejected = listingsRef.current.find((it) => it.id === id)?.status === 'rejected';
+      // Same idea, one status earlier: a draft that's now being submitted
+      // for real (the wizard's actual Post/Save button, not another
+      // "Save & exit") needs the same draft->pending_review transition and
+      // moderation kick-off addListing gives a brand-new listing.
+      const wasDraft = listingsRef.current.find((it) => it.id === id)?.status === 'draft';
+      // "Save & exit" re-saving an already-parked draft -- see ListingInput's
+      // doc comment. Keeps it a draft: no status change, no moderation, no
+      // posting points, whether it was already a draft or (impossible in
+      // practice, but harmless) something else.
+      const asDraft = l.status === 'draft';
+      const submittingDraft = wasDraft && !asDraft;
 
       // Same reasoning as addListing above: the display fields are derived
       // from AppStore's own myShop, never trusted from the caller.
@@ -844,7 +881,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
                 ...it,
                 ...l,
                 ...shopDisplayFields,
-                ...(wasRejected ? { status: 'pending_review' as const, moderationStatus: 'pending' as const, moderationReason: null } : {}),
+                ...(asDraft
+                  ? { status: 'draft' as const }
+                  : wasRejected || submittingDraft
+                  ? { status: 'pending_review' as const, moderationStatus: 'pending' as const, moderationReason: null }
+                  : {}),
               }
             : it
         )
@@ -874,17 +915,28 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           contact_method: l.contactMethod || 'both',
           stock_qty: l.stockQty ?? 1,
           variants: l.variants ?? null,
-          ...(wasRejected ? { status: 'pending_review', moderation_status: 'pending', moderation_reason: null } : {}),
+          ...(asDraft
+            ? { status: 'draft' }
+            : wasRejected || submittingDraft
+            ? { status: 'pending_review', moderation_status: 'pending', moderation_reason: null }
+            : {}),
         })
         .eq('id', id);
 
-      if (wasRejected) {
+      if (wasRejected || submittingDraft) {
         Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
           .then((results) => {
             const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
             return triggerListingModeration(id, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
           })
           .catch(() => {});
+      }
+      // Mirrors addListing's own points-on-submit gating -- a draft save
+      // never awards points; the listing's first real submission does,
+      // whether that happens via addListing (brand new) or here (a
+      // previously-parked draft finally posted).
+      if (submittingDraft) {
+        await awardPoints(POINTS_RULES.postListing, `Posted "${l.titleEn || l.titleAr}"`);
       }
 
       // Photos: anything already a hosted (https) URL was kept as-is by the
@@ -924,7 +976,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         await deleteVideo(previousGuid).catch(() => {});
       }
     },
-    [syncPhotoKind, syncSpinSets, myShop]
+    [syncPhotoKind, syncSpinSets, myShop, awardPoints]
   );
 
   const deleteListing = useCallback(async (id: string) => {
