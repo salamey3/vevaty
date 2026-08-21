@@ -11,6 +11,7 @@ import { colors, radius } from '../theme/theme';
 import { useIsDesktop, SIDEBAR_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useScrollChrome } from '../store/ScrollChromeContext';
+import { openLegalPage } from '../lib/legalLinks';
 
 const ICONS: Record<string, IconName> = {
   HomeTab: 'home',
@@ -126,7 +127,30 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
           })}
         </View>
 
-        <Text style={[styles.footerNote, isRTL ? styles.footerNoteRTL : styles.footerNoteLTR]}>{t('nav.footer')}</Text>
+        {/* The site-wide footer (tagline + legal links + copyright) is
+            desktop-web only by design -- on native, About/Privacy/Terms
+            live one tap away in the Profile tab's "About Us" section
+            instead (see ProfileScreen.tsx), so there's no bare-link UX to
+            hand off to a mobile OS browser from a cramped sidebar. */}
+        {Platform.OS === 'web' ? (
+          <View style={[styles.footerBlock, isRTL ? styles.footerBlockRTL : styles.footerBlockLTR]}>
+            <Text style={[styles.footerTagline, isRTL && styles.textEnd]}>{t('nav.footer')}</Text>
+            <View style={styles.footerLinks}>
+              <Pressy onPress={() => openLegalPage('about')}>
+                <Text style={[styles.footerLink, isRTL && styles.textEnd]}>{t('nav.aboutUs')}</Text>
+              </Pressy>
+              <Pressy onPress={() => openLegalPage('privacy')}>
+                <Text style={[styles.footerLink, isRTL && styles.textEnd]}>{t('nav.privacyPolicy')}</Text>
+              </Pressy>
+              <Pressy onPress={() => openLegalPage('terms')}>
+                <Text style={[styles.footerLink, isRTL && styles.textEnd]}>{t('nav.termsOfUse')}</Text>
+              </Pressy>
+            </View>
+            <Text style={[styles.footerCopy, isRTL && styles.textEnd]}>{t('nav.footerCopyright')}</Text>
+          </View>
+        ) : (
+          <Text style={[styles.footerNote, isRTL ? styles.footerNoteRTL : styles.footerNoteLTR]}>{t('nav.footer')}</Text>
+        )}
       </View>
     );
   }
@@ -265,4 +289,15 @@ const styles = StyleSheet.create({
   footerNote: { position: 'absolute', bottom: 20, fontSize: 10.5, color: colors.inkSoft },
   footerNoteLTR: { left: 22, right: 16 },
   footerNoteRTL: { right: 22, left: 16 },
+  // Web-only site footer that replaces footerNote above (see the Platform
+  // check in the render): tagline, then the three legal links, then a
+  // copyright line -- stacked to fit the narrow persistent sidebar.
+  footerBlock: { position: 'absolute', bottom: 18, gap: 7 },
+  footerBlockLTR: { left: 22, right: 16 },
+  footerBlockRTL: { right: 22, left: 16 },
+  footerTagline: { fontSize: 10.5, color: colors.inkSoft },
+  footerLinks: { gap: 5 },
+  footerLink: { fontSize: 10.5, fontWeight: '600', color: colors.ink },
+  footerCopy: { fontSize: 9, color: colors.inkSoft },
+  textEnd: { textAlign: 'right' },
 });

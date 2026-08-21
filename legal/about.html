@@ -1,0 +1,193 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>About Us — Vevaty</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1C2420;
+    background: #F4F3EE;
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+  a { color: #0F3D2E; }
+  .site-header {
+    background: #0F3D2E;
+    color: #fff;
+    padding: 18px 24px;
+  }
+  .site-header .inner { max-width: 1120px; margin: 0 auto; display:flex; align-items:center; justify-content:space-between; }
+  .vev-logo { display:inline-flex; align-items:center; gap:8px; text-decoration:none; }
+  .vev-logo-word { font-weight: 800; letter-spacing: -0.01em; }
+  .site-header nav { display:flex; gap: 22px; font-size: 14px; }
+  .site-header nav a { color: rgba(255,255,255,0.85); text-decoration:none; }
+  .site-header nav a:hover { color: #fff; }
+
+  /* --- page container: this is the "restricted width" wrapper --- */
+  .page-hero {
+    background: linear-gradient(160deg, #0F3D2E 0%, #0A2E22 100%);
+    color: #fff;
+    padding: 56px 24px 64px;
+    text-align: center;
+  }
+  .page-hero .tag { display:inline-block; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 5px 14px; border-radius: 999px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 16px; }
+  .page-hero h1 { margin: 0 0 10px 0; font-size: 34px; color: #fff; letter-spacing: -0.01em; }
+  .page-hero p { margin: 0; color: #F6EBD3; font-size: 15px; }
+  .page-hero .meta { margin-top: 18px; color: rgba(255,255,255,0.65); font-size: 12.5px; }
+
+  .page-container {
+    max-width: 820px;         /* <-- the content no longer spans the full page width */
+    margin: -32px auto 0 auto;
+    padding: 0 20px 64px 20px;
+  }
+  .page-card {
+    background: #fff;
+    border: 1px solid #E4E2DA;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(15,61,46,0.08);
+    padding: 44px 48px;
+  }
+  @media (max-width: 640px) {
+    .page-container { padding: 0 12px 48px 12px; }
+    .page-card { padding: 28px 22px; border-radius: 10px; }
+    .page-hero { padding: 40px 18px 52px; }
+    .page-hero h1 { font-size: 26px; }
+  }
+
+  h2 { font-family:'Inter',sans-serif; font-weight: 800; color: #0F3D2E; font-size: 19px; margin: 30px 0 10px 0; padding-bottom: 6px; border-bottom: 2px solid #D9A441; }
+  h2:first-child { margin-top: 0; }
+  h3 { font-family:'Inter',sans-serif; font-weight: 800; color: #0A2E22; font-size: 15px; margin: 20px 0 8px 0; }
+  p { margin: 0 0 13px 0; }
+  ul, ol { margin: 6px 0 14px 0; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px 0; font-size: 13.5px; }
+  th { background: #0F3D2E; color: white; text-align: left; padding: 9px 11px; font-weight: 700; font-size: 12.5px; }
+  td { padding: 9px 11px; border-bottom: 1px solid #E4E2DA; vertical-align: top; }
+  tr:nth-child(even) td { background: #FAF9F6; }
+  .callout { background: #F6EBD3; border-left: 4px solid #D9A441; padding: 12px 16px; border-radius: 6px; margin: 14px 0; font-size: 13.5px; }
+  .callout b { color: #0A2E22; }
+  .card { background: #FAF9F6; border: 1px solid #E4E2DA; border-radius: 10px; padding: 16px 18px; margin: 12px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+  .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #626A67; font-weight: 700; margin-bottom: 4px; }
+  .page-updated { font-size: 12.5px; color: #626A67; margin: 0 0 26px 0; padding-bottom: 18px; border-bottom: 1px solid #E4E2DA; }
+  mark.flag { background: #FCE300; color: #1C2420; font-weight: 700; padding: 1px 5px; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+  /* ---------------- SITE-WIDE FOOTER ---------------- */
+  .vev-footer { background: #0A2E22; color: rgba(255,255,255,0.75); }
+  .vev-footer .footer-inner { max-width: 1120px; margin: 0 auto; padding: 52px 24px 28px; }
+  .vev-footer .footer-grid { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 32px; }
+  @media (max-width: 760px) { .vev-footer .footer-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .vev-footer .footer-grid { grid-template-columns: 1fr; } }
+  .vev-footer .footer-brand .vev-logo { margin-bottom: 12px; }
+  .vev-footer .footer-brand .tagline { font-size: 13px; color: rgba(255,255,255,0.55); max-width: 260px; line-height: 1.6; }
+  .vev-footer h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); font-weight: 700; margin: 0 0 14px 0; }
+  .vev-footer ul { list-style:none; margin:0; padding:0; }
+  .vev-footer li { margin-bottom: 10px; }
+  .vev-footer a { color: rgba(255,255,255,0.78); text-decoration: none; font-size: 14px; }
+  .vev-footer a:hover { color: #D9A441; }
+  .vev-footer .footer-bottom { max-width: 1120px; margin: 0 auto; padding: 18px 24px 26px; border-top: 1px solid rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:space-between; flex-wrap: wrap; gap: 10px; }
+  .vev-footer .footer-bottom span { font-size: 12.5px; color: rgba(255,255,255,0.45); }
+  .vev-footer .footer-bottom .legal-links { display:flex; gap: 18px; }
+  .vev-footer .footer-bottom .legal-links a { font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <span class="vev-logo"><svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:20px;">vevaty</span></span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/about.html" aria-current="page">About</a>
+      <a href="/privacy-policy.html">Privacy</a>
+      <a href="/terms.html">Terms</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-hero">
+  <div class="tag">About Us</div>
+  <h1>Vevaty</h1>
+  <p>The marketplace built on verification, not volume.</p>
+</div>
+
+<div class="page-container">
+  <div class="page-card">
+    <h2>Who we are</h2>
+<p>Vevaty is the <mark class="flag">[LAUNCH MARKET]</mark>'s homegrown marketplace for buying and selling — a place to list a car, an apartment, a phone, or almost anything else, and actually trust the person on the other end of the conversation. We started from a simple observation: our market already has classifieds apps and endless Facebook buy-and-sell groups, but what it doesn't have is a platform where every seller has proven they're a real person before they're allowed to post. That single requirement — mandatory phone verification — is the foundation everything else at Vevaty is built on.</p>
+<p>The product is live today at <b>vevaty.com</b> and as an Android app, with an iOS app in progress. It launched under the name "Myazar" and was rebranded to Vevaty in August 2026 as the product matured — the old domain is kept alive so historical listing photos keep working.</p>
+
+<h2>Why we built this</h2>
+<p>Anyone who has tried to sell a car or find an apartment through an anonymous Facebook post or an unmoderated classifieds board knows the problem: you can't tell who's real, prices are inconsistent, photos are misleading, and negotiating means handing your personal phone number to a stranger. We built Vevaty to fix that — not by adding more rules or more friction, but by making trust a structural part of the product rather than an afterthought.</p>
+<p>Every seller on Vevaty verifies a real phone number before they can publish a listing. Buyers and sellers negotiate through real-time in-app chat, so no one has to give out a personal number just to ask "is this still available?" Listings can include a 360° photo spin and short video, so a buyer can actually see what they're considering before arranging to meet. Vevaty is also built bilingual from the ground up — true Arabic right-to-left layout, not a mirrored or bolted-on translation.</p>
+
+<h2>What makes Vevaty different</h2>
+<div class="grid2">
+  <div class="card"><div class="kicker">Verified, not anonymous</div><p style="margin:0">Every seller with a live listing has already proven ownership of a real phone number — a hard requirement, not an optional badge.</p></div>
+  <div class="card"><div class="kicker">Safer negotiation</div><p style="margin:0">In-app chat means buyers and sellers can talk without exchanging personal phone numbers up front.</p></div>
+  <div class="card"><div class="kicker">See it properly first</div><p style="margin:0">360° photo spin and short listing video let a buyer evaluate an item before ever arranging to meet.</p></div>
+  <div class="card"><div class="kicker">AI-assisted listings</div><p style="margin:0">Our "magic listing" tool can read a seller's photos and help draft a bilingual listing in seconds — less typing, better listings.</p></div>
+  <div class="card"><div class="kicker">Built for the <mark class="flag">[LAUNCH MARKET]</mark></div><p style="margin:0">True bilingual Arabic/English throughout, with category structures that match how local sellers actually list cars, property, and goods.</p></div>
+  <div class="card"><div class="kicker">A platform that improves</div><p style="margin:0">Reports feed directly into an active moderation process, and the categories, filters, and rules behind the app keep evolving as we learn from real usage.</p></div>
+</div>
+
+<h2>Where we're headed</h2>
+<p>We launched deliberately narrow — <mark class="flag">[LAUNCH CITY]</mark>, starting with Cars for Sale — so that the first buyer who opens the app finds a real, well-stocked category instead of an empty shelf. From there we're expanding city by city and category by category, guided by what our own sellers and buyers tell us they need. We've also launched <b>Shops</b>: branded storefront pages for car dealers, real-estate agencies, and other repeat sellers who want a professional presence on Vevaty beyond a single listing, with more to come.</p>
+<p>Vevaty is still young, still independently founded and run, and still learning. What won't change is the principle we started with: a marketplace people can actually trust, because it's built into how the product works, not just what it promises.</p>
+
+<div class="callout"><b>Get in touch:</b> Questions, feedback, or partnership interest — reach us at <b>support@vevaty.com</b>.</div>
+  </div>
+</div>
+
+
+<footer class="vev-footer">
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <span class="vev-logo"><svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:22px;">vevaty</span></span>
+        <p class="tagline">The marketplace built on verification, not volume.</p>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/about.html" aria-current="page">About Us</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="/privacy-policy.html">Privacy Policy</a></li>
+          <li><a href="/terms.html">Terms &amp; Conditions</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="mailto:support@vevaty.com">support@vevaty.com</a></li>
+          <li><a href="https://vevaty.com">vevaty.com</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 Vevaty. All rights reserved.</span>
+    <div class="legal-links">
+      <a href="/privacy-policy.html">Privacy Policy</a>
+      <a href="/terms.html">Terms of Use</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

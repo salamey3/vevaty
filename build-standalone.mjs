@@ -67,8 +67,8 @@ if (!viewportMatch[2].includes('viewport-fit')) {
 // The site deploys as ONE index.html, so the share image has to be inlined
 // as a data: URI like everything else -- an <meta og:image> pointing at a
 // file that is never uploaded would leave every WhatsApp and Facebook
-// preview blank, which is the most-seen brand surface a marketplace in
-// Lebanon has (BRANDING.md part 7).
+// preview blank, which is the most-seen brand surface this app has
+// (BRANDING.md part 7).
 const BRAND_PRIMARY = '#0F3D2E';
 const shareImagePath = path.join('assets', 'brand', 'share-image.png');
 let shareMeta = '';
@@ -88,8 +88,8 @@ if (fs.existsSync(shareImagePath)) {
 html = html.replace(
   '<title>',
   `<meta name="theme-color" content="${BRAND_PRIMARY}"/>` +
-  `\n    <meta property="og:title" content="vevaty — buy &amp; sell in Lebanon"/>` +
-  `\n    <meta property="og:description" content="Lebanon’s marketplace for secondhand. Find what you need near you."/>` +
+  `\n    <meta property="og:title" content="vevaty — buy &amp; sell, verified"/>` +
+  `\n    <meta property="og:description" content="The marketplace built on verification, not volume. Find what you need near you."/>` +
   `\n    <meta property="og:type" content="website"/>` +
   shareMeta +
   `\n    <title>`
@@ -202,4 +202,25 @@ if (fs.existsSync('.htaccess')) {
   console.log(`Copied .htaccess -> ${path.join(DIST, '.htaccess')}`);
 } else {
   console.log('WARNING: .htaccess not found -- dist/ will be missing the SPA-fallback rewrite rule');
+}
+
+// Carry the static legal pages (About Us / Privacy Policy / Terms &
+// Conditions) into dist/ too, same reasoning as .htaccess above. These are
+// deliberately plain HTML, not React screens -- see AGENTS.md on how
+// fragile the OTA/fingerprint setup is -- so they're maintained in legal/
+// and just copied here rather than going through Expo's export at all.
+// .htaccess's `RewriteCond %{REQUEST_FILENAME} -f` rule already lets any
+// real file win over the SPA fallback, so no extra rewrite rule is needed
+// for these to resolve at /about.html etc. See src/lib/legalLinks.ts for
+// where these filenames are linked from in the app, and deploy-web.mjs for
+// where they get uploaded.
+const LEGAL_DIR = 'legal';
+if (fs.existsSync(LEGAL_DIR)) {
+  const legalFiles = fs.readdirSync(LEGAL_DIR).filter((f) => f.endsWith('.html'));
+  for (const f of legalFiles) {
+    fs.copyFileSync(path.join(LEGAL_DIR, f), path.join(DIST, f));
+  }
+  console.log(`Copied ${legalFiles.length} legal page(s) -> ${DIST}/ (${legalFiles.join(', ')})`);
+} else {
+  console.log('NOTE: legal/ not found -- About/Privacy/Terms pages will not be in dist/');
 }

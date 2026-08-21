@@ -18,10 +18,12 @@ import { existsSync, readFileSync } from 'node:fs';
 
 const CONFIG = 'deploy.config.json';
 
-// Everything the server needs: the page itself, and the rewrite rule that
-// makes deep links work. .htaccess is copied into dist/ by every build, so
-// uploading both keeps the two in step.
-const FILES = ['index.html', '.htaccess'];
+// Everything the server needs: the page itself, the rewrite rule that makes
+// deep links work, and the static legal pages (About Us / Privacy Policy /
+// Terms & Conditions) linked from src/lib/legalLinks.ts. .htaccess and
+// legal/*.html are both copied into dist/ by every build, so uploading all
+// of them keeps dist/ and the live site in step.
+const FILES = ['index.html', '.htaccess', 'about.html', 'privacy-policy.html', 'terms.html'];
 
 export function deployConfig() {
   if (!existsSync(CONFIG)) return null;

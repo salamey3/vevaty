@@ -1,0 +1,275 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Privacy Policy — Vevaty</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1C2420;
+    background: #F4F3EE;
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+  a { color: #0F3D2E; }
+  .site-header {
+    background: #0F3D2E;
+    color: #fff;
+    padding: 18px 24px;
+  }
+  .site-header .inner { max-width: 1120px; margin: 0 auto; display:flex; align-items:center; justify-content:space-between; }
+  .vev-logo { display:inline-flex; align-items:center; gap:8px; text-decoration:none; }
+  .vev-logo-word { font-weight: 800; letter-spacing: -0.01em; }
+  .site-header nav { display:flex; gap: 22px; font-size: 14px; }
+  .site-header nav a { color: rgba(255,255,255,0.85); text-decoration:none; }
+  .site-header nav a:hover { color: #fff; }
+
+  /* --- page container: this is the "restricted width" wrapper --- */
+  .page-hero {
+    background: linear-gradient(160deg, #0F3D2E 0%, #0A2E22 100%);
+    color: #fff;
+    padding: 56px 24px 64px;
+    text-align: center;
+  }
+  .page-hero .tag { display:inline-block; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 5px 14px; border-radius: 999px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 16px; }
+  .page-hero h1 { margin: 0 0 10px 0; font-size: 34px; color: #fff; letter-spacing: -0.01em; }
+  .page-hero p { margin: 0; color: #F6EBD3; font-size: 15px; }
+  .page-hero .meta { margin-top: 18px; color: rgba(255,255,255,0.65); font-size: 12.5px; }
+
+  .page-container {
+    max-width: 820px;         /* <-- the content no longer spans the full page width */
+    margin: -32px auto 0 auto;
+    padding: 0 20px 64px 20px;
+  }
+  .page-card {
+    background: #fff;
+    border: 1px solid #E4E2DA;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(15,61,46,0.08);
+    padding: 44px 48px;
+  }
+  @media (max-width: 640px) {
+    .page-container { padding: 0 12px 48px 12px; }
+    .page-card { padding: 28px 22px; border-radius: 10px; }
+    .page-hero { padding: 40px 18px 52px; }
+    .page-hero h1 { font-size: 26px; }
+  }
+
+  h2 { font-family:'Inter',sans-serif; font-weight: 800; color: #0F3D2E; font-size: 19px; margin: 30px 0 10px 0; padding-bottom: 6px; border-bottom: 2px solid #D9A441; }
+  h2:first-child { margin-top: 0; }
+  h3 { font-family:'Inter',sans-serif; font-weight: 800; color: #0A2E22; font-size: 15px; margin: 20px 0 8px 0; }
+  p { margin: 0 0 13px 0; }
+  ul, ol { margin: 6px 0 14px 0; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px 0; font-size: 13.5px; }
+  th { background: #0F3D2E; color: white; text-align: left; padding: 9px 11px; font-weight: 700; font-size: 12.5px; }
+  td { padding: 9px 11px; border-bottom: 1px solid #E4E2DA; vertical-align: top; }
+  tr:nth-child(even) td { background: #FAF9F6; }
+  .callout { background: #F6EBD3; border-left: 4px solid #D9A441; padding: 12px 16px; border-radius: 6px; margin: 14px 0; font-size: 13.5px; }
+  .callout b { color: #0A2E22; }
+  .card { background: #FAF9F6; border: 1px solid #E4E2DA; border-radius: 10px; padding: 16px 18px; margin: 12px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+  .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #626A67; font-weight: 700; margin-bottom: 4px; }
+  .page-updated { font-size: 12.5px; color: #626A67; margin: 0 0 26px 0; padding-bottom: 18px; border-bottom: 1px solid #E4E2DA; }
+  mark.flag { background: #FCE300; color: #1C2420; font-weight: 700; padding: 1px 5px; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+  /* ---------------- SITE-WIDE FOOTER ---------------- */
+  .vev-footer { background: #0A2E22; color: rgba(255,255,255,0.75); }
+  .vev-footer .footer-inner { max-width: 1120px; margin: 0 auto; padding: 52px 24px 28px; }
+  .vev-footer .footer-grid { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 32px; }
+  @media (max-width: 760px) { .vev-footer .footer-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .vev-footer .footer-grid { grid-template-columns: 1fr; } }
+  .vev-footer .footer-brand .vev-logo { margin-bottom: 12px; }
+  .vev-footer .footer-brand .tagline { font-size: 13px; color: rgba(255,255,255,0.55); max-width: 260px; line-height: 1.6; }
+  .vev-footer h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); font-weight: 700; margin: 0 0 14px 0; }
+  .vev-footer ul { list-style:none; margin:0; padding:0; }
+  .vev-footer li { margin-bottom: 10px; }
+  .vev-footer a { color: rgba(255,255,255,0.78); text-decoration: none; font-size: 14px; }
+  .vev-footer a:hover { color: #D9A441; }
+  .vev-footer .footer-bottom { max-width: 1120px; margin: 0 auto; padding: 18px 24px 26px; border-top: 1px solid rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:space-between; flex-wrap: wrap; gap: 10px; }
+  .vev-footer .footer-bottom span { font-size: 12.5px; color: rgba(255,255,255,0.45); }
+  .vev-footer .footer-bottom .legal-links { display:flex; gap: 18px; }
+  .vev-footer .footer-bottom .legal-links a { font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <span class="vev-logo"><svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:20px;">vevaty</span></span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/about.html">About</a>
+      <a href="/privacy-policy.html" aria-current="page">Privacy</a>
+      <a href="/terms.html">Terms</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-hero">
+  <div class="tag">Privacy Policy</div>
+  <h1>Privacy Policy</h1>
+  <p>How we collect, use, share, and protect your information on vevaty.com and the Vevaty app.</p>
+</div>
+
+<div class="page-container">
+  <div class="page-card">
+    <p class="page-updated">Effective date: [TO BE INSERTED ON PUBLICATION]</p>
+    <h2>1. Introduction and Scope</h2>
+<p>This Privacy Policy explains how Vevaty ("Vevaty," "we," "us," or "our") collects, uses, discloses, and protects information in connection with the Vevaty website (vevaty.com), the Vevaty mobile application, and related services (together, the "Service"). It applies to everyone who visits, browses, registers for, or otherwise uses the Service, including buyers, sellers, and visitors who do not create an account.</p>
+<p>By using the Service, you agree to the collection and use of information as described in this Privacy Policy. If you do not agree, please do not use the Service. This Privacy Policy should be read together with our <a href="#">Terms &amp; Conditions of Use</a>, which governs your use of the Service generally.</p>
+
+<h2>2. Who We Are</h2>
+<p>Vevaty is operated by [Company legal name — to be inserted once the operating entity is formally registered], [registered address — to be inserted]. For all privacy-related questions, requests, or concerns, you can reach us at <b>support@vevaty.com</b>.</p>
+
+<h2>3. Information We Collect</h2>
+<h3>3.1 Information you provide directly</h3>
+<ul>
+  <li><b>Phone number and verification status.</b> Posting a listing requires phone verification. We collect the phone number you verify and record that your number has been verified; you do not need an account or a verified number to browse listings.</li>
+  <li><b>Listing content.</b> Anything you include in a listing — title, description, category and attribute answers (for example, a car's mileage or a property's number of rooms), price, photos, 360° photo-spin frames, and video.</li>
+  <li><b>Location information.</b> The general location you attach to a listing or search with, used to power distance-based search and filtering. This is location you choose to provide, not continuous background tracking of your device.</li>
+  <li><b>Messages.</b> Chat messages you send to other users through Vevaty's in-app messaging, delivered in real time. Message content is stored so conversations remain available to their participants.</li>
+  <li><b>Reports.</b> If you report a listing or another user, we collect the content of your report and any details you provide, in order to review it.</li>
+  <li><b>Shop information.</b> "Shops" are branded storefront pages for dealers and repeat sellers. Setting up a Shop involves providing business information such as a shop name and tagline, logo, cover photo, location, business hours, and contact details, and choosing which of your listings appear in curated "collections" on the page. A Shop is publicly visible once an administrator verifies it.</li>
+  <li><b>Loyalty and engagement data.</b> Activity that affects your loyalty tier (Bronze, Silver, Gold, or Diamond) and any points or status associated with your account.</li>
+  <li><b>Administrator credentials.</b> Vevaty staff who administer the platform authenticate with an email address, password, and a time-based one-time code (TOTP) — a separate, non-anonymous identity from regular user accounts.</li>
+  <li><b>Communications with us.</b> If you email or otherwise contact support, we collect the content of that communication and our replies.</li>
+</ul>
+
+<h3>3.2 Information collected automatically</h3>
+<ul>
+  <li><b>Device and log information.</b> Information such as IP address, browser or app version, operating system, device identifiers, and general usage logs (pages viewed, actions taken, timestamps), collected automatically when you use the Service.</li>
+  <li><b>Cookies and similar technologies.</b> The website uses cookies and comparable local storage technologies to keep you signed in, remember preferences (such as language), and understand how the Service is used. See Section 7 (Cookies and Tracking Technologies).</li>
+</ul>
+
+<h3>3.3 Information from third parties</h3>
+<ul>
+  <li><b>Verification providers.</b> Our SMS/WhatsApp verification provider (Twilio) confirms that a one-time code was successfully delivered to and entered for a given phone number; we receive this verification result, not the contents of your WhatsApp or SMS account.</li>
+  <li><b>AI processing outputs.</b> When you use AI-assisted listing tools (described in Section 5), we receive suggested text and structured data back from our AI provider based on the photos and information you submitted.</li>
+</ul>
+<p>Vevaty does not currently process payments, and we do not collect card numbers, bank account details, or other financial account information through the Service. Buyers and sellers arrange and complete the exchange of goods, services, and payment directly between themselves, outside of Vevaty.</p>
+
+<h2>4. How We Use Information</h2>
+<p>We use the information described in Section 3 to:</p>
+<ul>
+  <li>Create and maintain your account, verify your phone number, and authenticate your sessions;</li>
+  <li>Publish, display, and let other users search and filter your listings, including by location and category attributes;</li>
+  <li>Enable in-app chat between buyers and sellers;</li>
+  <li>Operate loyalty tiers and related engagement features;</li>
+  <li>Power AI-assisted listing creation and bilingual translation (Section 5);</li>
+  <li>Review reports, moderate content, and enforce our Terms &amp; Conditions of Use;</li>
+  <li>Protect the security and integrity of the Service, including detecting fraud, abuse, and unauthorized access;</li>
+  <li>Respond to your support requests and communicate with you about the Service, including important notices and, where you have not opted out, product updates;</li>
+  <li>Understand and improve how the Service is used, including through aggregated or de-identified analysis; and</li>
+  <li>Comply with applicable law and respond to lawful requests from public authorities.</li>
+</ul>
+<p>We do not use your listing content, chat messages, or phone number to sell targeted advertising to third parties, and we do not currently sell personal information to data brokers.</p>
+
+<h2>5. AI-Assisted Features</h2>
+<p>Vevaty's "magic listing" tool can read photos you upload and suggest a draft listing, and can translate listing text between Arabic and English. To provide this feature, the photos and/or text you submit for this purpose are sent to our AI infrastructure provider (currently Anthropic, for its Claude models) for processing, and the resulting suggestions are returned to you within the app. You choose whether to use this feature, and you review and can edit any AI-generated suggestion before it is published as part of your listing — Vevaty does not publish AI-generated content on your behalf without your review.</p>
+<p>Our AI provider processes this content to generate a response to your request and does not use it to build a public profile of you. Please avoid including sensitive personal information (yours or someone else's) in photos or text submitted to this feature that is not necessary for the listing itself.</p>
+
+<h2>6. How We Share Information</h2>
+<h3>6.1 With other users</h3>
+<p>Some information is inherently shared with other users as part of how a marketplace works: your listings (including photos, video, price, and location you've chosen to display), your loyalty tier badge, and messages you send in chat are visible to the users you interact with. Your raw phone number is not displayed publicly on your listings; it is protected at the database level and only accessed by the Service as needed to operate features such as verification.</p>
+
+<h3>6.2 With service providers</h3>
+<p>We share information with third-party service providers who process it on our behalf, under instructions from us, to help operate the Service, including:</p>
+<table>
+  <tr><th>Provider</th><th>Purpose</th><th>What's shared</th></tr>
+  <tr><td>Twilio</td><td>Phone number verification (SMS and WhatsApp one-time codes)</td><td>Phone number, verification code and result</td></tr>
+  <tr><td>Anthropic</td><td>AI-assisted listing suggestions and bilingual translation</td><td>Photos and/or text you submit to the AI-assisted listing feature</td></tr>
+  <tr><td>Supabase</td><td>Database, authentication, real-time chat infrastructure, and file storage</td><td>Account, listing, chat, and media data needed to operate the Service</td></tr>
+  <tr><td>Bunny.net</td><td>Content delivery network for images and video</td><td>Listing photos, video, and 360° spin media</td></tr>
+</table>
+<p>These providers are only permitted to use the information we share with them to provide services to Vevaty, not for their own independent purposes, and are bound by contractual or platform-level confidentiality and data protection obligations. This list reflects our infrastructure as of August 2026 and may change as the Service evolves; we will update this Policy when it does.</p>
+
+<h3>6.3 For legal reasons</h3>
+<p>We may disclose information if we believe in good faith that doing so is required by law, regulation, legal process, or governmental request, or is necessary to protect the rights, property, or safety of Vevaty, our users, or the public, or to detect, prevent, or address fraud, security, or technical issues.</p>
+
+<h3>6.4 Business transfers</h3>
+<p>If Vevaty is involved in a merger, acquisition, financing, reorganization, or sale of some or all of its assets, information may be transferred as part of that transaction. We will provide notice before information becomes subject to a different privacy policy as a result.</p>
+
+<h2>7. Cookies and Tracking Technologies</h2>
+<p>The Vevaty website uses cookies and similar technologies for purposes such as keeping you signed in between visits, remembering your language preference (English/Arabic), and understanding aggregate usage of the site so we can improve it. Most browsers let you refuse or delete cookies through their settings; doing so may affect features that depend on them, such as staying signed in. We do not currently use third-party advertising cookies.</p>
+
+<h2>8. Data Retention</h2>
+<p>We retain information for as long as needed to provide the Service and for legitimate business purposes, such as maintaining your listing history, resolving disputes, enforcing our Terms &amp; Conditions of Use, and complying with legal obligations. If you delete your account, we will delete or de-identify your personal information within a reasonable period, except where we are permitted or required to retain it — for example, reports and moderation records related to a Terms violation, or information needed to comply with law.</p>
+
+<h2>9. Data Security</h2>
+<p>We use technical and organizational measures designed to protect information against unauthorized access, alteration, disclosure, or destruction, including restricting sensitive fields such as raw phone numbers at the database permission level rather than relying only on interface-level hiding, and requiring a separate, second-factor-protected (TOTP) administrator identity for any privileged access — a regular user session can never reach administrator functions. No method of transmission or storage is completely secure, and we cannot guarantee absolute security.</p>
+
+<h2>10. Children's Privacy and Minimum Age</h2>
+<p>The Service is not directed to children under 13, and we do not knowingly collect personal information from anyone under 13. If we learn that we have collected personal information from a child under 13, we will take steps to delete it.</p>
+<p>Users between the ages of 13 and 17 may use the Service only with the involvement and consent of a parent or legal guardian, who is responsible for supervising the minor's use of the Service, including any listings posted, messages sent, or in-person arrangements made as a result of using Vevaty. Certain activities — including posting a listing, completing a transaction, or exchanging contact details or meeting arrangements with another user — carry real-world safety considerations, and a parent or guardian should be directly involved before a minor engages in them. Vevaty does not verify family relationships or guardianship and relies on parents and guardians to supervise minors' use of the Service accordingly.</p>
+<p>If you are a parent or guardian and believe your child has provided us with personal information without your consent, please contact us at support@vevaty.com so we can address it.</p>
+
+<h2>11. Your Rights and Choices</h2>
+<p>Depending on where you live, you may have rights regarding your personal information, which can include the right to access the personal information we hold about you, request correction of inaccurate information, request deletion of your information or your account, object to or restrict certain processing, and request a copy of your information in a portable format. You can exercise many of these directly within the app (for example, editing or deleting a listing, or deleting your account), or by contacting us at support@vevaty.com. We will respond to verified requests within the time required by applicable law.</p>
+<p>If you are located in the European Economic Area, the United Kingdom, or another jurisdiction with a comprehensive data protection law, you may have additional rights under that law, including the right to lodge a complaint with your local data protection authority. If you are a California resident, you may have rights under the California Consumer Privacy Act and similar state laws, including the right to know, delete, and correct personal information, and the right to non-discrimination for exercising these rights; Vevaty does not sell personal information as defined by these laws.</p>
+
+<h2>12. International Data Transfers</h2>
+<p>Vevaty's service providers may store and process information in countries other than the one where you are located, including the United States and countries in the European Union, where our infrastructure and AI providers operate. Where we transfer personal information across borders, we take steps intended to ensure it receives an adequate level of protection, consistent with applicable law.</p>
+
+<h2>13. Third-Party Links and Services</h2>
+<p>The Service may contain links to third-party websites or services (for example, a seller's own social media, or a link shared in chat) that are not operated by Vevaty. We are not responsible for the privacy practices of third parties, and we encourage you to review their privacy policies before providing them with information.</p>
+
+<h2>14. Changes to This Policy</h2>
+<p>We may update this Privacy Policy from time to time to reflect changes in our practices, the Service, or legal requirements. If we make material changes, we will provide notice — such as an in-app notice or an update to the "effective date" above — before the changes take effect. Your continued use of the Service after a change becomes effective constitutes acceptance of the updated Policy.</p>
+
+<h2>15. Contact Us</h2>
+<p>If you have questions, concerns, or requests regarding this Privacy Policy or how Vevaty handles your information, please contact us at <b>support@vevaty.com</b>.</p>
+  </div>
+</div>
+
+
+<footer class="vev-footer">
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <span class="vev-logo"><svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:22px;">vevaty</span></span>
+        <p class="tagline">The marketplace built on verification, not volume.</p>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/about.html">About Us</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="/privacy-policy.html" aria-current="page">Privacy Policy</a></li>
+          <li><a href="/terms.html">Terms &amp; Conditions</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="mailto:support@vevaty.com">support@vevaty.com</a></li>
+          <li><a href="https://vevaty.com">vevaty.com</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 Vevaty. All rights reserved.</span>
+    <div class="legal-links">
+      <a href="/privacy-policy.html" aria-current="page">Privacy Policy</a>
+      <a href="/terms.html">Terms of Use</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

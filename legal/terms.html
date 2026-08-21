@@ -1,0 +1,254 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1" />
+<title>Terms &amp; Conditions of Use — Vevaty</title>
+<style>
+  * { box-sizing: border-box; }
+  html, body { margin: 0; padding: 0; }
+  body {
+    font-family: 'Inter', -apple-system, BlinkMacSystemFont, 'Segoe UI', Helvetica, Arial, sans-serif;
+    color: #1C2420;
+    background: #F4F3EE;
+    font-size: 15.5px;
+    line-height: 1.65;
+  }
+  a { color: #0F3D2E; }
+  .site-header {
+    background: #0F3D2E;
+    color: #fff;
+    padding: 18px 24px;
+  }
+  .site-header .inner { max-width: 1120px; margin: 0 auto; display:flex; align-items:center; justify-content:space-between; }
+  .vev-logo { display:inline-flex; align-items:center; gap:8px; text-decoration:none; }
+  .vev-logo-word { font-weight: 800; letter-spacing: -0.01em; }
+  .site-header nav { display:flex; gap: 22px; font-size: 14px; }
+  .site-header nav a { color: rgba(255,255,255,0.85); text-decoration:none; }
+  .site-header nav a:hover { color: #fff; }
+
+  /* --- page container: this is the "restricted width" wrapper --- */
+  .page-hero {
+    background: linear-gradient(160deg, #0F3D2E 0%, #0A2E22 100%);
+    color: #fff;
+    padding: 56px 24px 64px;
+    text-align: center;
+  }
+  .page-hero .tag { display:inline-block; background: rgba(255,255,255,0.12); border: 1px solid rgba(255,255,255,0.35); color: white; padding: 5px 14px; border-radius: 999px; font-size: 11px; letter-spacing: 0.08em; text-transform: uppercase; margin-bottom: 16px; }
+  .page-hero h1 { margin: 0 0 10px 0; font-size: 34px; color: #fff; letter-spacing: -0.01em; }
+  .page-hero p { margin: 0; color: #F6EBD3; font-size: 15px; }
+  .page-hero .meta { margin-top: 18px; color: rgba(255,255,255,0.65); font-size: 12.5px; }
+
+  .page-container {
+    max-width: 820px;         /* <-- the content no longer spans the full page width */
+    margin: -32px auto 0 auto;
+    padding: 0 20px 64px 20px;
+  }
+  .page-card {
+    background: #fff;
+    border: 1px solid #E4E2DA;
+    border-radius: 14px;
+    box-shadow: 0 8px 30px rgba(15,61,46,0.08);
+    padding: 44px 48px;
+  }
+  @media (max-width: 640px) {
+    .page-container { padding: 0 12px 48px 12px; }
+    .page-card { padding: 28px 22px; border-radius: 10px; }
+    .page-hero { padding: 40px 18px 52px; }
+    .page-hero h1 { font-size: 26px; }
+  }
+
+  h2 { font-family:'Inter',sans-serif; font-weight: 800; color: #0F3D2E; font-size: 19px; margin: 30px 0 10px 0; padding-bottom: 6px; border-bottom: 2px solid #D9A441; }
+  h2:first-child { margin-top: 0; }
+  h3 { font-family:'Inter',sans-serif; font-weight: 800; color: #0A2E22; font-size: 15px; margin: 20px 0 8px 0; }
+  p { margin: 0 0 13px 0; }
+  ul, ol { margin: 6px 0 14px 0; padding-left: 22px; }
+  li { margin-bottom: 7px; }
+  table { width: 100%; border-collapse: collapse; margin: 12px 0 18px 0; font-size: 13.5px; }
+  th { background: #0F3D2E; color: white; text-align: left; padding: 9px 11px; font-weight: 700; font-size: 12.5px; }
+  td { padding: 9px 11px; border-bottom: 1px solid #E4E2DA; vertical-align: top; }
+  tr:nth-child(even) td { background: #FAF9F6; }
+  .callout { background: #F6EBD3; border-left: 4px solid #D9A441; padding: 12px 16px; border-radius: 6px; margin: 14px 0; font-size: 13.5px; }
+  .callout b { color: #0A2E22; }
+  .card { background: #FAF9F6; border: 1px solid #E4E2DA; border-radius: 10px; padding: 16px 18px; margin: 12px 0; }
+  .grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; }
+  @media (max-width: 560px) { .grid2 { grid-template-columns: 1fr; } }
+  .kicker { font-size: 10.5px; text-transform: uppercase; letter-spacing: 0.08em; color: #626A67; font-weight: 700; margin-bottom: 4px; }
+  .page-updated { font-size: 12.5px; color: #626A67; margin: 0 0 26px 0; padding-bottom: 18px; border-bottom: 1px solid #E4E2DA; }
+  mark.flag { background: #FCE300; color: #1C2420; font-weight: 700; padding: 1px 5px; border-radius: 3px; box-decoration-break: clone; -webkit-box-decoration-break: clone; }
+
+  /* ---------------- SITE-WIDE FOOTER ---------------- */
+  .vev-footer { background: #0A2E22; color: rgba(255,255,255,0.75); }
+  .vev-footer .footer-inner { max-width: 1120px; margin: 0 auto; padding: 52px 24px 28px; }
+  .vev-footer .footer-grid { display:grid; grid-template-columns: 1.6fr 1fr 1fr 1.2fr; gap: 32px; }
+  @media (max-width: 760px) { .vev-footer .footer-grid { grid-template-columns: 1fr 1fr; } }
+  @media (max-width: 480px) { .vev-footer .footer-grid { grid-template-columns: 1fr; } }
+  .vev-footer .footer-brand .vev-logo { margin-bottom: 12px; }
+  .vev-footer .footer-brand .tagline { font-size: 13px; color: rgba(255,255,255,0.55); max-width: 260px; line-height: 1.6; }
+  .vev-footer h4 { font-size: 11px; text-transform: uppercase; letter-spacing: 0.08em; color: rgba(255,255,255,0.45); font-weight: 700; margin: 0 0 14px 0; }
+  .vev-footer ul { list-style:none; margin:0; padding:0; }
+  .vev-footer li { margin-bottom: 10px; }
+  .vev-footer a { color: rgba(255,255,255,0.78); text-decoration: none; font-size: 14px; }
+  .vev-footer a:hover { color: #D9A441; }
+  .vev-footer .footer-bottom { max-width: 1120px; margin: 0 auto; padding: 18px 24px 26px; border-top: 1px solid rgba(255,255,255,0.12); display:flex; align-items:center; justify-content:space-between; flex-wrap: wrap; gap: 10px; }
+  .vev-footer .footer-bottom span { font-size: 12.5px; color: rgba(255,255,255,0.45); }
+  .vev-footer .footer-bottom .legal-links { display:flex; gap: 18px; }
+  .vev-footer .footer-bottom .legal-links a { font-size: 12.5px; }
+</style>
+</head>
+<body>
+
+<header class="site-header">
+  <div class="inner">
+    <span class="vev-logo"><svg width="26" height="26" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:20px;">vevaty</span></span>
+    <nav>
+      <a href="/">Home</a>
+      <a href="/about.html">About</a>
+      <a href="/privacy-policy.html">Privacy</a>
+      <a href="/terms.html" aria-current="page">Terms</a>
+    </nav>
+  </div>
+</header>
+
+<div class="page-hero">
+  <div class="tag">Terms &amp; Conditions</div>
+  <h1>Terms &amp; Conditions of Use</h1>
+  <p>The agreement between you and Vevaty for using vevaty.com and the Vevaty app.</p>
+</div>
+
+<div class="page-container">
+  <div class="page-card">
+    <p class="page-updated">Effective date: [TO BE INSERTED ON PUBLICATION]</p>
+    <h2>1. Acceptance of These Terms</h2>
+<p>These Terms &amp; Conditions of Use ("Terms") form a binding agreement between you and Vevaty ("Vevaty," "we," "us," or "our"), governing your access to and use of the Vevaty website (vevaty.com), the Vevaty mobile application, and related services (together, the "Service"). By creating an account, browsing listings, posting a listing, or otherwise using the Service, you agree to these Terms. If you do not agree, do not use the Service.</p>
+<p>Our <a href="#">Privacy Policy</a> describes how we collect and use information and is incorporated into these Terms by reference.</p>
+
+<h2>2. Eligibility and Accounts</h2>
+<p>You must be at least 13 years old to use the Service. If you are between 13 and 17 years old, you may use the Service only with the involvement and consent of a parent or legal guardian, who is responsible for supervising your use of the Service, including any listing you post, message you send, or in-person arrangement you make as a result of using Vevaty. We may require you to confirm your age or parental consent at any time, and we may suspend or terminate an account where we reasonably believe these requirements are not met.</p>
+<p>Browsing listings does not require an account. Posting a listing requires verifying a real phone number through our verification process (via SMS or WhatsApp one-time code). You agree to provide a phone number you own or are authorized to use, and to keep your account information accurate and up to date. You are responsible for all activity that occurs under your account, and for keeping your verification codes and account access confidential. Notify us promptly at support@vevaty.com if you believe your account has been compromised.</p>
+<p>You may not create an account for anyone other than yourself, maintain more than one account for deceptive purposes, or use the Service if you have previously been suspended or removed from it, unless we give you written permission.</p>
+
+<h2>3. What Vevaty Is — and Isn't</h2>
+<p>Vevaty is a marketplace platform that lets sellers list items and services and lets buyers discover, filter, and communicate with sellers about them. <b>Vevaty is not a party to any transaction between a buyer and a seller.</b> We do not own, inspect, guarantee, or take title to any item listed on the Service, and we do not currently process payments on behalf of users. Any exchange of money, goods, or services that results from using Vevaty happens directly between the buyer and seller, entirely outside of Vevaty, and at their own risk and discretion.</p>
+<p>Because we are not involved in the actual transaction, we cannot guarantee that any listing is accurate, that any seller will complete a sale, that any buyer will complete a purchase, or that any item exchanged will match its listing. Section 15 (Disclaimers) and Section 16 (Limitation of Liability) describe this in more detail.</p>
+
+<h2>4. Listings and User Content</h2>
+<p>"User Content" means anything you submit to the Service, including listing text, photos, video, 360° photo-spin captures, category and attribute answers, chat messages, ratings, and reports. You retain ownership of your User Content. By submitting it, you grant Vevaty a non-exclusive, worldwide, royalty-free license to host, store, reproduce, display, translate (including through AI-assisted translation, see Section 5), and distribute it as needed to operate and promote the Service — for example, showing your listing to other users, or generating an English version of an Arabic listing.</p>
+<p>You represent that you own or have the necessary rights to any User Content you submit, that it does not infringe anyone else's rights, and that any item or service you list is one you have the legal right to sell, rent, or offer. Listings must be accurate: you may not misrepresent an item's condition, specifications, price, or ownership, or use photos that are not genuinely of the item being sold (see also our Brand and product guidance discouraging stock or misleading imagery).</p>
+<p>The following may not be listed on Vevaty, without limitation: items whose sale is illegal under applicable law; stolen goods; weapons, ammunition, or explosives; illegal drugs or drug paraphernalia; counterfeit or unauthorized replica goods; live animals where prohibited by law; adult content or services; items facilitating fraud, hacking, or unauthorized access to systems; and any listing that is deceptive, defamatory, hateful, or otherwise violates these Terms or applicable law.</p>
+<p>Listings are published immediately upon submission and reviewed afterward (see Section 10, Reports and Moderation), rather than pre-approved before going live. We may remove any listing or User Content, at any time and without prior notice, that we reasonably believe violates these Terms or applicable law.</p>
+
+<h2>5. AI-Assisted Features</h2>
+<p>Vevaty offers optional AI-assisted tools — including "magic listing," which can generate a draft listing from photos you provide, and bilingual translation between Arabic and English. These tools are provided for convenience and <b>may produce suggestions that are inaccurate, incomplete, or require correction.</b> You are solely responsible for reviewing, editing, and confirming the accuracy of any AI-generated content before it is published as part of your listing. Vevaty is not responsible for inaccuracies in AI-generated suggestions that you choose to publish without correcting them.</p>
+
+<h2>6. Prohibited Conduct</h2>
+<p>In addition to the listing restrictions in Section 4, you agree not to:</p>
+<ul>
+  <li>Circumvent, disable, or attempt to bypass phone verification or any other security or access-control feature of the Service;</li>
+  <li>Harass, threaten, defraud, impersonate, or deceive another user;</li>
+  <li>Use the Service to collect other users' personal information for purposes unrelated to a specific transaction, or to spam, solicit, or advertise outside of a legitimate listing;</li>
+  <li>Scrape, crawl, or use automated means to access or extract data from the Service, except as permitted by robots.txt or with our prior written consent;</li>
+  <li>Reverse-engineer, decompile, or attempt to extract the source code of the Service, except to the extent applicable law expressly permits it;</li>
+  <li>Interfere with or disrupt the integrity or performance of the Service, including through malware, denial-of-service activity, or unauthorized access attempts;</li>
+  <li>Use the Service for any purpose that is illegal, or that facilitates illegal activity, in your jurisdiction or the <mark class="flag">[LAUNCH MARKET]</mark>; or</li>
+  <li>Violate any applicable law in connection with your use of the Service.</li>
+</ul>
+
+<h2>7. Verification, Trust, and Safety</h2>
+<p>Phone verification confirms that a seller has demonstrated control of a real, working phone number at the time of verification. <b>It is not a background check, an identity check, a character reference, or any guarantee of a user's honesty, legality of their listings, or the quality, safety, or legal ownership of any item.</b> Loyalty tiers, badges, and Shop "Verified Business" status similarly reflect specific criteria we define — such as account activity or an administrator's manual review — and are not a guarantee about any user or transaction.</p>
+<p>Because buyers and sellers arrange and complete transactions directly and often in person, you are solely responsible for exercising judgment and taking reasonable precautions — such as meeting in a safe, public location, inspecting an item before paying, and never sending payment or sensitive information to someone you have not verified to your own satisfaction. Vevaty is not responsible for the conduct of any user, on or off the Service, or for any transaction, meeting, or exchange that results from using the Service.</p>
+
+<h2>8. In-App Chat</h2>
+<p>In-app chat is provided to let buyers and sellers communicate without exchanging personal phone numbers up front. Messages are subject to Section 6 (Prohibited Conduct) and may be reviewed if reported. Do not use chat to share information you would not want retained as part of your account's message history, and do not rely on chat for communications requiring guaranteed delivery or long-term storage — Vevaty may not preserve message history indefinitely (see our Privacy Policy, Section 8, Data Retention).</p>
+
+<h2>9. Fees</h2>
+<p>As of the date of these Terms, creating an account, posting an individual listing, and using core buyer and seller features is free. Vevaty is developing additional features — including Shops (branded storefronts, discussed in Section 12) — that may in the future be offered on a paid plan or subscription basis. We will provide clear notice of any pricing before you are charged, and no fees will be charged to your account without your affirmative agreement at the time.</p>
+
+<h2>10. Reports, Moderation, and Enforcement</h2>
+<p>Any user can report a listing or another user for review. We may, in our discretion and with or without notice, remove or edit listings or other User Content, warn, suspend, or terminate accounts, and take any other action we consider appropriate in response to a report or a suspected violation of these Terms or applicable law. Moderation decisions are made using the information available to us at the time and are not a guarantee that a listing or user complies, or does not comply, with our policies or the law.</p>
+
+<h2>11. Loyalty Program</h2>
+<p>Vevaty's loyalty tiers (Bronze, Silver, Gold, and Diamond) and any associated points or status are provided at Vevaty's discretion, have no cash value, are not transferable, and may be modified, reset, or discontinued at any time. Loyalty status does not constitute a verification, endorsement, or guarantee of any kind about the user who holds it.</p>
+
+<h2>12. Shops</h2>
+<p>"Shops" are branded storefront pages available to dealers, agencies, and other repeat sellers, in addition to their individual listings. Creating a Shop requires phone verification, the same as posting an individual listing, and a Shop becomes publicly visible once an administrator reviews and verifies it. Use of Shops is subject to these Terms in full, including Section 4 (Listings and User Content) for anything you display on a Shop page. Shops are free to create and use as of the date of these Terms; if we introduce a paid Shop plan in the future, Section 9 (Fees) governs how we will notify you before any charge applies.</p>
+
+<h2>13. Intellectual Property</h2>
+<p>The Service, including its design, logo, trademarks, text, graphics, and underlying software (but excluding User Content), is owned by Vevaty or its licensors and is protected by intellectual property laws. Except for the rights expressly granted to you to use the Service, we reserve all rights, title, and interest in and to the Service. You may not use Vevaty's name, logo, or branding without our prior written permission.</p>
+
+<h2>14. Third-Party Services and Links</h2>
+<p>The Service relies on third-party infrastructure providers (described in our Privacy Policy) and may contain links to third-party websites or services. Vevaty does not control and is not responsible for third-party websites, services, or content, and linking to them does not imply endorsement.</p>
+
+<h2>15. Disclaimers</h2>
+<p>THE SERVICE, AND ALL CONTENT AND FEATURES MADE AVAILABLE THROUGH IT, ARE PROVIDED "AS IS" AND "AS AVAILABLE," WITHOUT WARRANTIES OF ANY KIND, WHETHER EXPRESS, IMPLIED, OR STATUTORY, INCLUDING IMPLIED WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, TITLE, AND NON-INFRINGEMENT, TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW. VEVATY DOES NOT WARRANT THAT THE SERVICE WILL BE UNINTERRUPTED, ERROR-FREE, OR SECURE, THAT ANY LISTING IS ACCURATE OR THAT ANY USER IS WHO THEY CLAIM TO BE, OR THAT AI-GENERATED SUGGESTIONS WILL BE ACCURATE. YOU USE THE SERVICE, AND ENGAGE WITH OTHER USERS AND ANY RESULTING TRANSACTION, AT YOUR OWN RISK.</p>
+
+<h2>16. Limitation of Liability</h2>
+<p>TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, VEVATY AND ITS OFFICERS, EMPLOYEES, AND SERVICE PROVIDERS WILL NOT BE LIABLE FOR ANY INDIRECT, INCIDENTAL, SPECIAL, CONSEQUENTIAL, OR PUNITIVE DAMAGES, OR ANY LOSS OF PROFITS, DATA, GOODWILL, OR OTHER INTANGIBLE LOSSES, ARISING FROM OR RELATED TO YOUR USE OF THE SERVICE, ANY TRANSACTION OR INTERACTION WITH ANOTHER USER, OR THESE TERMS — EVEN IF WE HAVE BEEN ADVISED OF THE POSSIBILITY OF SUCH DAMAGES. TO THE MAXIMUM EXTENT PERMITTED BY APPLICABLE LAW, VEVATY'S TOTAL LIABILITY FOR ANY CLAIM ARISING FROM THESE TERMS OR THE SERVICE WILL NOT EXCEED THE GREATER OF (A) THE AMOUNT YOU PAID VEVATY, IF ANY, IN THE TWELVE MONTHS BEFORE THE CLAIM AROSE, OR (B) [PLACEHOLDER AMOUNT — TO BE SET WITH LEGAL COUNSEL]. SOME JURISDICTIONS DO NOT ALLOW CERTAIN LIMITATIONS, SO SOME OF THE ABOVE MAY NOT APPLY TO YOU.</p>
+
+<h2>17. Indemnification</h2>
+<p>You agree to defend, indemnify, and hold harmless Vevaty and its officers, employees, and service providers from any claim, liability, damage, loss, and expense (including reasonable legal fees) arising out of or related to your User Content, your use of the Service, your violation of these Terms, or your interaction or transaction with another user.</p>
+
+<h2>18. Termination</h2>
+<p>You may stop using the Service or delete your account at any time. We may suspend or terminate your access to the Service, in whole or in part, at any time, with or without notice, including for violation of these Terms, suspected fraud or abuse, or as required by law. Sections of these Terms that by their nature should survive termination — including Sections 4 (as to content already licensed), 13, 15, 16, 17, and 19 — will survive.</p>
+
+<h2>19. Governing Law and Dispute Resolution</h2>
+<p>These Terms are governed by the laws of <mark class="flag">[GOVERNING LAW AND JURISDICTION — TBD]</mark> — to be determined by legal counsel once the launch market and operating entity are finalized; the Vevaty Business Strategy documentation has considered UAE entity formation among other options, but no country of operation has been finalized as of the date of this draft — without regard to its conflict-of-law principles. [Dispute resolution mechanism — such as courts of a specified jurisdiction, or arbitration — to be specified by legal counsel once the governing law and operating entity are finalized.]</p>
+
+<h2>20. Changes to These Terms</h2>
+<p>We may update these Terms from time to time to reflect changes in the Service, our practices, or legal requirements. If we make material changes, we will provide notice — such as an in-app notice or an update to the "effective date" above — before the changes take effect. Your continued use of the Service after a change becomes effective constitutes acceptance of the updated Terms. If you do not agree to updated Terms, you must stop using the Service.</p>
+
+<h2>21. Miscellaneous</h2>
+<p>If any provision of these Terms is found unenforceable, the remaining provisions will remain in full force and effect. Our failure to enforce any provision is not a waiver of our right to do so later. You may not assign these Terms or your account without our written consent; we may assign these Terms in connection with a merger, acquisition, or sale of assets (see our Privacy Policy, Section 6.4). These Terms, together with our Privacy Policy, constitute the entire agreement between you and Vevaty regarding the Service and supersede any prior agreements on the subject.</p>
+
+<h2>22. Contact Us</h2>
+<p>Questions about these Terms can be directed to <b>support@vevaty.com</b>.</p>
+  </div>
+</div>
+
+
+<footer class="vev-footer">
+  <div class="footer-inner">
+    <div class="footer-grid">
+      <div class="footer-brand">
+        <span class="vev-logo"><svg width="28" height="28" viewBox="0 0 32 32" fill="none" xmlns="http://www.w3.org/2000/svg" aria-hidden="true">
+    <path d="M14.2 3.5H26a2.5 2.5 0 0 1 2.5 2.5v11.8a2.5 2.5 0 0 1-.73 1.77L16.27 30.07a2.5 2.5 0 0 1-3.54 0L3.93 21.27a2.5 2.5 0 0 1 0-3.54L12.43 9.23a2.5 2.5 0 0 1 1.77-.73" stroke="#FFFFFF" stroke-width="2.4" stroke-linejoin="round" fill="none"/>
+    <circle cx="21.5" cy="10.5" r="2.6" fill="#D9A441"/>
+  </svg><span class="vev-logo-word" style="color:#FFFFFF; font-size:22px;">vevaty</span></span>
+        <p class="tagline">The marketplace built on verification, not volume.</p>
+      </div>
+      <div>
+        <h4>Company</h4>
+        <ul>
+          <li><a href="/">Home</a></li>
+          <li><a href="/about.html">About Us</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Legal</h4>
+        <ul>
+          <li><a href="/privacy-policy.html">Privacy Policy</a></li>
+          <li><a href="/terms.html" aria-current="page">Terms &amp; Conditions</a></li>
+        </ul>
+      </div>
+      <div>
+        <h4>Contact</h4>
+        <ul>
+          <li><a href="mailto:support@vevaty.com">support@vevaty.com</a></li>
+          <li><a href="https://vevaty.com">vevaty.com</a></li>
+        </ul>
+      </div>
+    </div>
+  </div>
+  <div class="footer-bottom">
+    <span>&copy; 2026 Vevaty. All rights reserved.</span>
+    <div class="legal-links">
+      <a href="/privacy-policy.html">Privacy Policy</a>
+      <a href="/terms.html" aria-current="page">Terms of Use</a>
+    </div>
+  </div>
+</footer>
+</body>
+</html>

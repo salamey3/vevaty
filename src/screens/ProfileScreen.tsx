@@ -17,6 +17,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { TIER_LABELS } from '../i18n/translations';
 import { listingTitle } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
+import { openLegalPage } from '../lib/legalLinks';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -159,6 +160,28 @@ export default function ProfileScreen() {
             </Pressy>
             <Pressy onPress={() => setLanguage('ar')} style={[styles.langOption, language === 'ar' && styles.langOptionActive]}>
               <Text style={[styles.langLabel, language === 'ar' && styles.langLabelActive]}>{t('language.arabic')}</Text>
+            </Pressy>
+          </View>
+        </View>
+
+        {/* About Us / Privacy Policy / Terms & Conditions are static HTML
+            pages, not app screens (see legalLinks.ts) -- this is the one
+            place they're reachable from the mobile and native UI, since the
+            equivalent site-wide footer (TabBar.tsx) is desktop-web only. */}
+        <View style={styles.section}>
+          <Text style={styles.sectionLabel}>{t('profile.aboutSection')}</Text>
+          <View style={styles.aboutList}>
+            <Pressy onPress={() => openLegalPage('about')} style={styles.adminBtn}>
+              <Icon name="globe" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('nav.aboutUs')}</Text>
+            </Pressy>
+            <Pressy onPress={() => openLegalPage('privacy')} style={styles.adminBtn}>
+              <Icon name="lock" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('nav.privacyPolicy')}</Text>
+            </Pressy>
+            <Pressy onPress={() => openLegalPage('terms')} style={styles.adminBtn}>
+              <Icon name="checkCircle" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('nav.termsOfUse')}</Text>
             </Pressy>
           </View>
         </View>
@@ -353,6 +376,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line,
   },
   historyAmount: { fontSize: 13.5, fontWeight: '700', color: colors.success },
+  aboutList: { gap: 10 },
   langRow: { flexDirection: 'row', gap: 10 },
   langOption: {
     flex: 1, height: 44, borderRadius: radius.md, backgroundColor: colors.card,
