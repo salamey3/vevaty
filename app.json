@@ -9,6 +9,7 @@
     "userInterfaceStyle": "light",
     "backgroundColor": "#F4F3EE",
     "ios": {
+      "bundleIdentifier": "com.vevaty.app",
       "supportsTablet": true
     },
     "android": {

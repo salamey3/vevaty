@@ -48,6 +48,7 @@
     "verify": "tsc --noEmit",
     "build:web": "expo export --platform web && node build-standalone.mjs",
     "build:android": "npx --yes eas-cli build --platform android --profile preview",
+    "build:ios": "npx --yes eas-cli build --platform ios --profile preview",
     "publish:app": "node publish-app.mjs",
     "deploy:web": "node deploy-web.mjs",
     "ship": "node ship.mjs",
