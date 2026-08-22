@@ -9,7 +9,6 @@ import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
-import CategoryPicker from '../components/CategoryPicker';
 import PhotoGallery from '../components/PhotoGallery';
 import CameraCapture from '../components/CameraCapture';
 import SpinPreviewModal from '../components/SpinPreviewModal';
@@ -30,11 +29,12 @@ import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById,
 import SuggestInput from '../components/SuggestInput';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
-import MagicListingModal, { MAGIC_MAX_PHOTOS, MAGIC_MIN_PHOTOS } from '../components/MagicListingModal';
 import { classifyListingPhotos } from '../lib/classifyPhotos';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import ActionSheet from '../components/ActionSheet';
 import AiWorkingOverlay from '../components/AiWorkingOverlay';
+import CategorySuggestInput from '../components/CategorySuggestInput';
+import CategoryPickerModal from '../components/CategoryPickerModal';
 import {
   MAX_VIDEO_BYTES,
   MAX_VIDEO_SECONDS,
@@ -50,7 +50,7 @@ import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
 
-type StepKind = 'category' | 'photos' | 'spin' | 'specs' | 'stock' | 'details' | 'translate' | 'review';
+type StepKind = 'classify' | 'photos' | 'spin' | 'specs' | 'stock' | 'details' | 'translate' | 'review';
 
 // 360° spin capture frame count (Phase 3 item 7, raised from 8 to 12 after
 // feedback that 8 (≥45°/frame) read as too choppy for bigger items like
@@ -135,11 +135,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const [step, setStep] = useState(0);
   const [category, setCategory] = useState<CategoryId | null>(initialCategory);
-  // New vs used -- required alongside category on the wizard's very first
-  // step (see canNextByKind.category and the picker in the 'category'
-  // step's JSX below), not its own step: it's a single yes/no-style pick,
-  // not enough of a decision to earn a whole step the way photos/details
-  // do, and keeping it off the step list means it needs no changes to
+  // New vs used -- lives on the Classify step, alongside category
+  // confirmation (see canNextByKind.classify and the 'classify' step's
+  // JSX below), not its own step: it's a single yes/no-style pick, not
+  // enough of a decision to earn a whole step the way photos/details do,
+  // and keeping it off the step list means it needs no changes to
   // stepKinds or the Android/web back-navigation logic those rounds
   // already got right.
   const [condition, setCondition] = useState<'new' | 'used' | null>(editingListing?.condition ?? null);
@@ -365,106 +365,106 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // confirmed.
   const [shopChoiceResolved, setShopChoiceResolved] = useState<boolean>(false);
 
-  // --- Magic Listing -----------------------------------------------------
-  // The photo-first path: instead of picking a category and filling a form,
-  // the seller shows the app the item and the app works out the rest. This
-  // state is only the photo-collection step; once a category comes back the
-  // seller rejoins the normal wizard, which is deliberate -- the AI's answer
-  // lands in an editable form they walk through, never straight into a
-  // published listing.
-  const [magicVisible, setMagicVisible] = useState(false);
-  const [magicPhotos, setMagicPhotos] = useState<string[]>([]);
-  const [magicBusy, setMagicBusy] = useState(false);
-  const [magicError, setMagicError] = useState<string | null>(null);
-  // Set once a category comes back, so the jump to the next step happens
-  // after `cat` (and therefore stepKinds) has actually updated -- computing
-  // the target step in the same tick would use the old category's steps.
-  const [magicJumpPending, setMagicJumpPending] = useState(false);
-  // True once a Magic Listing has dropped the seller onto the Photos step,
-  // so that step can explain why they are looking at photos they have
-  // already taken.
-  const [magicLanded, setMagicLanded] = useState(false);
+  // --- Classify (AI category guess from photos) ---------------------------
+  // Replaces the old "Magic Listing" side-path: every listing now starts
+  // with photos, and this is what turns those photos into a category guess
+  // right on the next step, rather than needing a seller to tap a separate
+  // button first. See categoryResolved/showConfirmPill below for the full
+  // state model this drives.
+  //
+  // Immutable per screen-visit: the AI's classify guess. Only used to
+  // decide whether the confirm pill is shown, never re-read as "the
+  // current AI opinion" -- see showConfirmPill below.
+  const [aiCategoryId, setAiCategoryId] = useState<CategoryId | null>(null);
+  // Permanent once true for this screen instance. Flips only inside
+  // selectCategoryManually -- never from opening/closing the browse sheet
+  // without picking. Seeded true when editing a listing that already has a
+  // category, which is also what makes the classify auto-run effect below
+  // skip entirely for an edit: there's nothing to re-guess.
+  const [manuallyChosen, setManuallyChosen] = useState<boolean>(isEditMode && !!editingListing?.cat);
+  // Set only by tapping the confirm pill.
+  const [pillConfirmed, setPillConfirmed] = useState(false);
+  const [classifying, setClassifying] = useState(false);
+  const [classifyError, setClassifyError] = useState<string | null>(null);
+  // One-shot guard so the auto-run effect below fires the classify call at
+  // most once per screen-visit, the same way autoSuggestSignature guards
+  // applyAiSuggestion further down.
+  const [classifyAttempted, setClassifyAttempted] = useState(false);
+  // The Classify step's own typeahead query, and whether the "browse all
+  // categories" modal is open. Kept as plain state here rather than inside
+  // CategorySuggestInput/CategoryPickerModal themselves so a step change
+  // doesn't need to reset anything -- both components are fully controlled.
+  const [categoryQuery, setCategoryQuery] = useState('');
+  const [browseModalOpen, setBrowseModalOpen] = useState(false);
   // True while `title` holds the plain item name the classifier produced
   // rather than something the seller wrote. The auto-suggestion below
   // refuses to run when there is already a title -- the point being not to
   // overwrite the seller's own words -- and a machine-written seed was
-  // tripping that guard, so the Magic path stopped one step short of the
-  // research it exists to do: it filled in "eufy camera" and then sat there
-  // until the seller found the AI button and pressed it themselves.
+  // tripping that guard, so the classify path stopped one step short of
+  // the research it exists to do: it filled in "eufy camera" and then sat
+  // there until the seller found the AI button and pressed it themselves.
   const [titleIsMagicSeed, setTitleIsMagicSeed] = useState(false);
-  // Guided in-app capture for the Magic path, reusing the same CameraView
-  // the 360 spin uses. The counter under the shutter is the point: the
-  // seller sees "one more to go" while still holding the camera up, rather
-  // than discovering afterwards that they were a photo short.
-  const [magicCameraVisible, setMagicCameraVisible] = useState(false);
-  // Set when a guided capture completes, so analysis starts by itself. The
-  // seller has just watched the counter reach 3/3 -- asking them to then
-  // find and press a button says nothing they don't already know.
-  const [magicAutoAnalyze, setMagicAutoAnalyze] = useState(false);
 
-  useEffect(() => {
-    if (!magicAutoAnalyze) return;
-    setMagicAutoAnalyze(false);
-    if (magicPhotos.length >= MAGIC_MIN_PHOTOS) runMagic(magicPhotos);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [magicAutoAnalyze, magicPhotos]);
+  // Leaf-only, parent-qualified category options for both the classify
+  // call and CategorySuggestInput's typeahead -- one list, two consumers.
+  // Leaves only: those are the only categories a listing can actually be
+  // filed under, so offering "Vehicles" alongside "Cars for Sale" would
+  // just let the model (or the seller's search) answer with something the
+  // form can't accept.
+  const classifyCategoryOptions = useMemo(
+    () =>
+      allCategories
+        .filter((c) => c.active && childrenOf(c.id).length === 0)
+        .map((c) => {
+          const parent = c.parentId ? categoryById(c.parentId) : undefined;
+          return {
+            id: c.id,
+            name: language === 'ar' ? c.nameAr : c.nameEn,
+            parent: parent ? (language === 'ar' ? parent.nameAr : parent.nameEn) : undefined,
+          };
+        }),
+    [allCategories, childrenOf, categoryById, language]
+  );
 
-  const closeMagic = () => {
-    setMagicVisible(false);
-    setMagicError(null);
-  };
-
-  const runMagic = async (override?: string[]) => {
-    const source = override ?? magicPhotos;
-    setMagicBusy(true);
-    setMagicError(null);
+  const runClassify = async (source: string[]) => {
+    setClassifying(true);
+    setClassifyError(null);
     const payload = await photosForVision(source, AI_VISION_MAX_PHOTOS);
     if (payload.length === 0) {
-      setMagicBusy(false);
-      setMagicError(t('createListing.magicPhotoReadFailed'));
+      setClassifying(false);
+      setClassifyError(t('createListing.classifyPhotoReadFailed'));
       return;
     }
-    // Leaves only: those are the only categories a listing can actually be
-    // filed under, so offering "Vehicles" alongside "Cars for Sale" would
-    // just let the model answer with something the form can't accept.
-    const options = allCategories
-      .filter((c) => c.active && childrenOf(c.id).length === 0)
-      .map((c) => {
-        const parent = c.parentId ? categoryById(c.parentId) : undefined;
-        return {
-          id: c.id,
-          name: language === 'ar' ? c.nameAr : c.nameEn,
-          parent: parent ? (language === 'ar' ? parent.nameAr : parent.nameEn) : undefined,
-        };
-      });
-    const { data, error } = await classifyListingPhotos(payload, options, language);
-    setMagicBusy(false);
+    const { data, error } = await classifyListingPhotos(payload, classifyCategoryOptions, language);
+    setClassifying(false);
     if (error) {
-      setMagicError(error.message);
+      setClassifyError(error.message);
       return;
     }
     if (!data?.categoryId) {
       // An explicit "I can't tell" from the qualifier. The photos are still
-      // worth keeping -- the seller picks the category by hand and the rest
-      // of the flow (including the AI title/description pass) carries on
-      // from there, so nothing they've done is wasted.
-      setPhotos((prev) => [...prev, ...source].slice(0, PHOTOS_MAX));
-      setMagicPhotos([]);
-      closeMagic();
-      Alert.alert(t('createListing.magicUnsureTitle'), t('createListing.magicUnsureMessage'));
+      // worth keeping -- the seller picks the category by hand (mandatory,
+      // no pill) and the rest of the flow carries on from there, so
+      // nothing they've done is wasted.
       return;
     }
+    setAiCategoryId(data.categoryId);
     setCategory(data.categoryId);
-    setPhotos((prev) => [...prev, ...source].slice(0, PHOTOS_MAX));
     // A plain name for the item, which the AI suggestion pass then uses as
     // its seed and rewrites into a proper listing title.
     if (data.itemName && !title.trim()) {
       setTitle(data.itemName);
       setTitleIsMagicSeed(true);
     }
-    setMagicPhotos([]);
-    setMagicJumpPending(true);
-    closeMagic();
+  };
+
+  // Single entry point for both the typeahead's onSelect and the browse
+  // modal's onSelect -- any actual manual pick removes the confirm pill
+  // permanently for this screen, regardless of what value was picked or
+  // whether the pill had already been tapped (see showConfirmPill below).
+  const selectCategoryManually = (id: CategoryId) => {
+    setCategory(id);
+    setManuallyChosen(true);
   };
 
   // Keeps whichever field has focus above the keyboard. See the hook for
@@ -507,10 +507,21 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const isPropertyCategory = category ? categoryMatches(category, 'properties') : false;
   const spinLabelSuggestions = spinLabelSuggestionsFor(isVehicleCategory, isPropertyCategory, language);
 
+  // True once category has an actual, trustworthy value behind it -- either
+  // the seller picked it by hand, or they tapped the confirm pill on the
+  // AI's guess. Gates both the auto-suggest effect below (see its own doc
+  // comment) and canNextByKind.classify.
+  const categoryResolved = !!category && (manuallyChosen || pillConfirmed);
+  // Pill visibility never reads pillConfirmed -- only whether there's
+  // still an unconfirmed AI guess standing. This is what makes "manually
+  // reselect the same value the AI guessed" correctly NOT bring the pill
+  // back: once manuallyChosen flips true, the pill is gone for good.
+  const showConfirmPill = !!aiCategoryId && !manuallyChosen;
+
   const stepKinds: StepKind[] = useMemo(
     () => [
-      'category',
       'photos',
+      'classify',
       ...(cat?.supports3d ? (['spin'] as const) : []),
       ...(hasSpecs ? (['specs'] as const) : []),
       ...(hasStockStep ? (['stock'] as const) : []),
@@ -521,33 +532,28 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     [hasSpecs, cat?.supports3d, hasStockStep]
   );
 
+  // Auto-runs the classifier once there's enough photos to work from --
+  // deliberately NOT gated on currentKind, so it can start firing in the
+  // background the moment the seller crosses the photo threshold on the
+  // Photos step, before they've even tapped Continue onto Classify (same
+  // early-start idea as applyAiSuggestion's own auto-run effect below).
+  // Skips entirely once manuallyChosen is already true, which covers both
+  // "seller picked a category by hand" and "editing an already-categorized
+  // listing" (see manuallyChosen's own initializer above) with one check --
+  // never re-classifies already-published photos, never risks the AI
+  // silently changing an editor's category.
   useEffect(() => {
-    if (!magicJumpPending || !cat) return;
-    // Land ON the photos step, not past it.
-    //
-    // This used to skip to whatever came next (spin, specs or details) on
-    // the reasoning that Magic had already collected photos. But the three
-    // photos Magic asks for are the ones the MODEL needs to recognise the
-    // item -- which is not the same set a buyer needs to decide to message
-    // you -- and the video control lives on this step too. Skipping it meant
-    // a listing created through Magic could never gain a fourth photo or a
-    // video at all, which is a strange thing for the fast path to cost you.
-    //
-    // Nothing is lost by stopping here: the AI title/description pass fires
-    // on its own from the photos just set (see the auto-trigger effect
-    // below), so it is still running in the background while the seller
-    // decides whether to add anything.
-    const photosStep = stepKinds.indexOf('photos');
-    setStep(photosStep >= 0 ? photosStep : 0);
-    setMagicLanded(true);
-    setMagicJumpPending(false);
-  }, [magicJumpPending, cat, stepKinds]);
+    if (!hasEnoughPhotosForAi || manuallyChosen || classifyAttempted || classifying) return;
+    setClassifyAttempted(true);
+    runClassify(photos);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [hasEnoughPhotosForAi, manuallyChosen, classifyAttempted, classifying]);
 
   // Drives both the camera's own cap and the "you already have six" refusal.
   const photosRemaining = Math.max(0, PHOTOS_MAX - photos.length);
 
   const STEP_LABELS: Record<StepKind, string> = {
-    category: t('createListing.stepCategory'),
+    classify: t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
     spin: t('createListing.stepSpin'),
     specs: t('createListing.stepSpecs'),
@@ -610,29 +616,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       return result.assets.length;
     }
     return 0;
-  };
-
-  // Opens the device camera directly instead of the gallery picker, for
-  // sellers who don't already have photos of the item saved and would
-  // rather shoot them on the spot. On web this hands off to the platform's
-  // native capture UI via a file input with a `capture` attribute (see
-  // ExponentImagePicker.web.ts) -- on a phone browser that's the actual
-  // camera app; on desktop without a camera it degrades to the normal file
-  // picker, so this is always safe to offer alongside "From Gallery" rather
-  // than needing to be feature-detected away.
-  const takePhotoInto = async (setter: React.Dispatch<React.SetStateAction<string[]>>, limit: number) => {
-    const perm = await ImagePicker.requestCameraPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert(t('createListing.photoPermTitle'), t('createListing.photoPermMessage'));
-      return;
-    }
-    const result = await ImagePicker.launchCameraAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      quality: 0.7,
-    });
-    if (!result.canceled) {
-      setter((prev) => [...prev, ...result.assets.map((a) => a.uri)].slice(0, limit));
-    }
   };
 
   // Records or picks ONE video and starts sending it to Bunny immediately.
@@ -1000,35 +983,33 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // Auto-run the AI suggestion as soon as there's signal to work from, and
   // no title yet (a fresh listing, not an edit of one that already has
   // text, and not a re-run after the seller already generated/typed
-  // something). Photos are a complete signal only once there are enough of
-  // them to trust (see PHOTOS_MIN_FOR_AI/hasEnoughPhotosForAi above) --
-  // unlike specs, which are filled in field-by-field over the whole Specs
-  // step -- so this fires the moment `photos` crosses that threshold, from
-  // whichever step the seller happens to be on (Photos, Spin, Specs),
-  // rather than waiting until Details. That way the research is already
-  // done, or well underway, by the time Details opens instead of starting
-  // the wait only then (the whole point of the vision-based path, see
-  // applyAiSuggestion). A category with photos but no Specs step gets the
-  // exact same early start. A specs-only category (no photos at all) still
+  // something). Photos are a complete signal only once category has
+  // actually been resolved (see categoryResolved above) -- in the
+  // photos-first order, Photos comes BEFORE Classify, so firing on photo
+  // count alone would call this with an empty category name and produce a
+  // wasted research pass. Gating on categoryResolved instead means the
+  // research call can start firing the instant category is confirmed on
+  // the Classify screen itself -- while the seller is still confirming
+  // condition or has already moved on -- preserving the "already running
+  // in the background" feel, just anchored to the right point in the new
+  // sequence. Unlike specs, which are filled in field-by-field over the
+  // whole Specs step, so a specs-only category (no photos at all) still
   // waits for the Details step, since specs are still being actively
   // filled in on their own step until then.
   // `autoSuggestSignature` records what we've already auto-run for, so:
   // once the threshold is crossed, adding more photos doesn't keep
   // re-firing (the vision call only looks at the first few anyway, see
-  // AI_VISION_MAX_PHOTOS) -- one attempt per photo-signal is enough. It
-  // also doubles as "has the AI actually run for this photo set yet" for
-  // canNextByKind.photos below -- suggesting alone can't tell "never
-  // started" apart from "finished".
+  // AI_VISION_MAX_PHOTOS) -- one attempt per photo-signal is enough.
   const [autoSuggestSignature, setAutoSuggestSignature] = useState<string | null>(null);
   useEffect(() => {
-    const readyToFire = hasEnoughPhotosForAi || (hasSpecs && currentKind === 'details');
+    const readyToFire = (hasEnoughPhotosForAi && categoryResolved) || (hasSpecs && currentKind === 'details');
     if (!readyToFire || suggesting || (title.trim() && !titleIsMagicSeed)) return;
     const signature = hasEnoughPhotosForAi ? 'photos' : JSON.stringify({ attrValues });
     if (autoSuggestSignature === signature) return;
     setAutoSuggestSignature(signature);
     applyAiSuggestion({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKind, hasSpecs, hasEnoughPhotosForAi, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
+  }, [currentKind, hasSpecs, hasEnoughPhotosForAi, categoryResolved, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
 
   // Turns off native-stack's own swipe-to-go-back gesture (and, on newer
   // Android versions/react-native-screens builds, the OS-level predictive-
@@ -1147,18 +1128,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const hasLocation = !!district.trim() || coordsFromSeller;
 
   const canNextByKind: Record<StepKind, boolean> = {
-    category: !!category && !!condition,
-    // At least PHOTOS_MIN_FOR_AI photos are now required before Continue
-    // unlocks at all -- not just "not currently suggesting" -- and the AI
-    // product-identification pass (see the auto-suggest effect above and
-    // AiWorkingOverlay) must have actually run for this photo set, or the
-    // seller already has a real title from elsewhere (a resumed draft, an
-    // edit, or Magic already having landed one) so there's nothing left for
-    // it to do. Without the signature check, a seller could sit at exactly
-    // PHOTOS_MIN_FOR_AI photos with `suggesting` still false because the
-    // effect simply hasn't fired yet, and Continue would wrongly read as
-    // available for an instant before the overlay even appears.
-    photos: hasEnoughPhotosForAi && !suggesting && (autoSuggestSignature === 'photos' || (!!title.trim() && !titleIsMagicSeed)),
+    // Category must actually be resolved (AI-confirmed via the pill, or
+    // picked by hand -- see categoryResolved above) and condition set.
+    classify: !!condition && categoryResolved,
+    // Photos no longer gates on the AI research call at all -- that call
+    // can't even start until category is resolved on the Classify step
+    // right after this one (see categoryResolved/the auto-suggest effect
+    // above), so the old "has the signature check fired yet" gate here
+    // would just block Continue on something that structurally can't have
+    // happened yet. Just the photo-count threshold.
+    photos: hasEnoughPhotosForAi,
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
@@ -1280,7 +1259,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
     return {
       cat: category as CategoryId,
-      // Guaranteed non-null on a real submit by canNextByKind.category;
+      // Guaranteed non-null on a real submit by canNextByKind.classify;
       // a draft save is allowed to carry it as null the same way it's
       // allowed to carry a blank title/price -- see this function's own
       // doc comment above.
@@ -1559,19 +1538,74 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         // tap on empty space still dismisses the keyboard.
         keyboardShouldPersistTaps="handled"
       >
-        {currentKind === 'category' && (
+        {currentKind === 'classify' && (
           <View>
-            <CategoryPicker
-              value={category}
-              onSelect={setCategory}
-              onMagicPress={() => { setMagicError(null); setMagicVisible(true); }}
+            {/* The blocking AiWorkingOverlay (rendered near the other
+                overlays further down) covers the "please wait" state --
+                this block only needs to handle the resolved states:
+                error, AI-guess-with-pill, or empty-mandatory. */}
+            <Text style={styles.fieldLabel}>
+              {t('createListing.categoryLabel')}
+              <RequiredMark />
+            </Text>
+
+            {!!classifyError && !classifying && (
+              <>
+                <Text style={styles.aiErrorText}>{classifyError}</Text>
+                <Pressy onPress={() => runClassify(photos)}>
+                  <Text style={styles.retryLink}>{t('createListing.classifyRetry')}</Text>
+                </Pressy>
+              </>
+            )}
+
+            {!classifying && !classifyError && (
+              <Text style={[type.soft, { marginBottom: 10 }]}>
+                {category ? t('createListing.classifyAiGuessHint') : t('createListing.classifyNoGuessHint')}
+              </Text>
+            )}
+
+            {!!cat && (
+              <View style={fieldStyles.pillRow}>
+                <View style={[fieldStyles.optPill, fieldStyles.optPillActive]}>
+                  <Text style={[fieldStyles.optPillText, fieldStyles.optPillTextActive]}>
+                    {language === 'ar' ? cat.nameAr : cat.nameEn}
+                  </Text>
+                </View>
+              </View>
+            )}
+
+            {showConfirmPill && (
+              <Pressy
+                onPress={() => setPillConfirmed(true)}
+                style={[styles.draftBtn, pillConfirmed && styles.draftBtnDone]}
+              >
+                <Icon name="checkCircle" size={15} color={pillConfirmed ? colors.white : colors.ink} />
+                <Text style={[styles.draftBtnText, pillConfirmed && styles.draftBtnTextDone]}>
+                  {t('createListing.classifyConfirmPill')}
+                </Text>
+              </Pressy>
+            )}
+
+            <CategorySuggestInput
+              query={categoryQuery}
+              onChangeQuery={setCategoryQuery}
+              options={classifyCategoryOptions.map((o) => ({ id: o.id, label: o.name, parent: o.parent }))}
+              onSelect={(id) => selectCategoryManually(id as CategoryId)}
+              placeholder={t('createListing.classifySearchPlaceholder')}
+              testID="classify-category-search"
             />
-            {/* New vs used -- required right off the bat, on this first
-                step, alongside category (see canNextByKind.category and
-                the condition state's own doc comment above). Reuses the
-                same pill-row + RequiredMark idiom as the contact-method
-                and location fields on the Details step, rather than
-                inventing a third "required field" visual language. */}
+
+            <Pressy onPress={() => setBrowseModalOpen(true)} style={styles.browseCategoriesBtn}>
+              <Icon name="grip" size={15} color={colors.ink} />
+              <Text style={styles.browseCategoriesBtnText}>{t('createListing.classifyBrowseButton')}</Text>
+            </Pressy>
+
+            {/* New vs used -- lives on this same screen, below
+                classification (see canNextByKind.classify and the
+                condition state's own doc comment above). Reuses the same
+                pill-row + RequiredMark idiom as the contact-method and
+                location fields on the Details step, rather than inventing
+                a third "required field" visual language. */}
             <Text style={styles.fieldLabel}>
               {t('createListing.conditionLabel')}
               <RequiredMark />
@@ -1595,14 +1629,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         {currentKind === 'photos' && (
           <View>
             <Text style={type.soft}>{t('createListing.photosIntro')}</Text>
-            {magicLanded && (
-              <View style={styles.magicLandedNotice}>
-                <Icon name="sparkle" size={13} color={colors.inkSoft} />
-                <Text style={[type.tiny, styles.magicLandedNoticeText]}>
-                  {t('createListing.magicLandedHint', { count: photos.length })}
-                </Text>
-              </View>
-            )}
             {aiBackgroundNotice}
             <View style={styles.photoGrid}>
               {photos.map((uri) => (
@@ -1705,17 +1731,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
               {!!videoError && <Text style={styles.videoError}>{videoError}</Text>}
             </View>
-            {cat && (
-              <View style={styles.shotList}>
-                <Text style={styles.sectionLabel}>{t('createListing.goodShotsFor', { category: (language === 'ar' ? cat.nameAr : cat.nameEn).toLowerCase() })}</Text>
-                {(language === 'ar' ? cat.shotListAr : cat.shotListEn).map((s) => (
-                  <View key={s} style={styles.shotItem}>
-                    <Icon name="check" size={13} color={colors.inkSoft} />
-                    <Text style={type.soft}>{s}</Text>
-                  </View>
-                ))}
-              </View>
-            )}
+            {/* The "good shots for X category" list used to live here, but
+                `cat` is always null on this step now that Photos precedes
+                Classify -- there's no category yet to tailor shot
+                suggestions to. */}
           </View>
         )}
 
@@ -2229,42 +2248,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         }}
       />
 
-      <CameraCapture
-        visible={magicCameraVisible}
-        minFrames={MAGIC_MIN_PHOTOS}
-        maxFrames={MAGIC_MAX_PHOTOS}
-        instructions={t('createListing.magicCameraInstructions')}
-        progressHint={(count, min) =>
-          count === 0
-            ? t('createListing.magicCameraStart', { min })
-            : count < min
-              ? t('createListing.magicCameraMore', { count, min, remaining: min - count })
-              : t('createListing.magicCameraDone', { count })
-        }
-        autoFinishAtMin
-        onFinish={(uris) => {
-          setMagicCameraVisible(false);
-          if (uris.length === 0) return;
-          setMagicPhotos((prev) => [...prev, ...uris].slice(0, MAGIC_MAX_PHOTOS));
-          setMagicAutoAnalyze(true);
-        }}
-        onCancel={() => setMagicCameraVisible(false)}
-        onFallbackToLibrary={() => {
-          setMagicCameraVisible(false);
-          pickPhotosInto(setMagicPhotos, MAGIC_MAX_PHOTOS);
-        }}
-      />
-      <MagicListingModal
-        visible={magicVisible}
-        photos={magicPhotos}
-        busy={magicBusy}
-        error={magicError}
-        onTakePhoto={() => takePhotoInto(setMagicPhotos, MAGIC_MAX_PHOTOS)}
-        onGuidedCapture={() => setMagicCameraVisible(true)}
-        onPickPhotos={() => pickPhotosInto(setMagicPhotos, MAGIC_MAX_PHOTOS)}
-        onRemovePhoto={(uri) => setMagicPhotos((prev) => prev.filter((p) => p !== uri))}
-        onAnalyze={runMagic}
-        onClose={closeMagic}
+      <CategoryPickerModal
+        visible={browseModalOpen}
+        value={category}
+        onSelect={(id) => selectCategoryManually(id)}
+        onClose={() => setBrowseModalOpen(false)}
       />
       <SpinPreviewModal
         visible={spinPreviewOpen}
@@ -2308,13 +2296,18 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       {/* Blocking "please wait" overlays -- see AiWorkingOverlay for why these
           exist alongside the small inline notices above (aiBackgroundNotice,
           translateLoadingRow): those are easy to tap straight past, these
-          aren't. Scoped to `currentKind === 'photos'` for the suggest pass so
-          a background re-suggest triggered from the details step doesn't
-          block a screen the seller has already moved on from. */}
-      <AiWorkingOverlay
-        visible={suggesting && currentKind === 'photos'}
-        message={t('createListing.aiPhotosOverlay')}
-      />
+          aren't. The classify overlay is scoped to `currentKind ===
+          'classify'` -- classifying can become true while the seller is
+          still on the Photos step (the auto-run effect isn't gated by
+          currentKind, see its own doc comment above), and this overlay
+          rendering unconditionally would otherwise silently block the
+          Photos step's own Continue tap, which never depends on
+          `classifying` at all (see canNextByKind.photos above). The old
+          suggesting-on-photos overlay is gone entirely: applyAiSuggestion
+          can no longer fire while on the Photos step now that it's gated
+          on categoryResolved, which can't be true until at least the
+          Classify step. */}
+      <AiWorkingOverlay visible={classifying && currentKind === 'classify'} message={t('createListing.classifyWorking')} />
       <AiWorkingOverlay visible={translating} message={t('createListing.aiTranslateOverlay')} />
     </Screen>
   );
@@ -2507,7 +2500,6 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', gap: 4, paddingHorizontal: 4,
   },
   addPhotoLabel: { textAlign: 'center' },
-  shotList: { marginTop: 24, gap: 8 },
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 4 },
   videoBlock: { marginTop: 26 },
   videoCard: {
@@ -2530,7 +2522,6 @@ const styles = StyleSheet.create({
   },
   videoProgressFill: { height: 5, borderRadius: 3, backgroundColor: colors.primary },
   videoError: { ...type.soft, color: colors.danger, marginTop: 10 },
-  shotItem: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   spinCaptureBtn: {
     marginTop: 14, height: 84, borderRadius: radius.sm, backgroundColor: colors.card,
     borderWidth: 1, borderColor: colors.line, borderStyle: 'dashed',
@@ -2555,19 +2546,26 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 9, marginBottom: 16,
   },
   aiBackgroundNoticeText: { ...type.tiny, textTransform: 'none', letterSpacing: 0, flex: 1, color: colors.inkSoft },
-  // Same shape as the AI notice above, on the plain surface rather than the
-  // warn colour -- this one is an invitation, not something to act on.
-  magicLandedNotice: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: colors.surface, borderRadius: radius.sm,
-    paddingHorizontal: 12, paddingVertical: 9, marginTop: 14,
-  },
-  magicLandedNoticeText: { ...type.tiny, textTransform: 'none', letterSpacing: 0, flex: 1, color: colors.inkSoft },
   draftBtn: {
     flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 14, height: 36, marginBottom: 18,
   },
   draftBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  // The Classify step's confirm pill reuses draftBtn's shape but flips to
+  // the primary/filled treatment once tapped, matching the checkCircle
+  // icon it shows alongside -- a plain warn-tint pill read as "still
+  // needs attention" even after confirming, which is backwards.
+  draftBtnDone: { backgroundColor: colors.primary },
+  draftBtnTextDone: { color: colors.white },
+  retryLink: {
+    fontSize: 12.5, fontWeight: '600', color: colors.ink,
+    textDecorationLine: 'underline', marginTop: -10, marginBottom: 16,
+  },
+  browseCategoriesBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, alignSelf: 'flex-start',
+    backgroundColor: colors.surface, borderRadius: radius.pill, paddingHorizontal: 14, height: 36, marginTop: 10, marginBottom: 4,
+  },
+  browseCategoriesBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
   aiErrorText: { fontSize: 12, color: colors.inkSoft, marginTop: -12, marginBottom: 16 },
   aiSourcesBox: { marginTop: -4, marginBottom: 16, gap: 3 },
   // Deliberately the accent tint rather than the danger colour: this is

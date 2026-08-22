@@ -3,14 +3,19 @@ import { StyleSheet, Text, View, ScrollView } from 'react-native';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import CategoryCard from './CategoryCard';
-import MagicListingButton from './MagicListingButton';
 import { colors, radius, type } from '../theme/theme';
 import { useSettings } from '../store/SettingsStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { Category, CategoryId } from '../types';
 import { useIsDesktop } from '../hooks/useResponsive';
 
-// Shared category picker for both "post an ad" and browsing entry points.
+// A pure tree-browsing category picker -- no AI involved. This is the
+// manual fallback: CreateListingScreen's classify step reaches for this
+// (wrapped in CategoryPickerModal) when the seller wants to browse rather
+// than type into CategorySuggestInput, and it's also used standalone for
+// browsing entry points that have nothing to photograph in the first
+// place (there's no listing to classify from photos when you're looking
+// for something to buy, not sell).
 //
 // Screen 1 (nothing picked yet, `path` empty): a big grid of every
 // top-level category -- exactly the reference marketplace's initial
@@ -34,15 +39,9 @@ import { useIsDesktop } from '../hooks/useResponsive';
 export default function CategoryPicker({
   value,
   onSelect,
-  onMagicPress,
 }: {
   value: CategoryId | null;
   onSelect: (id: CategoryId) => void;
-  // When set, the entry screen offers the Magic Listing path above the
-  // grid. Optional because this same picker is also the browse entry
-  // point, where "start from photos" makes no sense -- there's nothing to
-  // photograph when you're looking for something to buy.
-  onMagicPress?: () => void;
 }) {
   const { categories, categoryById, childrenOf, ancestorsOf } = useSettings();
   const { language, t } = useLanguage();
@@ -71,30 +70,13 @@ export default function CategoryPicker({
 
   const reset = () => setPath([]);
 
-  // Screen 1: the entry grid, with the Magic Listing path above it when
-  // this picker is being used to post rather than to browse.
+  // Screen 1: the entry grid.
   if (path.length === 0) {
     return (
-      <View>
-        {onMagicPress && (
-          <View style={styles.magicBlock}>
-            <MagicListingButton onPress={onMagicPress} />
-            {/* A rule with the alternative written into it, rather than a
-                plain divider. The button above is not another category, and
-                without a sentence saying so it reads as one more tile that
-                happens to be dark. */}
-            <View style={styles.magicDivider}>
-              <View style={styles.magicDividerLine} />
-              <Text style={styles.magicDividerText}>{t('createListing.magicOrChooseCategory')}</Text>
-              <View style={styles.magicDividerLine} />
-            </View>
-          </View>
-        )}
-        <View style={styles.grid}>
-          {categories.map((c) => (
-            <CategoryCard key={c.id} category={c} onPress={() => choose(c, 0)} />
-          ))}
-        </View>
+      <View style={styles.grid}>
+        {categories.map((c) => (
+          <CategoryCard key={c.id} category={c} onPress={() => choose(c, 0)} />
+        ))}
       </View>
     );
   }
@@ -252,12 +234,6 @@ function MobileRow({
 }
 
 const styles = StyleSheet.create({
-  magicBlock: { marginBottom: 4 },
-  magicDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 18, marginBottom: 14 },
-  magicDividerLine: { flex: 1, height: 1, backgroundColor: colors.line },
-  // Wraps to two lines on a narrow phone, which is fine -- shortening it
-  // to "or pick a category" loses the instruction that this is a choice.
-  magicDividerText: { ...type.tiny, color: colors.inkSoft, flexShrink: 1, textAlign: 'center' },
   grid: { flexDirection: 'row', flexWrap: 'wrap', justifyContent: 'space-between' },
 
   breadcrumbRow: { flexDirection: 'row', alignItems: 'center', flexWrap: 'wrap', gap: 6, marginBottom: 14 },
