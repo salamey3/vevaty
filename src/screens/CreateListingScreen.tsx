@@ -61,6 +61,13 @@ type StepKind = 'category' | 'photos' | 'spin' | 'specs' | 'stock' | 'details' |
 // at each call site; named here because the in-camera batch has to know how
 // many slots are left before it opens.
 const PHOTOS_MAX = 6;
+// Minimum gallery photos required before the AI identification pass runs
+// at all, and before Continue unlocks on the Photos step -- see
+// hasEnoughPhotosForAi below. One photo is often a blurry or badly-angled
+// first shot; three gives the vision model enough of the item (and enough
+// of a hedge against any single bad photo) to actually identify it, rather
+// than firing on the first tap and guessing from a single so-so frame.
+const PHOTOS_MIN_FOR_AI = 3;
 const SPIN_MIN_FRAMES = 12;
 const SPIN_MAX_FRAMES = 24;
 
@@ -470,10 +477,18 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // categories) never shows a Stock step at all.
   const hasStockStep = cat?.stockMode === 'multiple';
   // Whether there's at least one gallery photo -- the strongest signal the
-  // AI vision suggestion (see applyAiSuggestion below) can work from, and
-  // the trigger for starting that research immediately rather than waiting
-  // for the Details step (see the auto-trigger effect below).
+  // AI vision suggestion (see applyAiSuggestion below) can work from. Kept
+  // separate from hasEnoughPhotosForAi below: this one still means "there's
+  // something to send the vision model" (used to build the photo payload
+  // and to decide whether background-AI hints have anything to show), not
+  // "enough to trust an identification from".
   const hasPhotoSignal = photos.length > 0;
+  // The actual trigger for starting the AI identification pass, and for
+  // unlocking Continue on the Photos step (see canNextByKind.photos below)
+  // -- requires PHOTOS_MIN_FOR_AI photos rather than firing off a single
+  // one, so the seller can't tap through before the AI has had a real shot
+  // at recognising the item.
+  const hasEnoughPhotosForAi = photos.length >= PHOTOS_MIN_FOR_AI;
   // Drives the Brand/Model suggestion fields below -- true for "Vehicles"
   // itself and every subcategory under it (Cars for Sale, Cars for Rent,
   // Motorcycles & ATVs, Trucks & Buses, Boats, Spare Parts, ...).
@@ -977,31 +992,35 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // Auto-run the AI suggestion as soon as there's signal to work from, and
   // no title yet (a fresh listing, not an edit of one that already has
   // text, and not a re-run after the seller already generated/typed
-  // something). A photo is a complete, one-shot signal the instant it's
-  // taken or picked -- unlike specs, which are filled in field-by-field
-  // over the whole Specs step -- so this fires the moment `photos` goes
-  // from empty to non-empty, from whichever step the seller happens to be
-  // on (Photos, Spin, Specs), rather than waiting until Details. That way
-  // the research is already done, or well underway, by the time Details
-  // opens instead of starting the wait only then (the whole point of the
-  // vision-based path, see applyAiSuggestion). A category with photos but
-  // no Specs step gets the exact same early start. A specs-only category
-  // (no photos at all) still waits for the Details step, since specs are
-  // still being actively filled in on their own step until then.
+  // something). Photos are a complete signal only once there are enough of
+  // them to trust (see PHOTOS_MIN_FOR_AI/hasEnoughPhotosForAi above) --
+  // unlike specs, which are filled in field-by-field over the whole Specs
+  // step -- so this fires the moment `photos` crosses that threshold, from
+  // whichever step the seller happens to be on (Photos, Spin, Specs),
+  // rather than waiting until Details. That way the research is already
+  // done, or well underway, by the time Details opens instead of starting
+  // the wait only then (the whole point of the vision-based path, see
+  // applyAiSuggestion). A category with photos but no Specs step gets the
+  // exact same early start. A specs-only category (no photos at all) still
+  // waits for the Details step, since specs are still being actively
+  // filled in on their own step until then.
   // `autoSuggestSignature` records what we've already auto-run for, so:
-  // once photos exist, adding more of them doesn't keep re-firing (the
-  // vision call only looks at the first few anyway, see
-  // AI_VISION_MAX_PHOTOS) -- one attempt per photo-signal is enough.
+  // once the threshold is crossed, adding more photos doesn't keep
+  // re-firing (the vision call only looks at the first few anyway, see
+  // AI_VISION_MAX_PHOTOS) -- one attempt per photo-signal is enough. It
+  // also doubles as "has the AI actually run for this photo set yet" for
+  // canNextByKind.photos below -- suggesting alone can't tell "never
+  // started" apart from "finished".
   const [autoSuggestSignature, setAutoSuggestSignature] = useState<string | null>(null);
   useEffect(() => {
-    const readyToFire = hasPhotoSignal || (hasSpecs && currentKind === 'details');
+    const readyToFire = hasEnoughPhotosForAi || (hasSpecs && currentKind === 'details');
     if (!readyToFire || suggesting || (title.trim() && !titleIsMagicSeed)) return;
-    const signature = hasPhotoSignal ? 'photos' : JSON.stringify({ attrValues });
+    const signature = hasEnoughPhotosForAi ? 'photos' : JSON.stringify({ attrValues });
     if (autoSuggestSignature === signature) return;
     setAutoSuggestSignature(signature);
     applyAiSuggestion({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKind, hasSpecs, hasPhotoSignal, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
+  }, [currentKind, hasSpecs, hasEnoughPhotosForAi, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
 
   // Android's hardware back closed the entire create flow from any step,
   // dropping the seller on the home screen with everything they had
@@ -1074,21 +1093,34 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   };
 
   const specsValid = !hasSpecs || specAttrs.every((a) => !a.required || attrHasValue(attrValues[a.slug]));
+  // Either path counts: a resolved/typed town in the text field, or a
+  // captured point from "Use my current location" -- see the "or" divider
+  // in the Details JSX below, which is what makes these read as
+  // alternatives rather than "fill in both". coordsFromSeller (not
+  // preciseCoords) is what actually distinguishes "the seller geolocated
+  // themselves" from a centroid silently derived from resolving the typed
+  // text -- see its own doc comment above.
+  const hasLocation = !!district.trim() || coordsFromSeller;
 
   const canNextByKind: Record<StepKind, boolean> = {
     category: !!category,
-    // Photos themselves are still optional, but the moment they trigger the
-    // automatic AI product-identification pass (see the auto-suggest effect
-    // below and AiWorkingOverlay), Continue is held until it resolves --
-    // otherwise a seller who taps through fast never gets the AI's title/
-    // description/attributes at all, and never even sees that it ran.
-    photos: !suggesting,
+    // At least PHOTOS_MIN_FOR_AI photos are now required before Continue
+    // unlocks at all -- not just "not currently suggesting" -- and the AI
+    // product-identification pass (see the auto-suggest effect above and
+    // AiWorkingOverlay) must have actually run for this photo set, or the
+    // seller already has a real title from elsewhere (a resumed draft, an
+    // edit, or Magic already having landed one) so there's nothing left for
+    // it to do. Without the signature check, a seller could sit at exactly
+    // PHOTOS_MIN_FOR_AI photos with `suggesting` still false because the
+    // effect simply hasn't fired yet, and Continue would wrongly read as
+    // available for an instant before the overlay even appears.
+    photos: hasEnoughPhotosForAi && !suggesting && (autoSuggestSignature === 'photos' || (!!title.trim() && !titleIsMagicSeed)),
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
     // "coming soon"), same "optional, not a gate" treatment as photos/spin.
     stock: true,
-    details: title.trim().length > 0 && price.trim().length > 0,
+    details: title.trim().length > 0 && price.trim().length > 0 && hasLocation,
     // Was unconditionally true ("translation is a suggestion, never blocks
     // posting") -- but that let a seller tap through mid-translation and
     // post with the target-language fields still blank. Still non-blocking
@@ -1470,6 +1502,27 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </Pressy>
             </View>
 
+            {/* Shown until PHOTOS_MIN_FOR_AI photos are in -- this is the
+                whole reason Continue stays disabled on this step (see
+                canNextByKind.photos above), so the seller needs to see WHY,
+                not just find the button greyed out. Uses the same
+                warn-tint row as aiBackgroundNotice above, since both are
+                "here's what's happening with the AI step" notices; this
+                one just comes first. Clears itself the moment the
+                threshold is crossed and aiBackgroundNotice's own
+                "researching" state takes over instead. */}
+            {photos.length < PHOTOS_MIN_FOR_AI && (
+              <View style={styles.aiBackgroundNotice}>
+                <Icon name="sparkle" size={13} color={colors.inkSoft} />
+                <Text style={[type.tiny, styles.aiBackgroundNoticeText]}>
+                  {t('createListing.photosMinRequiredHint', {
+                    remaining: PHOTOS_MIN_FOR_AI - photos.length,
+                    min: PHOTOS_MIN_FOR_AI,
+                  })}
+                </Text>
+              </View>
+            )}
+
             {/* Video sits on the photos step rather than getting a step of
                 its own: one optional clip doesn't justify a whole extra
                 screen every seller has to walk past. The upload runs from
@@ -1756,8 +1809,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             />
             {aiPriceFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiPriceFilledNotice')}</Text>}
             {aiAttributesFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiAttributesFilledNotice')}</Text>}
-            <Text style={styles.fieldLabel}>{t('createListing.location')}</Text>
+            <Text style={styles.fieldLabel}>
+              {t('createListing.location')}
+              <RequiredMark />
+            </Text>
             <PlaceSuggestInput
+              style={hasLocation ? undefined : styles.inputRequired}
               onFocus={onInputFocus}
               value={district}
               onChangeText={(v) => {
@@ -1792,13 +1849,22 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             {/* Two equally-valid ways to set location -- typing a town above,
                 or geolocating below -- with the map underneath for either
                 one to fine-tune by hand. The "or" divider is what makes the
-                two methods read as alternatives rather than a stray button. */}
+                two methods read as alternatives rather than a stray button;
+                location is now required (see hasLocation/canNextByKind
+                above), so while neither path is satisfied yet the divider
+                picks up the same danger tint as the fields around it --
+                otherwise "or" reads as a throwaway label, not as the word
+                that explains why filling in only one of the two is enough. */}
             <View style={styles.orDivider}>
-              <View style={styles.orDividerLine} />
-              <Text style={styles.orDividerText}>{t('common.or')}</Text>
-              <View style={styles.orDividerLine} />
+              <View style={[styles.orDividerLine, !hasLocation && styles.orDividerLineRequired]} />
+              <Text style={[styles.orDividerText, !hasLocation && styles.orDividerTextRequired]}>{t('common.or')}</Text>
+              <View style={[styles.orDividerLine, !hasLocation && styles.orDividerLineRequired]} />
             </View>
-            <Pressy onPress={useMyLocation} style={styles.locationBtn} disabled={locating}>
+            <Pressy
+              onPress={useMyLocation}
+              style={[styles.locationBtn, !hasLocation && styles.locationBtnRequired]}
+              disabled={locating}
+            >
               <Icon name="location" size={16} color={colors.ink} />
               <Text style={styles.locationBtnText}>
                 {locating
@@ -2394,11 +2460,22 @@ const styles = StyleSheet.create({
     marginTop: 12, height: 46, paddingHorizontal: 16,
     borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm, backgroundColor: colors.card,
   },
+  // Layered onto `locationBtn` only while neither path to a location is
+  // satisfied yet -- same danger tint as inputRequired below, so the
+  // button reads as part of the same still-missing requirement as the
+  // typed-town field above it, not as a separate, optional extra.
+  locationBtnRequired: { borderColor: colors.danger, borderWidth: 1.5, backgroundColor: '#f5e4e2' },
   locationBtnText: { fontSize: 14, fontWeight: '600', color: colors.ink },
   locationHint: { fontSize: 12, color: colors.inkSoft, marginTop: 6 },
   orDivider: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
   orDividerLine: { flex: 1, height: 1, backgroundColor: colors.line },
   orDividerText: { fontSize: 11.5, color: colors.inkSoft, textTransform: 'uppercase', letterSpacing: 0.5 },
+  // Both layered onto the divider only while location is still unmet --
+  // the "or" is what tells the seller one of the two fields below is
+  // enough, so it needs to stand out exactly when that choice still
+  // matters, and fade back to a plain divider once either path is done.
+  orDividerLineRequired: { backgroundColor: colors.danger },
+  orDividerTextRequired: { color: colors.danger, fontWeight: '700' },
   mapWrap: { marginTop: 12 },
   geonamesAttribution: { fontSize: 10.5, color: colors.inkSoft, marginTop: 12 },
   fieldLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 6 },
