@@ -34,6 +34,7 @@ import MagicListingModal, { MAGIC_MAX_PHOTOS, MAGIC_MIN_PHOTOS } from '../compon
 import { classifyListingPhotos } from '../lib/classifyPhotos';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import ActionSheet from '../components/ActionSheet';
+import AiWorkingOverlay from '../components/AiWorkingOverlay';
 import {
   MAX_VIDEO_BYTES,
   MAX_VIDEO_SECONDS,
@@ -1076,14 +1077,24 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const canNextByKind: Record<StepKind, boolean> = {
     category: !!category,
-    photos: true, // photos optional in prototype
+    // Photos themselves are still optional, but the moment they trigger the
+    // automatic AI product-identification pass (see the auto-suggest effect
+    // below and AiWorkingOverlay), Continue is held until it resolves --
+    // otherwise a seller who taps through fast never gets the AI's title/
+    // description/attributes at all, and never even sees that it ran.
+    photos: !suggesting,
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
     // "coming soon"), same "optional, not a gate" treatment as photos/spin.
     stock: true,
     details: title.trim().length > 0 && price.trim().length > 0,
-    translate: true, // translation is a suggestion, never blocks posting
+    // Was unconditionally true ("translation is a suggestion, never blocks
+    // posting") -- but that let a seller tap through mid-translation and
+    // post with the target-language fields still blank. Still non-blocking
+    // once the translation call has actually resolved (successfully or
+    // not); only held while it's in flight, same reasoning as photos above.
+    translate: !translating,
     review: true,
   };
   const canNext = canNextByKind[currentKind];
@@ -2087,6 +2098,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         cancelLabel={t('common.cancel')}
         onCancel={unsavedGuard.cancel}
       />
+      {/* Blocking "please wait" overlays -- see AiWorkingOverlay for why these
+          exist alongside the small inline notices above (aiBackgroundNotice,
+          translateLoadingRow): those are easy to tap straight past, these
+          aren't. Scoped to `currentKind === 'photos'` for the suggest pass so
+          a background re-suggest triggered from the details step doesn't
+          block a screen the seller has already moved on from. */}
+      <AiWorkingOverlay
+        visible={suggesting && currentKind === 'photos'}
+        message={t('createListing.aiPhotosOverlay')}
+      />
+      <AiWorkingOverlay visible={translating} message={t('createListing.aiTranslateOverlay')} />
     </Screen>
   );
 }
