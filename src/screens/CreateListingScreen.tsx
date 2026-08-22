@@ -1394,6 +1394,53 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const unsavedGuard = useUnsavedChangesGuard(hasUnsavedChanges, guardSaveAndExit);
 
+  // The real cause of "back mid-wizard jumps straight to Save & exit /
+  // Exit without saving instead of stepping back one step": on the WEB
+  // build there is no BackHandler event at all (that's Android-only, see
+  // the effect below) -- a browser back-button press is only ever visible
+  // to this screen as a `beforeRemove` event, the exact same one
+  // useUnsavedChangesGuard listens to just above. That hook only knows
+  // "are there unsaved changes", not "which step is the seller on", so it
+  // fires its own e.preventDefault() and opens the sheet regardless of
+  // step. Confirmed with vevaty.com open in mobile Chrome: the previous
+  // two fixes here were both Android-hardware-app-specific (BackHandler,
+  // then disabling native-stack's swipe gesture) and never touched this
+  // path at all, which is why the popup kept appearing after both of
+  // them shipped.
+  //
+  // This listener is registered after the hook's own call above, so
+  // (matching @react-navigation/core's plain-array, insertion-order event
+  // dispatch) it normally runs second and its cancel() call undoes
+  // whatever the hook's listener just did within the same synchronous
+  // event. The setTimeout is the actual correctness guarantee though, not
+  // that ordering: it defers cancel() to the next tick, after BOTH
+  // listeners have already run no matter which fired first, so this stays
+  // correct even if a future change to either hook reorders things. The
+  // trade-off is a single-frame flash of the sheet before it closes back
+  // out on browser back specifically (hardware back on native still goes
+  // through BackHandler below first and never reaches this at all, so it
+  // never flashes) -- accepted the same way this file already accepts a
+  // brief URL-bar desync on browser back elsewhere (see
+  // useUnsavedChangesGuard's own file-level comment), rather than left
+  // showing the wrong prompt outright.
+  useEffect(() => {
+    const sub = (navigation as any).addListener('beforeRemove', (e: any) => {
+      // Step 0 (including the shop-chooser sub-screen, which has its own
+      // explicit back arrow) has nothing to step back to within this
+      // screen -- let it fall through to the guard exactly as before.
+      if (step === 0) return;
+      // Cancel the navigation ourselves too, not just via the guard's own
+      // preventDefault() below -- if there happen to be no unsaved changes
+      // yet, the guard's listener returns early and never calls
+      // preventDefault() at all, and without this the screen would
+      // actually exit instead of stepping back.
+      e.preventDefault();
+      setStep((prev) => Math.max(0, prev - 1));
+      setTimeout(() => unsavedGuard.cancel(), 0);
+    });
+    return sub;
+  }, [step, navigation, unsavedGuard.cancel]);
+
   // Category-aware placeholders -- an admin can set an example title/
   // description per category (e.g. "3BR Apartment in Achrafieh") so the
   // seller sees something relevant instead of a generic phone example.
