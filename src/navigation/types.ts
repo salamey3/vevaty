@@ -4,7 +4,25 @@ export type RootStackParamList = {
   LanguageSelect: undefined;
   MainTabs: undefined;
   ListingDetail: { listingId: string };
-  CreateListing: { initialCategory?: CategoryId; editListingId?: string } | undefined;
+  // shopChoice is set when SellHubScreen's ShopChoiceGate already answered
+  // "standalone or into my shop?" upfront -- see CreateListingScreen's own
+  // shopChoiceResolved seeding. Omitted (undefined) for every other entry
+  // point, which is what makes CreateListingScreen's own internal gate
+  // fire exactly as it always has (e.g. a direct deep link).
+  CreateListing: { initialCategory?: CategoryId; editListingId?: string; shopChoice?: { attachToShop: boolean } } | undefined;
+  // "Sell on Vevaty" hub -- the new front door for posting (see
+  // src/screens/SellHubScreen.tsx). No params: it always operates on the
+  // signed-in seller's own myShop, same as MyStorefront.
+  SellHub: undefined;
+  // Batch listings ("sell a bunch of items") -- see src/screens/batch/*.tsx.
+  // shopChoice on BatchPhotos only: SellHubScreen resolves it once, before
+  // the batch even exists, and the batch's own listings rows are the only
+  // place it needs to be threaded through from there.
+  BatchPhotos: { batchId: string; shopChoice?: { attachToShop: boolean } };
+  BatchReview: { batchId: string };
+  BatchDetails: { batchId: string };
+  BatchLocationContact: { batchId: string };
+  BatchFinalReview: { batchId: string };
   // Phone-OTP login/signup. When returnTo is set, a successful login
   // replaces this screen with that route (e.g. "Sell an item" while
   // logged out); when omitted, it just goes back to whatever screen

@@ -2,6 +2,7 @@ import React, { useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, TextInput, View, ViewStyle } from 'react-native';
 import Pressy from './Pressy';
 import { colors, radius, type } from '../theme/theme';
+import { useLanguage } from '../i18n/LanguageContext';
 
 const MAX_SUGGESTIONS = 6;
 
@@ -48,6 +49,7 @@ export default function CategorySuggestInput({
   options,
   onSelect,
   placeholder,
+  aiGuess,
   testID,
 }: {
   query: string;
@@ -55,14 +57,29 @@ export default function CategorySuggestInput({
   options: CategorySuggestOption[];
   onSelect: (id: string) => void;
   placeholder?: string;
+  // Classify-step redesign: when set, this renders an "AI guessed: {label}"
+  // badge+value display in place of the plain search input, so the field
+  // starts pre-filled with the guess itself rather than sitting empty
+  // until the seller types (a plain TextInput `placeholder` disappears
+  // the moment there's real text, so it couldn't do this -- see the
+  // batch-listings plan's note on why this needed a real prop). Still
+  // fully tappable: tapping it reveals the ordinary search input below,
+  // same as tapping "Did AI guess wrong?" -- once revealed it stays
+  // revealed for the rest of this field's mount, matching manuallyChosen's
+  // "any manual interaction permanently drops the AI-guess framing"
+  // semantics one level up in CreateListingScreen.
+  aiGuess?: { label: string };
   style?: ViewStyle | ViewStyle[];
   testID?: string;
 }) {
   const [focused, setFocused] = useState(false);
+  const [revealSearch, setRevealSearch] = useState(false);
   const hideTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const { t } = useLanguage();
 
   const matches = useMemo(() => rankOptions(query, options), [query, options]);
   const showDropdown = focused && matches.length > 0;
+  const showAiGuessBadge = !!aiGuess && !revealSearch;
 
   const handleBlur = () => {
     hideTimer.current = setTimeout(() => setFocused(false), BLUR_HIDE_MS);
@@ -72,6 +89,15 @@ export default function CategorySuggestInput({
     onSelect(opt.id);
     setFocused(false);
   };
+
+  if (showAiGuessBadge) {
+    return (
+      <Pressy onPress={() => setRevealSearch(true)} style={localStyles.aiGuessBox} testID={testID}>
+        <Text style={localStyles.aiGuessBadge}>{t('createListing.classifyAiGuessBadge')}</Text>
+        <Text style={localStyles.aiGuessValue} numberOfLines={1}>{aiGuess!.label}</Text>
+      </Pressy>
+    );
+  }
 
   return (
     <View>
@@ -118,4 +144,21 @@ const localStyles = StyleSheet.create({
   rowLast: { borderBottomWidth: 0 },
   rowText: { fontSize: 14, color: colors.ink },
   rowParent: { ...type.tiny, color: colors.inkSoft, marginTop: 1 },
+  // Gold, not red -- deliberately the app's existing "here's something
+  // worth a look, not something missing" tone (colors.warnBg), so it
+  // reads as distinct from the red reserved-for-required-missing
+  // treatment right below it on the same Classify step (see
+  // ConditionPicker's pillRowRequired). Same height/radius as `input`
+  // above so the field doesn't visibly resize once the seller confirms
+  // or overrides the guess and this collapses back to a plain input.
+  aiGuessBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    backgroundColor: colors.warnBg, borderWidth: 1, borderColor: colors.warnBg,
+    borderRadius: radius.sm, paddingHorizontal: 14, height: 46,
+  },
+  aiGuessBadge: {
+    fontSize: 10.5, fontWeight: '700', color: colors.accentDeep,
+    textTransform: 'uppercase', letterSpacing: 0.4,
+  },
+  aiGuessValue: { flex: 1, fontSize: 14.5, fontWeight: '600', color: colors.ink },
 });

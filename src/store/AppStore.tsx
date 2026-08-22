@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Listing, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput } from '../types';
+import { Listing, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
@@ -34,7 +34,12 @@ const DEFAULT_PROFILE: Profile = {
 // compute or ignore these (status/expiresAt/expiryReminderSentAt are only
 // ever changed via extendListing/republishListing, or by the server-side
 // pg_cron expiry job).
-type ListingInput = Omit<
+// Exported so the batch screens (src/screens/batch/*.tsx) can type their
+// own "take an existing listing, patch a couple of fields, updateListing"
+// helper (src/lib/batchListingInput.ts) against the exact same shape
+// addListing/updateListing themselves require, instead of re-deriving it
+// or falling back to `any`.
+export type ListingInput = Omit<
   Listing,
   'id' | 'createdAt' | 'sellerId' | 'sellerName' | 'rating' | 'status' | 'expiresAt' | 'expiryReminderSentAt'
   // Phase 4 item 16 -- computed from the poster's own account (join or
@@ -53,6 +58,9 @@ type ListingInput = Omit<
   // form to supply them, since the form only ever knows its own shop's id,
   // not a denormalized copy of that shop's current name/slug.
   | 'shopNameEn' | 'shopNameAr' | 'shopSlug'
+  // Batch listings -- both optional below (ordinary single-item posts
+  // never set either).
+  | 'batchId' | 'batchParked'
 > & {
   // Only ever set to 'draft' -- the unsaved-changes guard's "Save & exit"
   // uses this to park an incomplete new listing (or keep re-saving an
@@ -63,6 +71,19 @@ type ListingInput = Omit<
   // above. See useUnsavedChangesGuard and CreateListingScreen's
   // buildPayload/saveAsDraftAndExit.
   status?: 'draft';
+  // Batch listings (see Listing.batchId's own doc comment) -- set only by
+  // the batch photo-capture screen's very first addListing call for an
+  // item; every ordinary single-item post omits it (stored as null).
+  // addListing is the only place this is ever read: updateListing
+  // deliberately never writes batch_id, so a listing can't be moved out of
+  // its batch later even via the ordinary single-item edit form (which the
+  // batch final-review screen reuses to drill into an item).
+  batchId?: string | null;
+  // Batch listings -- settable by BatchDetailsScreen's "save this item as
+  // a draft for later" escape hatch. Ordinary single-item posts omit it
+  // (stored as false); unlike batchId, updateListing DOES write this one,
+  // since parking/unparking an item is meant to happen after creation.
+  batchParked?: boolean;
 };
 
 interface AppStoreValue {
@@ -95,6 +116,11 @@ interface AppStoreValue {
   myShop: Shop | null;
   createShop: (s: ShopInput) => Promise<Shop>;
   updateShop: (s: ShopInput) => Promise<void>;
+  // Batch listings -- see createBatch/completeBatch's own doc comments
+  // (below, in the provider body) for why these aren't cached state like
+  // myShop.
+  createBatch: () => Promise<Batch>;
+  completeBatch: (batchId: string) => Promise<void>;
   addListing: (l: ListingInput) => Promise<Listing>;
   updateListing: (id: string, l: ListingInput) => Promise<void>;
   deleteListing: (id: string) => Promise<void>;
@@ -247,6 +273,12 @@ function normalizeListing(l: any): Listing {
     // same as one where the seller's pick genuinely never made it to the
     // DB (see dbListingToLocal's own condition mapping).
     condition: l?.condition === 'new' || l?.condition === 'used' ? l.condition : null,
+    // Batch listings -- same defensive story once more: a listing cached
+    // by a build that predates this feature won't have these fields, and
+    // the overwhelming majority of listings (anything not posted through
+    // a batch) never have batchId set regardless of build age.
+    batchId: typeof l?.batchId === 'string' ? l.batchId : null,
+    batchParked: typeof l?.batchParked === 'boolean' ? l.batchParked : false,
   };
 }
 
@@ -327,6 +359,8 @@ function dbListingToLocal(row: any): Listing {
     // more granular (and never actually seller-facing) used-condition
     // scale. See the Listing type's own doc comment.
     condition: row.condition === 'new' || row.condition === 'used' ? row.condition : null,
+    batchId: row.batch_id ?? null,
+    batchParked: !!row.batch_parked,
   };
 }
 
@@ -355,6 +389,21 @@ function dbShopToLocal(row: any): Shop {
     primaryCategoryId: row.primary_category_id ?? null,
     verifiedAt: row.verified_at ? new Date(row.verified_at).getTime() : null,
     verificationNote: row.verification_note ?? null,
+  };
+}
+
+// Maps a myazar.batches row to the local Batch shape -- used by
+// createBatch/completeBatch below. Unlike myShop, a Batch is never cached
+// as AppStoreValue state: the batch screens only ever need the id they got
+// back from createBatch (to tag each item's addListing call and read the
+// listings back by batchId), so there's nothing to keep in sync here.
+function dbBatchToLocal(row: any): Batch {
+  return {
+    id: row.id,
+    sellerId: row.seller_id,
+    status: row.status === 'submitted' ? 'submitted' : 'in_progress',
+    itemCount: row.item_count ?? 0,
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   };
 }
 
@@ -758,6 +807,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         shopNameEn: l.shopId && myShop?.id === l.shopId ? myShop.nameEn : null,
         shopNameAr: l.shopId && myShop?.id === l.shopId ? myShop.nameAr : null,
         shopSlug: l.shopId && myShop?.id === l.shopId ? myShop.slug : null,
+        // Batch listings -- see ListingInput's own doc comment; both are
+        // optional on the input, defaulted here the same way every other
+        // ListingInput-omitted-but-Listing-required field above is.
+        batchId: l.batchId ?? null,
+        batchParked: l.batchParked ?? false,
       };
 
       if (uid) {
@@ -786,6 +840,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             shop_id: l.shopId,
             stock_qty: l.stockQty ?? 1,
             variants: l.variants ?? null,
+            batch_id: l.batchId ?? null,
+            batch_parked: l.batchParked ?? false,
           })
           .select()
           .single();
@@ -927,6 +983,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           contact_method: l.contactMethod || 'both',
           stock_qty: l.stockQty ?? 1,
           variants: l.variants ?? null,
+          // Batch listings -- batch_parked IS updatable (BatchDetailsScreen's
+          // "save as draft for later" escape hatch). batch_id deliberately
+          // is NOT in this UPDATE list -- see Listing.batchId's own doc
+          // comment for why a listing can never be moved out of its batch
+          // once created, even via this same updateListing call used by the
+          // ordinary single-item edit form.
+          batch_parked: l.batchParked ?? false,
           ...(asDraft
             ? { status: 'draft' }
             : wasRejected || submittingDraft
@@ -1214,6 +1277,35 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     [myShop]
   );
 
+  // Batch listings ("sell a bunch of items") -- mirrors createShop/
+  // updateShop's plain-supabase.from() pattern rather than syncFromSupabase's
+  // caching: a batch isn't a synced entity the way myShop is, just a row
+  // the batch screens tag each item's addListing call with and read back
+  // by filtering AppStore's own `listings`, so there's nothing to hold in
+  // AppStoreValue state for it.
+  const createBatch = useCallback(async (): Promise<Batch> => {
+    const uid = userIdRef.current;
+    if (!uid) throw new Error('You need to be logged in to start a batch.');
+    const { data, error } = await supabase
+      .from('batches')
+      .insert({ seller_id: uid })
+      .select()
+      .single();
+    if (error || !data) throw new Error(error?.message || 'Could not start a new batch. Please try again.');
+    return dbBatchToLocal(data);
+  }, []);
+
+  // Marks a batch as posted -- called once, by BatchFinalReviewScreen,
+  // right after every non-parked item in it has been submitted (the same
+  // draft -> pending_review transition updateListing already does for a
+  // single resumed draft). Best-effort: the batch row is bookkeeping for a
+  // possible future "my batches" view, not something any RLS policy or
+  // listing visibility depends on, so a failure here is swallowed rather
+  // than left to block the seller after their items are already posted.
+  const completeBatch = useCallback(async (batchId: string): Promise<void> => {
+    await supabase.from('batches').update({ status: 'submitted' }).eq('id', batchId).then(() => {});
+  }, []);
+
   const value = useMemo(
     () => ({
       ready,
@@ -1226,6 +1318,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       myShop,
       createShop,
       updateShop,
+      createBatch,
+      completeBatch,
       addListing,
       updateListing,
       deleteListing,
@@ -1247,6 +1341,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       myShop,
       createShop,
       updateShop,
+      createBatch,
+      completeBatch,
       addListing,
       updateListing,
       deleteListing,

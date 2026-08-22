@@ -279,6 +279,24 @@ export interface Listing {
   // nullable field rather than derived, since a listing whose shop was
   // since deleted would otherwise dangle.
   shopSlug: string | null;
+  // Batch listings -- null for the vast majority of listings (a normal
+  // single-item post has no batch at all). Set when this listing was
+  // captured as one item of a "sell a bunch of items" session (see
+  // src/screens/batch/*.tsx), tagging it with the myazar.batches row that
+  // session created. Write-once: set on insert (addListing) and never
+  // changed by updateListing, so editing an item later -- even via the
+  // ordinary single-item edit form the batch final-review screen reuses to
+  // drill into an item -- can never move it out of its batch.
+  batchId: string | null;
+  // True once the seller has explicitly used a batch item's "save this
+  // item as a draft for later" escape hatch (BatchDetailsScreen). Distinct
+  // from `status === 'draft'`: every not-yet-finished batch item is ALSO a
+  // draft, so status alone can't tell "still queued, just not detailed
+  // yet" apart from "seller deliberately parked this one" -- the batch
+  // final-review screen needs both counts, and skips parked items when
+  // posting the rest of the batch. Meaningless (always false) outside a
+  // batch; see batchId above.
+  batchParked: boolean;
   // Stock/variants -- see Category.stockMode. `stockQty` is the single
   // source of truth for "does this listing have anything left" (used for
   // the out-of-stock badge/notice regardless of whether it's variant- or
@@ -344,6 +362,21 @@ export interface Shop {
 // on Shop (id, ownerId, verifiedAt, verificationNote) is server-assigned
 // or admin-only. Mirrors ListingInput's shape in AppStore.tsx.
 export type ShopInput = Omit<Shop, 'id' | 'ownerId' | 'slug' | 'verifiedAt' | 'verificationNote'>;
+
+// A "sell a bunch of items" session -- myazar.batches. Created once, the
+// moment a seller taps "Sell a bunch of items" on SellHubScreen, and every
+// listing captured during that session is tagged with its id (see
+// Listing.batchId). `itemCount` is a denormalized convenience for a future
+// "my batches" management view -- not yet consumed anywhere client-side;
+// the batch screens themselves always derive counts by filtering
+// AppStore's own `listings` by batchId rather than trusting this column.
+export interface Batch {
+  id: string;
+  sellerId: string;
+  status: 'in_progress' | 'submitted';
+  itemCount: number;
+  createdAt: number;
+}
 
 export interface Profile {
   id: string;

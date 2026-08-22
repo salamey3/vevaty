@@ -24,17 +24,19 @@ import { estimateListingPrice, suggestListingFromWeb, AiSuggestSource, AiSuggest
 import { photosForVision } from '../lib/imageToBase64';
 import { mirrorRow } from '../lib/mirrorRow';
 import { supabase } from '../lib/supabase';
-import { getVehicleBrandNames, getModelsForBrand } from '../data/vehicleBrands';
 import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
-import SuggestInput from '../components/SuggestInput';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
-import { classifyListingPhotos } from '../lib/classifyPhotos';
+import { useClassifyRun } from '../hooks/useClassifyRun';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import ActionSheet from '../components/ActionSheet';
 import AiWorkingOverlay from '../components/AiWorkingOverlay';
 import CategorySuggestInput from '../components/CategorySuggestInput';
 import CategoryPickerModal from '../components/CategoryPickerModal';
+import ConditionPicker from '../components/ConditionPicker';
+import CategorySpecsForm from '../components/CategorySpecsForm';
+import StockIntakeForm from '../components/StockIntakeForm';
+import ShopChoiceGate from '../components/ShopChoiceGate';
 import {
   MAX_VIDEO_BYTES,
   MAX_VIDEO_SECONDS,
@@ -95,17 +97,6 @@ function spinLabelSuggestionsFor(isVehicle: boolean, isProperty: boolean, langua
       : ['Living room', 'Kitchen', 'Bedroom', 'Bathroom', 'Balcony'];
   }
   return [];
-}
-
-// Classifies a category-attribute slug as a vehicle brand or model field
-// (including the "compatible brand/model" slugs used on Spare
-// Parts/Accessories), or null for anything else -- drives which specs
-// get the Brand/Model suggestion UI instead of the generic AttributeField.
-function vehicleSlugKind(slug: string): 'brand' | 'model' | null {
-  const s = slug.toLowerCase();
-  if (s === 'brand' || s === 'compatible_brand') return 'brand';
-  if (s === 'model' || s === 'compatible_model') return 'model';
-  return null;
 }
 
 export default function CreateListingScreen({ navigation, route }: Props) {
@@ -339,7 +330,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // when editing, off otherwise. See the ListingInput doc comment in
   // AppStore.tsx for why the form only ever needs to send a shop id, never
   // a denormalized copy of the shop's own name/slug.
-  const [attachToShop, setAttachToShop] = useState<boolean>(!!editingListing?.shopId && editingListing.shopId === myShop?.id);
+  const [attachToShop, setAttachToShop] = useState<boolean>(
+    (!!editingListing?.shopId && editingListing.shopId === myShop?.id) ||
+      // Seeded from SellHubScreen when it already asked ShopChoiceGate this
+      // question upfront (see shopChoiceResolved's own initializer below) --
+      // safe to read synchronously here since route.params exist at first
+      // mount, unlike the myShop-derived branch above.
+      !!route.params?.shopChoice?.attachToShop
+  );
   // A verified storefront owner starting a brand-new listing (never an
   // edit -- editing an existing listing has its own established shop,
   // corrected via the toggle on the Details step below, not this
@@ -363,7 +361,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // is false for (no shop, or editing), the early-return below is gated on
   // shouldAskShopChoice too, so this only ever matters once a real shop is
   // confirmed.
-  const [shopChoiceResolved, setShopChoiceResolved] = useState<boolean>(false);
+  //
+  // The one exception: when SellHubScreen already asked ShopChoiceGate this
+  // exact question upfront, it hands the answer down as route.params.shopChoice
+  // (see attachToShop's initializer just above, which reads the same param).
+  // Unlike myShop, route.params is present synchronously at first mount, so
+  // seeding straight from it here is safe and skips a redundant second ask.
+  const [shopChoiceResolved, setShopChoiceResolved] = useState<boolean>(
+    !!route.params?.shopChoice
+  );
 
   // --- Classify (AI category guess from photos) ---------------------------
   // Replaces the old "Magic Listing" side-path: every listing now starts
@@ -384,8 +390,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [manuallyChosen, setManuallyChosen] = useState<boolean>(isEditMode && !!editingListing?.cat);
   // Set only by tapping the confirm pill.
   const [pillConfirmed, setPillConfirmed] = useState(false);
-  const [classifying, setClassifying] = useState(false);
-  const [classifyError, setClassifyError] = useState<string | null>(null);
   // One-shot guard so the auto-run effect below fires the classify call at
   // most once per screen-visit, the same way autoSuggestSignature guards
   // applyAiSuggestion further down.
@@ -426,34 +430,27 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     [allCategories, childrenOf, categoryById, language]
   );
 
+  // The actual vision call + classifying/classifyError state now lives in
+  // useClassifyRun (src/hooks/useClassifyRun.ts), shared with each in-flight
+  // batch item -- this wrapper just decides what a resolved guess DOES to
+  // this screen's own state (fill category/title), the one part that's
+  // still genuinely single-listing-specific.
+  const { classifying, classifyError, run: runClassifyCore } = useClassifyRun(classifyCategoryOptions, language);
   const runClassify = async (source: string[]) => {
-    setClassifying(true);
-    setClassifyError(null);
-    const payload = await photosForVision(source, AI_VISION_MAX_PHOTOS);
-    if (payload.length === 0) {
-      setClassifying(false);
-      setClassifyError(t('createListing.classifyPhotoReadFailed'));
+    const outcome = await runClassifyCore(source, t('createListing.classifyPhotoReadFailed'));
+    if (!outcome.ok || !outcome.result) {
+      // Either a hard error (surfaced via classifyError already) or an
+      // explicit "I can't tell" from the qualifier -- the photos are
+      // still worth keeping either way, the seller just picks the
+      // category by hand (mandatory, no pill).
       return;
     }
-    const { data, error } = await classifyListingPhotos(payload, classifyCategoryOptions, language);
-    setClassifying(false);
-    if (error) {
-      setClassifyError(error.message);
-      return;
-    }
-    if (!data?.categoryId) {
-      // An explicit "I can't tell" from the qualifier. The photos are still
-      // worth keeping -- the seller picks the category by hand (mandatory,
-      // no pill) and the rest of the flow carries on from there, so
-      // nothing they've done is wasted.
-      return;
-    }
-    setAiCategoryId(data.categoryId);
-    setCategory(data.categoryId);
+    setAiCategoryId(outcome.result.categoryId);
+    setCategory(outcome.result.categoryId);
     // A plain name for the item, which the AI suggestion pass then uses as
     // its seed and rewrites into a proper listing title.
-    if (data.itemName && !title.trim()) {
-      setTitle(data.itemName);
+    if (outcome.result.itemName && !title.trim()) {
+      setTitle(outcome.result.itemName);
       setTitleIsMagicSeed(true);
     }
   };
@@ -1463,40 +1460,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     ) : null;
 
   if (shouldAskShopChoice && !shopChoiceResolved) {
+    // src/components/ShopChoiceGate.tsx -- extracted so SellHubScreen can
+    // show the exact same chooser once, upfront, for the batch-listings
+    // flow. Reached directly (e.g. a deep link straight into CreateListing)
+    // this renders byte-for-byte what it always has.
     return (
-      <Screen maxWidth={640}>
-        <View style={styles.topBar}>
-          <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
-            <Icon name="back" size={18} />
-          </Pressy>
-          <Text style={type.h3}>{t('createListing.shopChooserTitle')}</Text>
-          <View style={styles.iconBtn} />
-        </View>
-        <View style={fieldStyles.shopChooserWrap}>
-          <Pressy
-            onPress={() => { setAttachToShop(true); setShopChoiceResolved(true); }}
-            style={fieldStyles.shopChooserCard}
-          >
-            <View style={fieldStyles.shopChooserIcon}>
-              <Icon name="building" size={22} color={colors.primary} />
-            </View>
-            <Text style={fieldStyles.shopChooserCardTitle}>{t('createListing.shopChooserStorefrontTitle')}</Text>
-            <Text style={fieldStyles.shopChooserCardBody}>
-              {t('createListing.shopChooserStorefrontBody', { name: myShop!.nameEn })}
-            </Text>
-          </Pressy>
-          <Pressy
-            onPress={() => { setAttachToShop(false); setShopChoiceResolved(true); }}
-            style={fieldStyles.shopChooserCard}
-          >
-            <View style={fieldStyles.shopChooserIcon}>
-              <Icon name="bag" size={22} color={colors.primary} />
-            </View>
-            <Text style={fieldStyles.shopChooserCardTitle}>{t('createListing.shopChooserStandaloneTitle')}</Text>
-            <Text style={fieldStyles.shopChooserCardBody}>{t('createListing.shopChooserStandaloneBody')}</Text>
-          </Pressy>
-        </View>
-      </Screen>
+      <ShopChoiceGate
+        onBack={() => navigation.goBack()}
+        onChoose={(attach) => { setAttachToShop(attach); setShopChoiceResolved(true); }}
+        title={t('createListing.shopChooserTitle')}
+        storefrontTitle={t('createListing.shopChooserStorefrontTitle')}
+        storefrontBody={t('createListing.shopChooserStorefrontBody', { name: myShop!.nameEn })}
+        standaloneTitle={t('createListing.shopChooserStandaloneTitle')}
+        standaloneBody={t('createListing.shopChooserStandaloneBody')}
+      />
     );
   }
 
@@ -1564,7 +1541,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </Text>
             )}
 
-            {!!cat && (
+            {/* The standalone "here's what's selected" pill still applies
+                once the seller has manually picked a category (the search
+                field's own typed text doesn't reliably mirror a browse-
+                modal pick -- see selectCategoryManually) -- but NOT while
+                there's an unconfirmed AI guess standing (showConfirmPill),
+                since that case is now merged straight into the field
+                itself via CategorySuggestInput's aiGuess prop just below,
+                per the Classify-screen highlight redesign. */}
+            {!!cat && !showConfirmPill && (
               <View style={fieldStyles.pillRow}>
                 <View style={[fieldStyles.optPill, fieldStyles.optPillActive]}>
                   <Text style={[fieldStyles.optPillText, fieldStyles.optPillTextActive]}>
@@ -1574,26 +1559,31 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            {showConfirmPill && (
-              <Pressy
-                onPress={() => setPillConfirmed(true)}
-                style={[styles.draftBtn, pillConfirmed && styles.draftBtnDone]}
-              >
-                <Icon name="checkCircle" size={15} color={pillConfirmed ? colors.white : colors.ink} />
-                <Text style={[styles.draftBtnText, pillConfirmed && styles.draftBtnTextDone]}>
-                  {t('createListing.classifyConfirmPill')}
-                </Text>
-              </Pressy>
-            )}
-
             <CategorySuggestInput
               query={categoryQuery}
               onChangeQuery={setCategoryQuery}
               options={classifyCategoryOptions.map((o) => ({ id: o.id, label: o.name, parent: o.parent }))}
               onSelect={(id) => selectCategoryManually(id as CategoryId)}
               placeholder={t('createListing.classifySearchPlaceholder')}
+              aiGuess={showConfirmPill && cat ? { label: language === 'ar' ? cat.nameAr : cat.nameEn } : undefined}
               testID="classify-category-search"
             />
+
+            {/* Confirm pill moved below the (now merged) field itself,
+                small and right-aligned -- it's a lightweight acknowledgement
+                of what the gold field above already shows, not a separate
+                piece of information competing with it for attention. */}
+            {showConfirmPill && (
+              <Pressy
+                onPress={() => setPillConfirmed(true)}
+                style={[styles.draftBtn, styles.confirmPillSmall, pillConfirmed && styles.draftBtnDone]}
+              >
+                <Icon name="checkCircle" size={13} color={pillConfirmed ? colors.white : colors.ink} />
+                <Text style={[styles.draftBtnText, pillConfirmed && styles.draftBtnTextDone]}>
+                  {t('createListing.classifyConfirmPill')}
+                </Text>
+              </Pressy>
+            )}
 
             <Pressy onPress={() => setBrowseModalOpen(true)} style={styles.browseCategoriesBtn}>
               <Icon name="grip" size={15} color={colors.ink} />
@@ -1602,27 +1592,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
             {/* New vs used -- lives on this same screen, below
                 classification (see canNextByKind.classify and the
-                condition state's own doc comment above). Reuses the same
-                pill-row + RequiredMark idiom as the contact-method and
-                location fields on the Details step, rather than inventing
-                a third "required field" visual language. */}
-            <Text style={styles.fieldLabel}>
-              {t('createListing.conditionLabel')}
-              <RequiredMark />
-            </Text>
-            <View style={[fieldStyles.pillRow, !condition && fieldStyles.pillRowRequired]}>
-              {(['new', 'used'] as const).map((c) => (
-                <Pressy
-                  key={c}
-                  onPress={() => setCondition(c)}
-                  style={[fieldStyles.optPill, condition === c && fieldStyles.optPillActive]}
-                >
-                  <Text style={[fieldStyles.optPillText, condition === c && fieldStyles.optPillTextActive]}>
-                    {t(`createListing.condition.${c}`)}
-                  </Text>
-                </Pressy>
-              ))}
-            </View>
+                condition state's own doc comment above). ConditionPicker
+                (src/components/ConditionPicker.tsx) is the same control
+                the batch review screen's per-row fix path uses. */}
+            <ConditionPicker
+              value={condition}
+              onChange={setCondition}
+              label={t('createListing.conditionLabel')}
+              newLabel={t('createListing.condition.new')}
+              usedLabel={t('createListing.condition.used')}
+            />
           </View>
         )}
 
@@ -1785,92 +1764,37 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           <View>
             <Text style={type.soft}>{t('createListing.specsIntro')}</Text>
             {aiBackgroundNotice}
-            {specAttrs.map((a) => {
-              // Brand/model (and "compatible brand/model" on Spare
-              // Parts/Accessories) get suggestion-backed inputs instead
-              // of the generic AttributeField -- makes/models are a
-              // helpful-suggestion case, not a fixed admin-defined
-              // option set, so this intentionally overrides whatever
-              // `type` the admin configured for these specific slugs.
-              const vehicleKind = isVehicleCategory ? vehicleSlugKind(a.slug) : null;
-              if (vehicleKind) {
-                const label = language === 'ar' ? a.labelAr : a.labelEn;
-                const fieldLabel = `${label}${a.required ? ' *' : ''}`;
-                const value = attrValues[a.slug];
-                const brandSlug = vehicleKind === 'model' ? 'brand' : 'compatible_brand';
-                const suggestions =
-                  vehicleKind === 'brand'
-                    ? getVehicleBrandNames()
-                    : getModelsForBrand(typeof attrValues[brandSlug] === 'string' ? (attrValues[brandSlug] as string) : '');
-                return (
-                  <View key={a.id}>
-                    <Text style={fieldStyles.fieldLabel}>{fieldLabel}</Text>
-                    <SuggestInput
-                      onFocus={onInputFocus}
-                      value={value === undefined ? '' : String(value)}
-                      onChangeText={(v) => setAttrValue(a.slug, v)}
-                      suggestions={suggestions}
-                      placeholder={t('createListing.vehicleBrandModelPlaceholder')}
-                    />
-                  </View>
-                );
-              }
-              return (
-                <AttributeField
-                  key={a.id}
-                  onFocus={onInputFocus}
-                  attribute={a}
-                  language={language}
-                  value={attrValues[a.slug]}
-                  onChangeValue={(v) => setAttrValue(a.slug, v)}
-                  onToggleMultiselect={(optionValue) => toggleMultiselectValue(a.slug, optionValue)}
-                />
-              );
-            })}
+            <CategorySpecsForm
+              specAttrs={specAttrs}
+              attrValues={attrValues}
+              onSetValue={setAttrValue}
+              onToggleMultiselect={toggleMultiselectValue}
+              isVehicleCategory={isVehicleCategory}
+              language={language}
+              onFocus={onInputFocus}
+              vehicleBrandModelPlaceholder={t('createListing.vehicleBrandModelPlaceholder')}
+            />
           </View>
         )}
 
         {currentKind === 'stock' && (
           <View>
-            <Text style={type.soft}>
-              {variantAttr
-                ? t('createListing.stockVariantIntro', { label: language === 'ar' ? variantAttr.labelAr : variantAttr.labelEn })
-                : t('createListing.stockPlainIntro')}
-            </Text>
-            {variantAttr ? (
-              <View style={fieldStyles.stockVariantList}>
-                {variantAttr.options.map((o) => {
-                  const label = language === 'ar' ? o.labelAr : o.labelEn;
-                  return (
-                    <View key={o.value} style={fieldStyles.stockVariantRow}>
-                      <Text style={fieldStyles.stockVariantLabel}>{label}</Text>
-                      <TextInput
-                        onFocus={onInputFocus}
-                        value={variantStock[o.value] ?? ''}
-                        onChangeText={(v) =>
-                          setVariantStock((prev) => ({ ...prev, [o.value]: v.replace(/[^0-9]/g, '') }))
-                        }
-                        keyboardType="numeric"
-                        placeholder="0"
-                        style={fieldStyles.stockVariantInput}
-                      />
-                    </View>
-                  );
-                })}
-              </View>
-            ) : (
-              <>
-                <Text style={fieldStyles.fieldLabel}>{t('createListing.stockQtyLabel')}</Text>
-                <TextInput
-                  onFocus={onInputFocus}
-                  value={plainStockQty}
-                  onChangeText={(v) => setPlainStockQty(v.replace(/[^0-9]/g, ''))}
-                  keyboardType="numeric"
-                  placeholder="1"
-                  style={fieldStyles.input}
-                />
-              </>
-            )}
+            <StockIntakeForm
+              variantAttr={variantAttr}
+              variantStock={variantStock}
+              onChangeVariantStock={(optionValue, qty) => setVariantStock((prev) => ({ ...prev, [optionValue]: qty }))}
+              plainStockQty={plainStockQty}
+              onChangePlainStockQty={setPlainStockQty}
+              language={language}
+              onFocus={onInputFocus}
+              variantIntro={
+                variantAttr
+                  ? t('createListing.stockVariantIntro', { label: language === 'ar' ? variantAttr.labelAr : variantAttr.labelEn })
+                  : ''
+              }
+              plainIntro={t('createListing.stockPlainIntro')}
+              stockQtyLabel={t('createListing.stockQtyLabel')}
+            />
           </View>
         )}
 
@@ -2326,89 +2250,12 @@ function RequiredMark() {
   return <Text style={styles.requiredMark}> *</Text>;
 }
 
-function AttributeField({
-  attribute,
-  language,
-  value,
-  onChangeValue,
-  onToggleMultiselect,
-  onFocus,
-}: {
-  attribute: CategoryAttribute;
-  language: 'en' | 'ar';
-  value: AttributeValue | undefined;
-  onChangeValue: (v: AttributeValue) => void;
-  onToggleMultiselect: (optionValue: string) => void;
-  // Spec fields sit at the bottom of their step, so they are the ones most
-  // likely to be under the keyboard when tapped.
-  onFocus?: () => void;
-}) {
-  const label = language === 'ar' ? attribute.labelAr : attribute.labelEn;
-  const unit = language === 'ar' ? attribute.unitAr : attribute.unitEn;
-  // A separate red Text span rather than baking " *" into the label string
-  // -- see the doc comment on RequiredMark below for why this needs its
-  // own color instead of inheriting fieldLabel's muted gray.
-  const fieldLabelNode = (
-    <Text style={fieldStyles.fieldLabel}>
-      {label}
-      {attribute.required && <RequiredMark />}
-      {unit ? ` (${unit})` : ''}
-    </Text>
-  );
-  // Boolean attributes always carry a real value (true or false is never
-  // "empty" the way a blank string or an unmade select is), so there's
-  // nothing meaningful to highlight there even when required.
-  const isEmptyRequired = attribute.required && attribute.type !== 'boolean' && !attrHasValue(value);
-
-  if (attribute.type === 'boolean') {
-    return (
-      <View style={fieldStyles.switchRow}>
-        {fieldLabelNode}
-        <Pressy onPress={() => onChangeValue(!value)} style={[fieldStyles.boolPill, !!value && fieldStyles.boolPillActive]}>
-          <Text style={[fieldStyles.boolPillText, !!value && fieldStyles.boolPillTextActive]}>{value ? '✓' : ''}</Text>
-        </Pressy>
-      </View>
-    );
-  }
-
-  if (attribute.type === 'select' || attribute.type === 'multiselect') {
-    const selected: string[] = attribute.type === 'multiselect' ? (Array.isArray(value) ? (value as string[]) : []) : value ? [value as string] : [];
-    return (
-      <View>
-        {fieldLabelNode}
-        <View style={[fieldStyles.pillRow, isEmptyRequired && fieldStyles.pillRowRequired]}>
-          {attribute.options.map((opt) => {
-            const isSelected = selected.includes(opt.value);
-            return (
-              <Pressy
-                key={opt.value}
-                onPress={() => (attribute.type === 'multiselect' ? onToggleMultiselect(opt.value) : onChangeValue(opt.value))}
-                style={[fieldStyles.optPill, isSelected && fieldStyles.optPillActive]}
-              >
-                <Text style={[fieldStyles.optPillText, isSelected && fieldStyles.optPillTextActive]}>
-                  {language === 'ar' ? opt.labelAr : opt.labelEn}
-                </Text>
-              </Pressy>
-            );
-          })}
-        </View>
-      </View>
-    );
-  }
-
-  return (
-    <View>
-      {fieldLabelNode}
-      <TextInput
-        onFocus={onFocus}
-        value={value === undefined ? '' : String(value)}
-        onChangeText={(v) => onChangeValue(attribute.type === 'number' ? (v === '' ? '' : Number(v) || 0) : v)}
-        keyboardType={attribute.type === 'number' ? 'numeric' : 'default'}
-        style={[fieldStyles.input, isEmptyRequired && fieldStyles.inputRequired]}
-      />
-    </View>
-  );
-}
+// AttributeField (the generic spec-field renderer) and its vehicle
+// brand/model special case moved to src/components/CategorySpecsForm.tsx
+// so the batch per-item Details screen can reuse them -- see that file's
+// own doc comment. `fieldStyles` below is still shared by the Details/
+// Location/Contact fields further down this file, so it stays here even
+// though AttributeField itself moved out.
 
 const fieldStyles = StyleSheet.create({
   fieldLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 6 },
@@ -2557,6 +2404,11 @@ const styles = StyleSheet.create({
   // needs attention" even after confirming, which is backwards.
   draftBtnDone: { backgroundColor: colors.primary },
   draftBtnTextDone: { color: colors.white },
+  // Classify step's confirm pill specifically -- overrides draftBtn's
+  // default flex-start/full size to sit small and right-aligned just
+  // under the (now gold, merged) category field it's confirming. See the
+  // Classify-screen highlight redesign's own comment above its JSX.
+  confirmPillSmall: { alignSelf: 'flex-end', height: 30, paddingHorizontal: 12, marginTop: 8, marginBottom: 12 },
   retryLink: {
     fontSize: 12.5, fontWeight: '600', color: colors.ink,
     textDecorationLine: 'underline', marginTop: -10, marginBottom: 16,

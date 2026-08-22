@@ -5,6 +5,12 @@ import LanguageSelectScreen from '../screens/LanguageSelectScreen';
 import MainTabs from './MainTabs';
 import ListingDetailScreen from '../screens/ListingDetailScreen';
 import CreateListingScreen from '../screens/CreateListingScreen';
+import SellHubScreen from '../screens/SellHubScreen';
+import BatchPhotosScreen from '../screens/batch/BatchPhotosScreen';
+import BatchReviewScreen from '../screens/batch/BatchReviewScreen';
+import BatchDetailsScreen from '../screens/batch/BatchDetailsScreen';
+import BatchLocationContactScreen from '../screens/batch/BatchLocationContactScreen';
+import BatchFinalReviewScreen from '../screens/batch/BatchFinalReviewScreen';
 import AuthScreen from '../screens/AuthScreen';
 import ChangePhoneScreen from '../screens/ChangePhoneScreen';
 import PaymentScreen from '../screens/PaymentScreen';
@@ -52,6 +58,14 @@ const linking: LinkingOptions<RootStackParamList> = {
       },
       ListingDetail: 'listing/:listingId',
       CreateListing: 'sell',
+      // The hub gets its own link rather than taking over 'sell' -- an
+      // existing bookmark/deep link to 'sell' keeps landing straight in
+      // the single-item wizard, unbroken. The batch screens themselves
+      // aren't given linking entries: every one of them requires a live
+      // batchId from an in-progress session (created by SellHubScreen),
+      // so there's no meaningful bare URL to deep-link into mid-batch --
+      // they're still reachable via in-app navigation.navigate() as usual.
+      SellHub: 'sell/start',
       Auth: 'login',
       ChangePhone: 'change-phone',
       Payment: 'listing/:listingId/payment',
@@ -89,6 +103,12 @@ export default function RootNavigator() {
         <Stack.Screen name="MainTabs" component={MainTabs} />
         <Stack.Screen name="ListingDetail" component={ListingDetailScreen} />
         <Stack.Screen name="CreateListing" component={CreateListingScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="SellHub" component={SellHubScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="BatchPhotos" component={BatchPhotosScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="BatchReview" component={BatchReviewScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="BatchDetails" component={BatchDetailsScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="BatchLocationContact" component={BatchLocationContactScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="BatchFinalReview" component={BatchFinalReviewScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ChangePhone" component={ChangePhoneScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Payment" component={PaymentScreen} options={{ presentation: 'modal' }} />

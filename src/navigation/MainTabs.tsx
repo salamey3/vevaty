@@ -35,9 +35,12 @@ export default function MainTabs() {
             // anonymous session every launch starts with can't create
             // listings -- see the "anonymous sessions cannot create
             // listings" RLS policy). Send them to log in first;
-            // AuthScreen replaces itself with CreateListing on success.
-            if (isVerified) rootNav.navigate('CreateListing');
-            else rootNav.navigate('Auth', { returnTo: 'CreateListing' });
+            // AuthScreen replaces itself with SellHub on success. SellHub
+            // (not CreateListing directly) is the new front door -- see
+            // src/screens/SellHubScreen.tsx -- so a seller picks single vs.
+            // batch before the wizard itself starts.
+            if (isVerified) rootNav.navigate('SellHub');
+            else rootNav.navigate('Auth', { returnTo: 'SellHub' });
           },
         }}
       />
