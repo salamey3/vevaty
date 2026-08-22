@@ -1712,13 +1712,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 ))}
               </View>
             )}
-            <Text style={styles.fieldLabel}>{t('createListing.title')}</Text>
+            <Text style={styles.fieldLabel}>
+              {t('createListing.title')}
+              <RequiredMark />
+            </Text>
             <TextInput
               onFocus={onInputFocus}
               value={title}
               onChangeText={(v) => { setTitle(v); setTitleIsMagicSeed(false); setUsedDraft(false); setAiSources([]); setAiUncertain([]); }}
               placeholder={categoryTitlePlaceholder}
-              style={styles.input}
+              style={[styles.input, !title.trim() && styles.inputRequired]}
             />
             <Text style={styles.fieldLabel}>{t('createListing.description')}</Text>
             <TextInput
@@ -1739,14 +1742,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 ))}
               </View>
             )}
-            <Text style={styles.fieldLabel}>{t('createListing.price')}</Text>
+            <Text style={styles.fieldLabel}>
+              {t('createListing.price')}
+              <RequiredMark />
+            </Text>
             <TextInput
               onFocus={onInputFocus}
               value={price}
               onChangeText={(v) => { setPrice(v); setAiPriceFilled(false); }}
               placeholder="0"
               keyboardType="numeric"
-              style={styles.input}
+              style={[styles.input, !price.trim() && styles.inputRequired]}
             />
             {aiPriceFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiPriceFilledNotice')}</Text>}
             {aiAttributesFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiAttributesFilledNotice')}</Text>}
@@ -2113,6 +2119,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   );
 }
 
+// A red asterisk for a required field's label -- shown next to Title and
+// Price on the Details step (see the two TextInputs below) and next to
+// every attribute.required spec field (see AttributeField below), so the
+// seller can tell at a glance why Continue is disabled instead of hunting
+// for whichever field they missed. Kept as its own component (a colored
+// Text nested inside the label's own Text) rather than folding "*" into
+// the label string, because fieldLabel's own style is a muted gray
+// (type.tiny -- see inkSoft in theme.ts) and a plain "*" in that color
+// barely reads as a required marker at all.
+function RequiredMark() {
+  return <Text style={styles.requiredMark}> *</Text>;
+}
+
 function AttributeField({
   attribute,
   language,
@@ -2132,12 +2151,25 @@ function AttributeField({
 }) {
   const label = language === 'ar' ? attribute.labelAr : attribute.labelEn;
   const unit = language === 'ar' ? attribute.unitAr : attribute.unitEn;
-  const fieldLabel = `${label}${attribute.required ? ' *' : ''}${unit ? ` (${unit})` : ''}`;
+  // A separate red Text span rather than baking " *" into the label string
+  // -- see the doc comment on RequiredMark below for why this needs its
+  // own color instead of inheriting fieldLabel's muted gray.
+  const fieldLabelNode = (
+    <Text style={fieldStyles.fieldLabel}>
+      {label}
+      {attribute.required && <RequiredMark />}
+      {unit ? ` (${unit})` : ''}
+    </Text>
+  );
+  // Boolean attributes always carry a real value (true or false is never
+  // "empty" the way a blank string or an unmade select is), so there's
+  // nothing meaningful to highlight there even when required.
+  const isEmptyRequired = attribute.required && attribute.type !== 'boolean' && !attrHasValue(value);
 
   if (attribute.type === 'boolean') {
     return (
       <View style={fieldStyles.switchRow}>
-        <Text style={fieldStyles.fieldLabel}>{fieldLabel}</Text>
+        {fieldLabelNode}
         <Pressy onPress={() => onChangeValue(!value)} style={[fieldStyles.boolPill, !!value && fieldStyles.boolPillActive]}>
           <Text style={[fieldStyles.boolPillText, !!value && fieldStyles.boolPillTextActive]}>{value ? '✓' : ''}</Text>
         </Pressy>
@@ -2149,8 +2181,8 @@ function AttributeField({
     const selected: string[] = attribute.type === 'multiselect' ? (Array.isArray(value) ? (value as string[]) : []) : value ? [value as string] : [];
     return (
       <View>
-        <Text style={fieldStyles.fieldLabel}>{fieldLabel}</Text>
-        <View style={fieldStyles.pillRow}>
+        {fieldLabelNode}
+        <View style={[fieldStyles.pillRow, isEmptyRequired && fieldStyles.pillRowRequired]}>
           {attribute.options.map((opt) => {
             const isSelected = selected.includes(opt.value);
             return (
@@ -2172,13 +2204,13 @@ function AttributeField({
 
   return (
     <View>
-      <Text style={fieldStyles.fieldLabel}>{fieldLabel}</Text>
+      {fieldLabelNode}
       <TextInput
         onFocus={onFocus}
         value={value === undefined ? '' : String(value)}
         onChangeText={(v) => onChangeValue(attribute.type === 'number' ? (v === '' ? '' : Number(v) || 0) : v)}
         keyboardType={attribute.type === 'number' ? 'numeric' : 'default'}
-        style={fieldStyles.input}
+        style={[fieldStyles.input, isEmptyRequired && fieldStyles.inputRequired]}
       />
     </View>
   );
@@ -2189,6 +2221,19 @@ const fieldStyles = StyleSheet.create({
   input: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.sm, paddingHorizontal: 14, height: 46, fontSize: 14.5, color: colors.ink,
+  },
+  // Layered onto `input` (or `pillRow`, for select/multiselect) only while
+  // a required attribute is still empty -- see RequiredMark's doc comment
+  // for why the label asterisk alone isn't enough. Clears itself the
+  // moment the seller fills it in, so it reads as "still needs this", not
+  // as a permanent warning. The tint matches AdminModerationScreen's
+  // existing removed/rejected badge background (colors.danger's own light
+  // tint isn't in the shared palette yet), so the app isn't carrying two
+  // slightly different reds for the same "this needs attention" meaning.
+  inputRequired: { borderColor: colors.danger, borderWidth: 1.5, backgroundColor: '#f5e4e2' },
+  pillRowRequired: {
+    borderWidth: 1.5, borderColor: colors.danger, borderRadius: radius.sm,
+    padding: 8, backgroundColor: '#f5e4e2',
   },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 10 },
   boolPill: {
@@ -2357,10 +2402,18 @@ const styles = StyleSheet.create({
   mapWrap: { marginTop: 12 },
   geonamesAttribution: { fontSize: 10.5, color: colors.inkSoft, marginTop: 12 },
   fieldLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 16, marginBottom: 6 },
+  requiredMark: { color: colors.danger },
   input: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.sm, paddingHorizontal: 14, height: 46, fontSize: 14.5, color: colors.ink,
   },
+  // Layered onto `input` only while Title/Price is still empty -- see
+  // RequiredMark's doc comment above for why the label asterisk alone
+  // isn't enough. Clears itself the moment the seller fills it in. Same
+  // tint as fieldStyles.inputRequired below (AdminModerationScreen's
+  // existing removed/rejected badge background) for one consistent
+  // danger-tint across the app.
+  inputRequired: { borderColor: colors.danger, borderWidth: 1.5, backgroundColor: '#f5e4e2' },
   textarea: { height: 100, paddingTop: 12, textAlignVertical: 'top' },
   rtlInput: { textAlign: 'right', writingDirection: 'rtl' },
   translateLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16 },
