@@ -19,6 +19,10 @@ function criteriaFromRow(row: any): SavedSearchCriteria {
     priceMin: typeof c.priceMin === 'number' ? c.priceMin : null,
     priceMax: typeof c.priceMax === 'number' ? c.priceMax : null,
     distanceKm: typeof c.distanceKm === 'number' ? c.distanceKm : null,
+    // Same defensive story as every field above: a search saved before
+    // this filter existed simply has none, same as one saved with it
+    // explicitly cleared.
+    condition: Array.isArray(c.condition) ? c.condition : [],
   };
 }
 

@@ -135,6 +135,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const [step, setStep] = useState(0);
   const [category, setCategory] = useState<CategoryId | null>(initialCategory);
+  // New vs used -- required alongside category on the wizard's very first
+  // step (see canNextByKind.category and the picker in the 'category'
+  // step's JSX below), not its own step: it's a single yes/no-style pick,
+  // not enough of a decision to earn a whole step the way photos/details
+  // do, and keeping it off the step list means it needs no changes to
+  // stepKinds or the Android/web back-navigation logic those rounds
+  // already got right.
+  const [condition, setCondition] = useState<'new' | 'used' | null>(editingListing?.condition ?? null);
   const [photos, setPhotos] = useState<string[]>(editingListing?.photos || []);
   // A listing can have more than one named 360° spin (e.g. "Exterior"/
   // "Interior" for a car, one per room for a property) -- see the SpinSet
@@ -1139,7 +1147,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const hasLocation = !!district.trim() || coordsFromSeller;
 
   const canNextByKind: Record<StepKind, boolean> = {
-    category: !!category,
+    category: !!category && !!condition,
     // At least PHOTOS_MIN_FOR_AI photos are now required before Continue
     // unlocks at all -- not just "not currently suggesting" -- and the AI
     // product-identification pass (see the auto-suggest effect above and
@@ -1272,6 +1280,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
     return {
       cat: category as CategoryId,
+      // Guaranteed non-null on a real submit by canNextByKind.category;
+      // a draft save is allowed to carry it as null the same way it's
+      // allowed to carry a blank title/price -- see this function's own
+      // doc comment above.
+      condition,
       titleEn: language === 'en' ? title.trim() : targetTitle.trim(),
       titleAr: language === 'ar' ? title.trim() : targetTitle.trim(),
       descriptionEn: language === 'en' ? description.trim() : targetDescription.trim(),
@@ -1547,11 +1560,36 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         keyboardShouldPersistTaps="handled"
       >
         {currentKind === 'category' && (
-          <CategoryPicker
-            value={category}
-            onSelect={setCategory}
-            onMagicPress={() => { setMagicError(null); setMagicVisible(true); }}
-          />
+          <View>
+            <CategoryPicker
+              value={category}
+              onSelect={setCategory}
+              onMagicPress={() => { setMagicError(null); setMagicVisible(true); }}
+            />
+            {/* New vs used -- required right off the bat, on this first
+                step, alongside category (see canNextByKind.category and
+                the condition state's own doc comment above). Reuses the
+                same pill-row + RequiredMark idiom as the contact-method
+                and location fields on the Details step, rather than
+                inventing a third "required field" visual language. */}
+            <Text style={styles.fieldLabel}>
+              {t('createListing.conditionLabel')}
+              <RequiredMark />
+            </Text>
+            <View style={[fieldStyles.pillRow, !condition && fieldStyles.pillRowRequired]}>
+              {(['new', 'used'] as const).map((c) => (
+                <Pressy
+                  key={c}
+                  onPress={() => setCondition(c)}
+                  style={[fieldStyles.optPill, condition === c && fieldStyles.optPillActive]}
+                >
+                  <Text style={[fieldStyles.optPillText, condition === c && fieldStyles.optPillTextActive]}>
+                    {t(`createListing.condition.${c}`)}
+                  </Text>
+                </Pressy>
+              ))}
+            </View>
+          </View>
         )}
 
         {currentKind === 'photos' && (

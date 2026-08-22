@@ -173,6 +173,14 @@ export interface Listing {
   descriptionEn: string;
   descriptionAr: string;
   price: number;
+  // Whether the item is brand new or used, chosen by the seller as a
+  // required pick on the very first step of the create-listing wizard
+  // (see CreateListingScreen's category step). Nullable only for the sake
+  // of listings posted before this field existed -- see normalizeListing/
+  // dbListingToLocal's defensive-default story for the same reasoning
+  // applied elsewhere on this type. A null condition simply shows no
+  // New/Used badge on ListingCard rather than guessing.
+  condition: 'new' | 'used' | null;
   district: string;
   // Lebanese governorate/caza (district), resolved via the map picker or
   // town-name autocomplete against the lebanonPlaces dataset (see
@@ -406,6 +414,12 @@ export interface SavedSearchCriteria {
   priceMin: number | null;
   priceMax: number | null;
   distanceKm: number | null;
+  // New/used -- OR-semantics checkbox selection, same shape and matching
+  // rules as subCatIds (zero checked = no filtering; either or both
+  // checked narrows to listings with that condition). A listing whose own
+  // condition is null (posted before the field existed) never matches a
+  // non-empty selection here -- see HomeScreen's `filtered` useMemo.
+  condition: string[];
 }
 
 // A buyer-saved search -- one row per (user, cat, criteria) the user chose

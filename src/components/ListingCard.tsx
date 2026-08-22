@@ -197,6 +197,31 @@ export default function ListingCard({
         )}
       </View>
       <View style={styles.info}>
+        {/* New/used -- null for a listing posted before this field existed
+            (or one of the pre-existing seed rows a migration collapsed
+            from a more granular scale with no real "new" value among
+            them), so those simply show no badge rather than guessing.
+            Placed first, above the price, so it reads as the first thing
+            about the item rather than competing with the storefront pill
+            further down for attention. */}
+        {listing.condition && (
+          <View
+            style={[
+              styles.conditionPill,
+              listing.condition === 'new' ? styles.conditionPillNew : styles.conditionPillUsed,
+              isRTL && styles.conditionPillRTL,
+            ]}
+          >
+            <Text
+              style={[
+                styles.conditionPillText,
+                listing.condition === 'new' ? styles.conditionPillTextNew : styles.conditionPillTextUsed,
+              ]}
+            >
+              {listing.condition === 'new' ? t('listingCard.conditionNew') : t('listingCard.conditionUsed')}
+            </Text>
+          </View>
+        )}
         <Text style={[styles.price, isRTL && styles.rtlText]}>${listing.price.toLocaleString()}</Text>
         <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
         {topSpecs.length > 0 && (
@@ -315,6 +340,25 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
   info: { paddingHorizontal: 10, paddingVertical: 9 },
+  // New/used badge -- two distinct fills so the two states read apart at
+  // a glance rather than needing the label text to do all the work. Green
+  // (New) reuses the same family as `price`/`primary` so "new" reads as a
+  // small positive signal; the used tint is a deliberately different hue
+  // (slate blue, not in the shared palette yet) so it never gets mistaken
+  // for the gold storefront pill immediately below it on shop listings.
+  // Both pairs clear 6:1 contrast, well past the storefront pill's own
+  // 5.37:1 precedent (accentDeep on warnBg).
+  conditionPill: {
+    alignSelf: 'flex-start', borderRadius: radius.pill,
+    paddingHorizontal: 8, height: 20, alignItems: 'center', justifyContent: 'center',
+    marginBottom: 4,
+  },
+  conditionPillRTL: { alignSelf: 'flex-end' },
+  conditionPillNew: { backgroundColor: colors.primaryTint },
+  conditionPillUsed: { backgroundColor: '#E7ECF2' },
+  conditionPillText: { fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
+  conditionPillTextNew: { color: colors.success },
+  conditionPillTextUsed: { color: '#3B5166' },
   specs: { ...type.tiny, color: colors.ink, marginBottom: 3 },
   posted: { ...type.tiny, color: colors.inkSoft, marginTop: 3 },
   price: { ...type.h3, color: colors.primary, marginBottom: 2 },

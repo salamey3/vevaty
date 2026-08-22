@@ -48,10 +48,15 @@ type SelectionState = {
   priceMin: number | null;
   priceMax: number | null;
   distanceKm: number | null;
+  // New/used -- unlike facetValues, this isn't category-scoped (every
+  // listing in every category has a condition, or doesn't), so it's its
+  // own top-level field rather than living under a facet key, same
+  // reasoning as priceMin/priceMax staying separate from facetValues.
+  condition: string[];
 };
 
 function emptySelection(): SelectionState {
-  return { subCatIds: [], facetValues: {}, priceMin: null, priceMax: null, distanceKm: null };
+  return { subCatIds: [], facetValues: {}, priceMin: null, priceMax: null, distanceKm: null, condition: [] };
 }
 
 export default function HomeScreen() {
@@ -141,6 +146,7 @@ export default function HomeScreen() {
       priceMin: criteria.priceMin,
       priceMax: criteria.priceMax,
       distanceKm: criteria.distanceKm,
+      condition: criteria.condition,
     };
   });
   const [mobileFiltersOpen, setMobileFiltersOpen] = useState(false);
@@ -274,6 +280,21 @@ export default function HomeScreen() {
       subCatIds: prev.subCatIds.includes(id) ? prev.subCatIds.filter((v) => v !== id) : [...prev.subCatIds, id],
     }));
   };
+  const toggleCondition = (value: string) => {
+    setSelection((prev) => ({
+      ...prev,
+      condition: prev.condition.includes(value) ? prev.condition.filter((v) => v !== value) : [...prev.condition, value],
+    }));
+  };
+
+  // Always New/Used, not gated by "does anything currently match" the way
+  // areaOptions/attributeOptions are -- there are only ever these two
+  // values, so hiding one because nothing in the current scope happens to
+  // have it would look like a bug, not a real absence of that condition.
+  const conditionOptions: FilterOption[] = [
+    { key: 'new', label: t('home.filters.conditionNew') },
+    { key: 'used', label: t('home.filters.conditionUsed') },
+  ];
 
   const subCategoryOptions: FilterOption[] = useMemo(() => {
     if (topCat === 'all') return [];
@@ -356,6 +377,12 @@ export default function HomeScreen() {
     const q = query.trim().toLowerCase();
     return categoryScoped.filter((l) => {
       if (!matchesFacets(l)) return false;
+      // A listing with no condition on file (posted before this field
+      // existed) never matches a non-empty selection here -- '' is never
+      // one of the checked values, so `l.condition || ''` correctly falls
+      // through to "excluded" rather than accidentally matching either
+      // checkbox.
+      if (selection.condition.length > 0 && !selection.condition.includes(l.condition || '')) return false;
       if (selection.priceMin != null && l.price < selection.priceMin) return false;
       if (selection.priceMax != null && l.price > selection.priceMax) return false;
       if (selection.distanceKm != null) {
@@ -418,6 +445,7 @@ export default function HomeScreen() {
       priceMin: selection.priceMin,
       priceMax: selection.priceMax,
       distanceKm: selection.distanceKm,
+      condition: selection.condition,
     };
     setSavingSearch(true);
     try {
@@ -444,6 +472,19 @@ export default function HomeScreen() {
           </Pressy>
         </View>
       </View>
+
+      {/* New/used -- unlike the sections below (facets.map), this isn't
+          scoped to a category, so it's rendered unconditionally rather
+          than as one of the per-category FilterFacet entries. Placed
+          first: it's a fundamental property of the listing itself, the
+          same way price/distance are, and worth seeing before drilling
+          into subcategory/area. */}
+      <FilterSection
+        title={t('home.filters.condition')}
+        options={conditionOptions}
+        selected={selection.condition}
+        onToggle={toggleCondition}
+      />
 
       {facets.map((f) => {
         if (f.kind === 'subcategory') {
