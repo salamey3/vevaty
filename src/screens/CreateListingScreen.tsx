@@ -1022,6 +1022,29 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [currentKind, hasSpecs, hasEnoughPhotosForAi, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
 
+  // Turns off native-stack's own swipe-to-go-back gesture (and, on newer
+  // Android versions/react-native-screens builds, the OS-level predictive-
+  // back edge swipe) for this screen. Both are a SEPARATE dismissal path
+  // from the classic hardware/software back button: they're recognised by
+  // the native screen view itself and go straight to React Navigation's
+  // own goBack() dispatch, never through RN's BackHandler
+  // ('hardwareBackPress') event -- so the step-by-step handling just below
+  // (which relies entirely on that event) never even sees them, and they
+  // fall straight through to useUnsavedChangesGuard's beforeRemove
+  // listener, which only knows "are there unsaved changes", not "which
+  // step is the seller on". That's what made a swipe (or, on some
+  // devices/OS versions, what reads to the seller as just "the back
+  // button") mid-flow jump straight to the Save & exit / Exit without
+  // saving prompt instead of stepping back once, the way every other
+  // back-out path on this screen already correctly does. With the gesture
+  // off, every dismissal attempt is forced through the on-screen back
+  // arrow, the X, or the hardware back button -- all of which already run
+  // through goBackOneStep/the BackHandler listener below and get the
+  // per-step behaviour right.
+  useEffect(() => {
+    navigation.setOptions({ gestureEnabled: false });
+  }, [navigation]);
+
   // Android's hardware back closed the entire create flow from any step,
   // dropping the seller on the home screen with everything they had
   // entered gone. On a seven-step form reached from a floating button,
