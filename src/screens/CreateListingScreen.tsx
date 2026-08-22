@@ -1072,15 +1072,28 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             setShopChoiceResolved(false);
             return true;
           }
-          // false lets React Navigation close the modal as usual -- back
-          // out of the flow is the right answer from its first screen.
-          return false;
+          // Explicitly dispatch the same navigation.goBack() the on-screen
+          // back arrow and the X both use at this point (see below), rather
+          // than returning false and letting Android's default hardware-
+          // back handling dismiss the modal on its own: on native, that
+          // default path can complete the screen's removal at the
+          // navigator level without ever going through React Navigation's
+          // own goBack() action -- which is specifically what
+          // useUnsavedChangesGuard's beforeRemove listener intercepts (see
+          // that hook). Left as `return false` here, a seller who has
+          // typed a title/price/photos and hits hardware back at the very
+          // first step could lose the whole draft with no prompt at all,
+          // instead of getting the same "Save & exit / Exit without
+          // saving" choice every other way out of this screen already
+          // gives them.
+          navigation.goBack();
+          return true;
         }
         setStep((prev) => Math.max(0, prev - 1));
         return true;
       });
       return () => sub.remove();
-    }, [step, shouldAskShopChoice, shopChoiceResolved])
+    }, [step, shouldAskShopChoice, shopChoiceResolved, navigation])
   );
 
   const setAttrValue = (slug: string, value: AttributeValue) => setAttrValues((prev) => ({ ...prev, [slug]: value }));
@@ -1736,6 +1749,26 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
         {currentKind === 'details' && (
           <View>
+            {/* "How can buyers reach you?" leads the Details section --
+                moved up from its old spot near the map so it's the first
+                thing a seller decides here, before the AI-assisted fields
+                below (see PHOTOS_MIN_FOR_AI/contact-method reasoning
+                elsewhere in this step). */}
+            <Text style={styles.fieldLabel}>{t('createListing.contactMethod')}</Text>
+            <View style={fieldStyles.pillRow}>
+              {(['both', 'chat', 'phone'] as const).map((m) => (
+                <Pressy
+                  key={m}
+                  onPress={() => setContactMethod(m)}
+                  style={[fieldStyles.optPill, contactMethod === m && fieldStyles.optPillActive]}
+                >
+                  <Text style={[fieldStyles.optPillText, contactMethod === m && fieldStyles.optPillTextActive]}>
+                    {t(`createListing.contactMethod.${m}`)}
+                  </Text>
+                </Pressy>
+              ))}
+            </View>
+
             {(hasSpecs || hasPhotoSignal) && (
               <Text style={[type.soft, styles.detailsAutoIntro]}>{t('createListing.detailsAutoIntro')}</Text>
             )}
@@ -1874,35 +1907,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                     : t('createListing.useMyLocation')}
               </Text>
             </Pressy>
-            <View style={styles.mapWrap}>
-            <LocationMapPicker
-              value={preciseCoords}
-              onChange={(coords) => resolvePlace(nearestPlace(coords), coords)}
-              hint={t('createListing.mapHint')}
-              // Only label the pin when it stands for a point the seller
-              // actually chose. Unlabelled it reads as a suggestion to
-              // adjust, which is what a town centroid or an untouched
-              // default is; labelled "Your location" it asserts a position
-              // nobody set.
-              pinLabel={coordsFromSeller ? t('createListing.mapPinLabel') : undefined}
-            />
-            </View>
-            <Text style={styles.geonamesAttribution}>{t('createListing.geonamesAttribution')}</Text>
-            <Text style={styles.fieldLabel}>{t('createListing.contactMethod')}</Text>
-            <View style={fieldStyles.pillRow}>
-              {(['both', 'chat', 'phone'] as const).map((m) => (
-                <Pressy
-                  key={m}
-                  onPress={() => setContactMethod(m)}
-                  style={[fieldStyles.optPill, contactMethod === m && fieldStyles.optPillActive]}
-                >
-                  <Text style={[fieldStyles.optPillText, contactMethod === m && fieldStyles.optPillTextActive]}>
-                    {t(`createListing.contactMethod.${m}`)}
-                  </Text>
-                </Pressy>
-              ))}
-            </View>
-
             {/* Only shown when editing -- a fresh listing's shop attachment
                 is decided upfront by the chooser screen (shouldAskShopChoice
                 above), so this is purely the "I published standalone by
@@ -1926,6 +1930,29 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 </View>
               </>
             )}
+
+            {/* Map is the last detail on this page -- everything above it
+                (contact method, title, description, price, location text/
+                current-location) is either typed or a single tap, so the
+                seller can move through them top to bottom without stopping;
+                the map is the one control that takes real interaction
+                (drag/zoom to fine-tune a pin), which reads better as a
+                final "polish this before you're done" step than as
+                something sitting in the middle of the form. */}
+            <View style={styles.mapWrap}>
+            <LocationMapPicker
+              value={preciseCoords}
+              onChange={(coords) => resolvePlace(nearestPlace(coords), coords)}
+              hint={t('createListing.mapHint')}
+              // Only label the pin when it stands for a point the seller
+              // actually chose. Unlabelled it reads as a suggestion to
+              // adjust, which is what a town centroid or an untouched
+              // default is; labelled "Your location" it asserts a position
+              // nobody set.
+              pinLabel={coordsFromSeller ? t('createListing.mapPinLabel') : undefined}
+            />
+            </View>
+            <Text style={styles.geonamesAttribution}>{t('createListing.geonamesAttribution')}</Text>
           </View>
         )}
 
