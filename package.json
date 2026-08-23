@@ -55,5 +55,8 @@
     "verify:web": "node verify-web.mjs",
     "brand": "node scripts/generate-brand-assets.mjs"
   },
-  "private": true
+  "private": true,
+  "allowScripts": {
+    "esbuild@0.28.2": true
+  }
 }
