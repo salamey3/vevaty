@@ -281,9 +281,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // Local URIs only -- never merged into `photos`, never uploaded. See the
   // 'verify' step below: these are extraction-only (read once by the AI
   // spec suggestion, then discarded), not part of the public listing
-  // gallery. Set once, on Continue from the verify step (see
-  // verificationAttempted below), whether or not any shot was actually
-  // captured -- the step is always skippable.
+  // gallery. Index-addressed to match cat.verificationShotListEn/Ar --
+  // every index must hold a real URI before Continue unlocks (see
+  // canNextByKind.verify below); this step is mandatory, not skippable,
+  // per an explicit product decision after a seller nearly missed it
+  // entirely on a small, easy-to-miss button.
   const [verificationPhotos, setVerificationPhotos] = useState<string[]>([]);
   const [verificationAttempted, setVerificationAttempted] = useState(false);
   // Which prompt in cat.verificationShotListEn/Ar (by index) the camera is
@@ -527,6 +529,13 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // extra gate below (it must NOT fire before this step is reached, or the
   // whole point of the targeted photo is lost).
   const needsVerification = (cat?.verificationShotListEn.length ?? 0) > 0;
+  // Every prompt slot must hold a real captured/picked URI -- verifyRow's
+  // camera and library-fallback paths both write into verificationPhotos
+  // by index, so a `.filter(Boolean)` count against the prompt list length
+  // is all "has this seller finished the verify step" needs. False (never
+  // blocking) for every category without a verify step at all.
+  const verificationComplete =
+    !needsVerification || verificationPhotos.filter(Boolean).length >= (cat?.verificationShotListEn.length ?? 0);
 
   const stepKinds: StepKind[] = useMemo(
     () => [
@@ -1159,11 +1168,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // would just block Continue on something that structurally can't have
     // happened yet. Just the photo-count threshold.
     photos: hasEnoughPhotosForAi,
-    // Never blocks Continue -- always skippable (worn VIN plate, an old
-    // phone with no About screen), same "optional, not a gate" treatment
-    // as spin/stock below. See verificationAttempted's own doc comment for
-    // where this step's completion actually gets recorded.
-    verify: true,
+    // Mandatory: every verification-shot prompt for this category must
+    // have a captured/picked photo before Continue unlocks (see
+    // verificationComplete above). Was skippable ("worn VIN plate, an old
+    // phone with no About screen") until a seller reported almost missing
+    // the step entirely -- the library-fallback path inside CameraCapture
+    // still covers a genuinely broken camera, so this doesn't strand
+    // anyone, it just stops a silent skip.
+    verify: verificationComplete,
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
@@ -1643,17 +1655,33 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 <View key={i} style={styles.verifyRow}>
                   <View style={styles.verifyRowText}>
                     <Text style={type.body}>{prompt}</Text>
+                    {!captured && <Text style={styles.verifyRequiredTag}>{t('createListing.verifyRequired')}</Text>}
                   </View>
                   {captured ? (
                     <Image source={{ uri: verificationPhotos[i] }} style={styles.verifyThumb} />
                   ) : null}
-                  <Pressy onPress={() => setVerificationCameraIndex(i)} style={styles.draftBtn}>
-                    <Icon name={captured ? 'rotate' : 'camera'} size={14} color={colors.ink} />
-                    <Text style={type.soft}>{captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}</Text>
+                  {/* Its own dedicated style, not a reuse of draftBtn -- this
+                      is the exact control the seller said they nearly missed,
+                      so it needs to look like a first-class demand (large,
+                      filled with the brand primary, a bold 22px icon) rather
+                      than the same quiet pill draftBtn gives lesser actions
+                      like the Classify confirm chip elsewhere on this screen. */}
+                  <Pressy
+                    onPress={() => setVerificationCameraIndex(i)}
+                    style={[styles.verifyShotBtn, captured && styles.verifyShotBtnDone]}
+                    accessibilityLabel={captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}
+                  >
+                    <Icon name={captured ? 'rotate' : 'camera'} size={22} color={captured ? colors.ink : colors.white} />
+                    <Text style={[styles.verifyShotBtnText, captured && styles.verifyShotBtnTextDone]}>
+                      {captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}
+                    </Text>
                   </Pressy>
                 </View>
               );
             })}
+            {!verificationComplete && (
+              <Text style={styles.verifyBlockedHint}>{t('createListing.verifyRequiredHint')}</Text>
+            )}
           </View>
         )}
 
@@ -2180,11 +2208,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             label={t('common.continue')}
             disabled={!canNext}
             onPress={() => {
-              // Leaving the verify step -- whether or not any shot was
-              // actually captured -- is what unblocks the auto-suggest
-              // effect above (see verificationAttempted/needsVerification).
-              // Always-skippable, so this fires on a plain Continue tap
-              // just as much as after capturing every prompt.
+              // Continue is only reachable here once every prompt is
+              // captured (see canNextByKind.verify / verificationComplete),
+              // so this is what unblocks the auto-suggest effect above
+              // (see verificationAttempted/needsVerification) -- always
+              // right after a genuinely complete verify step now, never a
+              // skip.
               if (currentKind === 'verify') setVerificationAttempted(true);
               setStep((s) => s + 1);
             }}
@@ -2493,13 +2522,28 @@ const styles = StyleSheet.create({
   draftBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
   // Verify step: one row per verification-shot prompt (settings screen,
   // VIN plate, rating label...) -- prompt text on the left, a small
-  // thumbnail once captured, and the take/retake draftBtn pill on the
-  // right. Mirrors the shot-list rows' spacing elsewhere in this screen.
+  // thumbnail once captured, and a large, dedicated take/retake button
+  // (verifyShotBtn below, NOT draftBtn -- this step is mandatory and the
+  // seller reported almost missing the button entirely, so it needs its
+  // own bigger, bolder treatment rather than draftBtn's quiet pill, which
+  // is shared with lesser actions like the Classify confirm chip).
   verifyRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14,
+    gap: 10, marginBottom: 16, padding: 12, borderRadius: radius.md,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
   },
-  verifyRowText: { flex: 1 },
-  verifyThumb: { width: 40, height: 40, borderRadius: radius.sm },
+  verifyRowText: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  verifyRequiredTag: {
+    fontSize: 11, fontWeight: '700', color: colors.danger, textTransform: 'uppercase', letterSpacing: 0.4,
+  },
+  verifyThumb: { width: 52, height: 52, borderRadius: radius.sm },
+  verifyShotBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 18, height: 56,
+  },
+  verifyShotBtnDone: { backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.line },
+  verifyShotBtnText: { fontSize: 16, fontWeight: '700', color: colors.white },
+  verifyShotBtnTextDone: { color: colors.ink },
+  verifyBlockedHint: { ...type.tiny, color: colors.danger, marginTop: 4 },
   // The Classify step's confirm pill reuses draftBtn's shape but flips to
   // the primary/filled treatment once tapped, matching the checkCircle
   // icon it shows alongside -- a plain warn-tint pill read as "still

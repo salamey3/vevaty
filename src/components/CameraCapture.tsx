@@ -36,6 +36,41 @@ type Props = {
 
 type CamState = 'idle' | 'requesting' | 'active' | 'denied';
 
+// expo-camera's CameraView exposes exactly one cross-platform zoom control:
+// `zoom`, a value normalized to 0-1 ("0 means not zoomed and 1 means
+// maximum zoom"). Its `selectedLens`/`getAvailableLensesAsync`/
+// `isPinchToZoomEnabled` props (see Camera.types.d.ts) are all marked
+// iOS-only, so on Android -- the platform this was reported on -- there is
+// no true named-lens picker available through this library. `zoom` is the
+// only lever there is.
+//
+// Left unset (the previous behavior here), CameraView defaults to zoom 0,
+// which on multi-lens Android phones with an ultra-wide sensor frequently
+// resolves to THAT lens rather than the standard "1x" one -- a known
+// CameraX/expo-camera quirk, and exactly the "camera opens at 0.5 zoom
+// out" bug reported: everything shot through this component (the initial
+// photos, the 360 spin, and the verification shot) was silently going
+// through the ultra-wide lens with no way to change it, which is soft and
+// distorted at the edges -- unusable for reading fine text off a screen or
+// a label. Nudging the default a little past 0 is the standard workaround
+// and reliably lands on the normal wide lens instead.
+//
+// On top of that default fix, ZOOM_PRESETS below gives the seller a real,
+// tappable equivalent of the zoom buttons every native camera app on their
+// phone already shows them (0.5x / 1x / 2x / 3x) -- including the ability
+// to deliberately go back to the wide 0.5x view when they actually want
+// it (a group shot, a big item). These are buttons, not a pinch gesture:
+// this app also ships as vevaty.com over react-native-web, and a pinch
+// gesture has no equivalent for a mouse -- see ImageCropModal.tsx's own
+// zoom control for the same reasoning applied to crop-zoom.
+const DEFAULT_ZOOM = 0.15;
+const ZOOM_PRESETS: { label: string; value: number }[] = [
+  { label: '0.5×', value: 0 },
+  { label: '1×', value: DEFAULT_ZOOM },
+  { label: '2×', value: 0.4 },
+  { label: '3×', value: 0.65 },
+];
+
 // Guided in-app 360deg spin capture (Phase 3 item 7), backed by expo-camera's
 // CameraView -- works on native (Android/iOS) AND web (it uses getUserMedia
 // under the hood there), unlike the previous implementation. That one called
@@ -73,6 +108,7 @@ export default function CameraCapture({
   const [permission, requestPermission] = useCameraPermissions();
   const [camState, setCamState] = useState<CamState>('idle');
   const [frames, setFrames] = useState<string[]>([]);
+  const [zoom, setZoom] = useState(DEFAULT_ZOOM);
   const cameraRef = useRef<CameraView>(null);
   const capturingRef = useRef(false);
   const framesRef = useRef<string[]>([]);
@@ -82,6 +118,7 @@ export default function CameraCapture({
     if (!visible) return;
     let cancelled = false;
     setFrames([]);
+    setZoom(DEFAULT_ZOOM);
     setCamState('requesting');
 
     (async () => {
@@ -149,7 +186,7 @@ export default function CameraCapture({
 
         {camState === 'active' && (
           <View style={styles.videoWrap}>
-            <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" />
+            <CameraView ref={cameraRef} style={StyleSheet.absoluteFill} facing="back" zoom={zoom} />
             <View style={styles.instructionBanner} pointerEvents="none">
               <Text style={styles.instructionText}>{instructions || t('createListing.cameraInstructions')}</Text>
             </View>
@@ -197,6 +234,27 @@ export default function CameraCapture({
                 ))}
               </View>
             )}
+
+            {/* Tappable zoom presets -- the seller's own answer to "let me
+                pick whatever familiar choice works for my camera": the same
+                0.5x/1x/2x/3x row every native camera app shows, standing in
+                for the lens picker Android can't expose through this
+                library (see the ZOOM_PRESETS comment above). */}
+            <View style={styles.zoomRow}>
+              {ZOOM_PRESETS.map((preset) => {
+                const active = Math.abs(zoom - preset.value) < 0.001;
+                return (
+                  <Pressy
+                    key={preset.label}
+                    onPress={() => setZoom(preset.value)}
+                    style={[styles.zoomBtn, active && styles.zoomBtnActive]}
+                    accessibilityLabel={`Zoom ${preset.label}`}
+                  >
+                    <Text style={[styles.zoomBtnText, active && styles.zoomBtnTextActive]}>{preset.label}</Text>
+                  </Pressy>
+                );
+              })}
+            </View>
 
             <View style={styles.controlsRow}>
               <Pressy
@@ -265,6 +323,14 @@ const styles = StyleSheet.create({
     position: 'absolute', top: -4, right: -4, width: 16, height: 16, borderRadius: 8,
     backgroundColor: 'rgba(0,0,0,0.75)', alignItems: 'center', justifyContent: 'center',
   },
+  zoomRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8 },
+  zoomBtn: {
+    width: 44, height: 44, borderRadius: 22, backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  zoomBtnActive: { backgroundColor: colors.white },
+  zoomBtnText: { fontSize: 13, fontWeight: '700', color: colors.white },
+  zoomBtnTextActive: { color: '#000' },
   controlsRow: { alignItems: 'center', justifyContent: 'center', marginTop: 4 },
   shutter: {
     width: 66, height: 66, borderRadius: 33, borderWidth: 4, borderColor: colors.white,

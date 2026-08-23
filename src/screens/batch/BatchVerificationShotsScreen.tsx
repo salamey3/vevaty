@@ -97,6 +97,13 @@ export default function BatchVerificationShotsScreen({ navigation, route }: Prop
     }
   };
 
+  // Mandatory, matching CreateListingScreen's single-item 'verify' step:
+  // every prompt in the current item's shot list must have a captured (or
+  // library-picked) photo before Continue is even tappable. Previously this
+  // button had no `disabled` at all -- a seller could blow straight past
+  // every shot in the batch flow the same way the single-item wizard used
+  // to allow, which is exactly what this whole request is about fixing.
+  const allShotsCaptured = shotListEn.every((_, i) => !!verificationPhotos[i]);
   const goNext = () => setIndex((i) => i + 1);
 
   if (!listing || !needsShots) {
@@ -132,11 +139,23 @@ export default function BatchVerificationShotsScreen({ navigation, route }: Prop
             <View key={i} style={styles.verifyRow}>
               <View style={styles.verifyRowText}>
                 <Text style={type.body}>{prompt}</Text>
+                {!captured && <Text style={styles.requiredTag}>{t('batchVerification.required')}</Text>}
               </View>
               {captured ? <Image source={{ uri: verificationPhotos[i] }} style={styles.verifyThumb} /> : null}
-              <Pressy onPress={() => setCameraIndex(i)} style={styles.takeBtn}>
-                <Icon name={captured ? 'rotate' : 'camera'} size={14} color={colors.ink} />
-                <Text style={styles.takeBtnText}>
+              {/* Deliberately larger and bolder than an ordinary secondary
+                  action -- filled with the brand primary color while unmet,
+                  same visual weight Button.tsx gives its own primary CTA, so
+                  this is the thing a seller's eye lands on rather than
+                  something they can scan past. Drops to a quieter outline
+                  once captured, so attention keeps moving to whatever prompt
+                  is still unmet. */}
+              <Pressy
+                onPress={() => setCameraIndex(i)}
+                style={[styles.takeBtn, captured && styles.takeBtnDone]}
+                accessibilityLabel={captured ? t('createListing.verifyRetake') : t('batchVerification.takePhoto')}
+              >
+                <Icon name={captured ? 'rotate' : 'camera'} size={22} color={captured ? colors.ink : colors.white} />
+                <Text style={[styles.takeBtnText, captured && styles.takeBtnTextDone]}>
                   {captured ? t('createListing.verifyRetake') : t('batchVerification.takePhoto')}
                 </Text>
               </Pressy>
@@ -144,7 +163,13 @@ export default function BatchVerificationShotsScreen({ navigation, route }: Prop
           );
         })}
 
-        <Button label={t('batchVerification.continueBtn')} onPress={goNext} style={styles.nextBtn} />
+        <Button
+          label={t('batchVerification.continueBtn')}
+          onPress={goNext}
+          disabled={!allShotsCaptured}
+          style={styles.nextBtn}
+        />
+        {!allShotsCaptured && <Text style={styles.blockedHint}>{t('batchVerification.allRequiredHint')}</Text>}
       </View>
 
       <CameraCapture
@@ -177,13 +202,28 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 18, paddingTop: 6 },
-  verifyRow: { flexDirection: 'row', alignItems: 'center', gap: 10, marginTop: 16 },
-  verifyRowText: { flex: 1 },
-  verifyThumb: { width: 40, height: 40, borderRadius: radius.sm },
-  takeBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 8,
-    backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 14, height: 36,
+  verifyRow: {
+    marginTop: 18, gap: 10, padding: 12, borderRadius: radius.md,
+    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
   },
-  takeBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  verifyRowText: { flexDirection: 'row', alignItems: 'center', gap: 8, flexWrap: 'wrap' },
+  requiredTag: {
+    fontSize: 11, fontWeight: '700', color: colors.danger, textTransform: 'uppercase', letterSpacing: 0.4,
+  },
+  verifyThumb: { width: 52, height: 52, borderRadius: radius.sm },
+  // Deliberately much larger than the old 36px-tall pill (this is the
+  // control the seller reported nearly missing entirely) and filled with
+  // the same brand-primary color Button.tsx's own primary CTA uses, so it
+  // reads as a first-class action rather than a minor row accessory.
+  takeBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 18, height: 56,
+  },
+  takeBtnDone: {
+    backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.line,
+  },
+  takeBtnText: { fontSize: 16, fontWeight: '700', color: colors.white },
+  takeBtnTextDone: { color: colors.ink },
   nextBtn: { marginTop: 24 },
+  blockedHint: { ...type.tiny, color: colors.danger, textAlign: 'center', marginTop: 8 },
 });
