@@ -201,6 +201,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // (content shrinking, e.g. deleting text, should never shrink the box
   // below that starting size).
   const [descriptionHeight, setDescriptionHeight] = useState(100);
+  // Same auto-grow treatment, for the same reason, on the Translate step's
+  // own description field (targetDescription) -- a separate piece of state
+  // since the two textareas are never visible at the same time but do grow
+  // independently of each other.
+  const [targetDescriptionHeight, setTargetDescriptionHeight] = useState(100);
   const [targetTitle, setTargetTitle] = useState(initialTargetTitle);
   const [targetDescription, setTargetDescription] = useState(initialTargetDescription);
   const [translating, setTranslating] = useState(false);
@@ -2192,9 +2197,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                   onFocus={onInputFocus}
                   value={targetDescription}
                   onChangeText={setTargetDescription}
+                  // Same auto-grow as the Details step's description field
+                  // -- see that field's own comment for why. The AI-
+                  // translated text landing here is exactly the kind of
+                  // longer, unpredictable-length content this exists for.
+                  onContentSizeChange={(e) => setTargetDescriptionHeight(e.nativeEvent.contentSize.height)}
                   placeholder={t('createListing.translateDescriptionPlaceholder')}
                   multiline
-                  style={[styles.input, styles.textarea, targetLang === 'ar' && styles.rtlInput]}
+                  style={[
+                    styles.input,
+                    styles.textarea,
+                    { height: Math.max(100, targetDescriptionHeight) },
+                    targetLang === 'ar' && styles.rtlInput,
+                  ]}
                 />
                 {!translateErrorMsg && (
                   <Pressy onPress={runTranslate} style={styles.draftBtn}>
