@@ -277,6 +277,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     if (place && !opts?.keepTyped) setDistrict(place.name);
   };
   const [posting, setPosting] = useState(false);
+  // Read by the beforeRemove listener below (registered inside a useEffect
+  // whose deps deliberately don't include `posting` -- see that effect's
+  // own comment), so a plain closure over the `posting` state would only
+  // ever see whatever it was when the listener was last (re)created, not
+  // its value when the event actually fires. Set imperatively inside
+  // post() itself instead of derived from `posting` during render --
+  // deriving it from render timing would race against post()'s own
+  // `setPosting(false)` followed immediately (same tick, no intervening
+  // render) by `navigation.replace/navigate`, which is exactly the
+  // sequence that has to be caught. Same "read the current value through a
+  // ref written at the moment that matters" pattern CameraCapture.tsx uses
+  // for capturingRef/framesRef.
+  const postingRef = useRef(false);
   const [usedDraft, setUsedDraft] = useState(false);
   // Local URIs only -- never merged into `photos`, never uploaded. See the
   // 'verify' step below: these are extraction-only (read once by the AI
@@ -1328,6 +1341,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const post = async () => {
     if (!category) return;
+    // Set before the state-driven `posting` even updates -- see
+    // postingRef's own comment. This is what the beforeRemove listener
+    // actually reads at navigation time; `posting` (the state) still
+    // drives the button's loading spinner as before.
+    postingRef.current = true;
     setPosting(true);
     const payload = buildPayload();
     if (isEditMode && editListingId) {
@@ -1339,6 +1357,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       setPosting(false);
       navigation.replace('ListingDetail', { listingId: listing.id });
     }
+    // The beforeRemove listener has already synchronously seen this
+    // navigation by the time either call above returns (React Navigation
+    // fires its events as part of the dispatch itself), so it's safe to
+    // drop the guard back down now. Matters most for the edit-mode
+    // `navigate` branch, which pushes ListingDetail on top rather than
+    // replacing this screen -- CreateListingScreen stays mounted
+    // underneath, and leaving this stuck `true` would silently disable its
+    // own back/unsaved-changes guard for the rest of that instance's life.
+    postingRef.current = false;
   };
 
   // The unsaved-changes guard (see useUnsavedChangesGuard) fires whenever
@@ -1455,6 +1482,23 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // showing the wrong prompt outright.
   useEffect(() => {
     const sub = (navigation as any).addListener('beforeRemove', (e: any) => {
+      // `beforeRemove` doesn't only fire for the seller pressing back --
+      // it's React Navigation's "this screen is about to leave the stack
+      // by any means" event, and post()'s own `navigation.replace(...)` /
+      // `navigation.navigate(...)` to ListingDetail on a successful post
+      // triggers it too, since this screen is being removed to make room
+      // for that one. Without this check, that removal was being caught
+      // by the exact same logic meant for a real back-press: preventDefault()
+      // cancelled the navigation to ListingDetail, and setStep(prev - 1)
+      // then quietly stepped the wizard back one screen -- from Review
+      // straight to Translate, since that's the step right before it --
+      // so tapping Post/Save looked like it silently did nothing and
+      // dumped the seller back on the translation screen. Bailing out
+      // whenever a post/save is in flight (postingRef, see its own
+      // comment for why a ref rather than the `posting` state directly)
+      // leaves that navigation alone and only intercepts genuine back
+      // attempts.
+      if (postingRef.current) return;
       // Step 0 (including the shop-chooser sub-screen, which has its own
       // explicit back arrow) has nothing to step back to within this
       // screen -- let it fall through to the guard exactly as before.
