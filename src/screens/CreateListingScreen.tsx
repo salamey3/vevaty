@@ -16,18 +16,17 @@ import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
-import { AttributeValue, Category, CategoryAttribute, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
+import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
-import { estimateListingPrice, suggestListingFromWeb, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
-import { photosForVision } from '../lib/imageToBase64';
+import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { mirrorRow } from '../lib/mirrorRow';
-import { supabase } from '../lib/supabase';
 import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
 import { useClassifyRun } from '../hooks/useClassifyRun';
+import { useAiSpecSuggestion } from '../hooks/useAiSpecSuggestion';
 import { useUnsavedChangesGuard } from '../hooks/useUnsavedChangesGuard';
 import ActionSheet from '../components/ActionSheet';
 import AiWorkingOverlay from '../components/AiWorkingOverlay';
@@ -52,7 +51,7 @@ import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
 
-type StepKind = 'classify' | 'photos' | 'spin' | 'specs' | 'stock' | 'details' | 'translate' | 'review';
+type StepKind = 'classify' | 'photos' | 'verify' | 'spin' | 'specs' | 'stock' | 'details' | 'translate' | 'review';
 
 // 360° spin capture frame count (Phase 3 item 7, raised from 8 to 12 after
 // feedback that 8 (≥45°/frame) read as too choppy for bigger items like
@@ -72,12 +71,6 @@ const PHOTOS_MAX = 6;
 const PHOTOS_MIN_FOR_AI = 3;
 const SPIN_MIN_FRAMES = 12;
 const SPIN_MAX_FRAMES = 24;
-
-// Max number of gallery photos sent to the AI vision suggestion (see
-// applyAiSuggestion below) -- enough for Claude to reliably identify the
-// item and its visible condition without ballooning the request (each is
-// resized/compressed client-side first, see imageToBase64.ts).
-const AI_VISION_MAX_PHOTOS = 4;
 
 // Quick-pick name suggestions for a spin set, shown as tappable chips in
 // SpinPreviewModal alongside free typing -- e.g. a car seller doing
@@ -285,7 +278,21 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   };
   const [posting, setPosting] = useState(false);
   const [usedDraft, setUsedDraft] = useState(false);
-  const [suggesting, setSuggesting] = useState(false);
+  // Local URIs only -- never merged into `photos`, never uploaded. See the
+  // 'verify' step below: these are extraction-only (read once by the AI
+  // spec suggestion, then discarded), not part of the public listing
+  // gallery. Set once, on Continue from the verify step (see
+  // verificationAttempted below), whether or not any shot was actually
+  // captured -- the step is always skippable.
+  const [verificationPhotos, setVerificationPhotos] = useState<string[]>([]);
+  const [verificationAttempted, setVerificationAttempted] = useState(false);
+  // Which prompt in cat.verificationShotListEn/Ar (by index) the camera is
+  // currently open for, or null when closed -- one shared CameraCapture
+  // instance handles every prompt for this category, re-triggered per tap
+  // (there are at most two, VIN + odometer, so a whole camera instance per
+  // prompt would be wasteful).
+  const [verificationCameraIndex, setVerificationCameraIndex] = useState<number | null>(null);
+  const { suggesting, suggest: runAiSpecSuggestion } = useAiSpecSuggestion();
   const [aiError, setAiError] = useState<string | null>(null);
   const [aiSources, setAiSources] = useState<AiSuggestSource[]>([]);
   // What the AI told us it could NOT pin down. Shown to the seller above
@@ -514,11 +521,18 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // reselect the same value the AI guessed" correctly NOT bring the pill
   // back: once manuallyChosen flips true, the pill is gone for good.
   const showConfirmPill = !!aiCategoryId && !manuallyChosen;
+  // True for the 15 categories seeded with verification-shot prompts (see
+  // the migration -- most categories have none). Drives both whether the
+  // new 'verify' step appears in stepKinds and the auto-suggest effect's
+  // extra gate below (it must NOT fire before this step is reached, or the
+  // whole point of the targeted photo is lost).
+  const needsVerification = (cat?.verificationShotListEn.length ?? 0) > 0;
 
   const stepKinds: StepKind[] = useMemo(
     () => [
       'photos',
       'classify',
+      ...(needsVerification ? (['verify'] as const) : []),
       ...(cat?.supports3d ? (['spin'] as const) : []),
       ...(hasSpecs ? (['specs'] as const) : []),
       ...(hasStockStep ? (['stock'] as const) : []),
@@ -526,7 +540,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       'translate',
       'review',
     ],
-    [hasSpecs, cat?.supports3d, hasStockStep]
+    [needsVerification, hasSpecs, cat?.supports3d, hasStockStep]
   );
 
   // Auto-runs the classifier once there's enough photos to work from --
@@ -552,6 +566,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const STEP_LABELS: Record<StepKind, string> = {
     classify: t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
+    verify: t('createListing.stepVerify'),
     spin: t('createListing.stepSpin'),
     specs: t('createListing.stepSpecs'),
     stock: t('createListing.stepStock'),
@@ -613,6 +628,33 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       return result.assets.length;
     }
     return 0;
+  };
+
+  // Fallback for one verification-shot prompt when the guided camera is
+  // unavailable/denied -- unlike pickPhotosInto above, this REPLACES
+  // whatever was at this prompt's slot (a retake, not an addition), so a
+  // single-image picker rather than the multi-select one is the right tool
+  // here.
+  const pickVerificationPhotoFromLibrary = async (index: number) => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert(t('createListing.photoPermTitle'), t('createListing.photoPermMessage'));
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: false,
+      quality: 0.7,
+      selectionLimit: 1,
+    });
+    if (!result.canceled && result.assets[0]) {
+      const uri = result.assets[0].uri;
+      setVerificationPhotos((prev) => {
+        const next = [...prev];
+        next[index] = uri;
+        return next;
+      });
+    }
   };
 
   // Records or picks ONE video and starts sending it to Bunny immediately.
@@ -815,34 +857,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         required: a.required,
       }));
 
-  // Client-side re-check of one AI-suggested attribute value against its
-  // real definition -- defense in depth on top of the edge function's own
-  // (authoritative) validation, using the same rules: unparseable/
-  // out-of-range values are dropped, never coerced (e.g. a bad number
-  // must NOT become 0 -- that can be a real, wrong value). Returns
-  // undefined when the value shouldn't be applied.
-  const validateAiAttributeValue = (attribute: CategoryAttribute, value: unknown): AttributeValue | undefined => {
-    if (value === undefined || value === null) return undefined;
-    if (attribute.type === 'text') {
-      return typeof value === 'string' && value.trim().length > 0 && value.length <= 80 ? value.trim() : undefined;
-    }
-    if (attribute.type === 'number') {
-      return typeof value === 'number' && Number.isFinite(value) ? value : undefined;
-    }
-    if (attribute.type === 'boolean') {
-      return typeof value === 'boolean' ? value : undefined;
-    }
-    if (attribute.type === 'select') {
-      return typeof value === 'string' && attribute.options.some((o) => o.value === value) ? value : undefined;
-    }
-    if (attribute.type === 'multiselect') {
-      if (!Array.isArray(value)) return undefined;
-      const valid = value.filter((v): v is string => typeof v === 'string' && attribute.options.some((o) => o.value === v));
-      return valid.length > 0 ? valid : undefined;
-    }
-    return undefined;
-  };
-
   // Falls back to a short identifying seed built from the specs the seller
   // already filled in (brand/model/version/year if present, else just the
   // category name) when there's no typed title to work from yet.
@@ -873,28 +887,36 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       if (!opts?.silent) Alert.alert(t('createListing.aiNeedsTitleTitle'), t('createListing.aiNeedsTitleMessage'));
       return;
     }
-    setSuggesting(true);
     setAiError(null);
     setAiPriceFilled(false);
     setAiAttributesFilled(false);
     setAiRateLimited(false);
     const categoryName = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : '';
-    // Resize/compress client-side before sending -- the first couple of
-    // photos at a fidelity where printed brand/model text survives, the
-    // rest cheaper (see photosForVision in imageToBase64.ts for why that
-    // split exists). A photo that fails to read/encode is skipped rather
-    // than blocking the whole suggestion.
-    const photoPayload = hasPhotoSignal ? await photosForVision(photos, AI_VISION_MAX_PHOTOS) : [];
+    // Verification shot(s) go first, ahead of the general gallery photos --
+    // see useAiSpecSuggestion's own doc comment on why lead-photo order is
+    // what makes this feature work (photosForVision gives the first
+    // AI_LEAD_PHOTOS full text-legible fidelity). Empty for every category
+    // without a verify step, so this is a no-op there.
+    const photoUris = [...verificationPhotos.filter(Boolean), ...(hasPhotoSignal ? photos : [])];
     const attributeSchema = hasSpecs ? buildAttributeSchemaForSuggestion() : [];
-    const { data, error } = await suggestListingFromWeb(seedTitle, categoryName, language, specsLines, photoPayload, attributeSchema);
-    setSuggesting(false);
-    if (data) {
-      setTitle(data.title);
+    const outcome = await runAiSpecSuggestion({
+      seedTitle,
+      categoryName,
+      language,
+      specsLines,
+      photoUris,
+      attributeSchema,
+      specAttrs,
+      sellerId: profile.id,
+    });
+    if (outcome.ok) {
+      const { result } = outcome;
+      setTitle(result.title);
       setTitleIsMagicSeed(false);
-      setDescription(data.description);
+      setDescription(result.description);
       setUsedDraft(true);
-      setAiSources(data.sources);
-      setAiUncertain(data.uncertain);
+      setAiSources(result.sources);
+      setAiUncertain(result.uncertain);
       // Price is researched separately and NOT awaited. The describe call
       // measures ~9s; adding price research to it took the whole thing to
       // 19-27s, because pricing needs three web searches to identification's
@@ -903,7 +925,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // reads and edits while this lands rather than watching a spinner
       // for a number they usually overwrite anyway.
       const run = ++priceRunRef.current;
-      estimateListingPrice(data.title || seedTitle, categoryName, language, data.identification, specsLines)
+      estimateListingPrice(result.title || seedTitle, categoryName, language, result.identification, specsLines)
         .then((priced) => {
           if (!priced || run !== priceRunRef.current) return;
           if (priced.priceRangeLow == null || priced.priceRangeHigh == null) return;
@@ -927,14 +949,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           // in, never an error over an otherwise complete listing.
         });
       // Fill in whatever blank attribute fields the AI could confidently
-      // determine -- never overwrite anything the seller already set,
+      // determine (already validated by the hook against each field's own
+      // type/options) -- never overwrite anything the seller already set,
       // same fill-only-if-empty convention (reading current state via
       // closure, not a functional updater) as the price field above.
-      if (data.attributes && Object.keys(data.attributes).length > 0) {
+      if (Object.keys(result.attributes).length > 0) {
         const additions: Record<string, AttributeValue> = {};
         for (const a of specAttrs) {
           if (attrHasValue(attrValues[a.slug])) continue;
-          const v = validateAiAttributeValue(a, data.attributes[a.slug]);
+          const v = result.attributes[a.slug];
           if (v === undefined) continue;
           additions[a.slug] = v;
         }
@@ -943,28 +966,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           setAiAttributesFilled(true);
         }
       }
-      if (profile.id !== 'me') {
-        supabase
-          .from('ai_listing_generations')
-          .insert({
-            seller_id: profile.id,
-            suggested_title: data.title,
-            suggested_description: data.description,
-            suggested_specs: data.specs,
-            suggested_attributes: data.attributes,
-            price_range_low: data.priceRangeLow,
-            price_range_high: data.priceRangeHigh,
-            price_sources: data.sources,
-            confidence: data.confidence,
-            uncertain: data.uncertain,
-            observed: data.observed,
-            identification: data.identification,
-            model: data.model,
-            seller_accepted: true,
-          })
-          .then(() => {}, () => {});
-      }
-    } else if (error) {
+    } else {
       // Leave whatever the seller already typed alone -- they always have
       // at least a title at this point (guarded above), so silently
       // replacing it with the generic category template would be a worse
@@ -972,8 +974,8 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // keep writing it themselves.
       setAiSources([]);
       setAiUncertain([]);
-      setAiError(error.message);
-      setAiRateLimited(error.rateLimited);
+      setAiError(outcome.error);
+      setAiRateLimited(outcome.rateLimited);
     }
   };
 
@@ -997,16 +999,38 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // once the threshold is crossed, adding more photos doesn't keep
   // re-firing (the vision call only looks at the first few anyway, see
   // AI_VISION_MAX_PHOTOS) -- one attempt per photo-signal is enough.
+  //
+  // The `!needsVerification || verificationAttempted` clause exists
+  // entirely for the 'verify' step: without it, this effect (which fires
+  // the instant categoryResolved flips true, mid-Classify-step) would run
+  // the suggestion BEFORE the seller ever reaches the verify step, using
+  // only the general gallery photos -- defeating the point of the targeted
+  // shot. For every category without a verify step, needsVerification is
+  // false and this clause is always true, so nothing changes there.
   const [autoSuggestSignature, setAutoSuggestSignature] = useState<string | null>(null);
   useEffect(() => {
-    const readyToFire = (hasEnoughPhotosForAi && categoryResolved) || (hasSpecs && currentKind === 'details');
+    const readyToFire =
+      (hasEnoughPhotosForAi && categoryResolved && (!needsVerification || verificationAttempted)) ||
+      (hasSpecs && currentKind === 'details');
     if (!readyToFire || suggesting || (title.trim() && !titleIsMagicSeed)) return;
     const signature = hasEnoughPhotosForAi ? 'photos' : JSON.stringify({ attrValues });
     if (autoSuggestSignature === signature) return;
     setAutoSuggestSignature(signature);
     applyAiSuggestion({ silent: true });
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [currentKind, hasSpecs, hasEnoughPhotosForAi, categoryResolved, title, suggesting, attrValues, autoSuggestSignature, titleIsMagicSeed]);
+  }, [
+    currentKind,
+    hasSpecs,
+    hasEnoughPhotosForAi,
+    categoryResolved,
+    needsVerification,
+    verificationAttempted,
+    title,
+    suggesting,
+    attrValues,
+    autoSuggestSignature,
+    titleIsMagicSeed,
+  ]);
 
   // Turns off native-stack's own swipe-to-go-back gesture (and, on newer
   // Android versions/react-native-screens builds, the OS-level predictive-
@@ -1135,6 +1159,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // would just block Continue on something that structurally can't have
     // happened yet. Just the photo-count threshold.
     photos: hasEnoughPhotosForAi,
+    // Never blocks Continue -- always skippable (worn VIN plate, an old
+    // phone with no About screen), same "optional, not a gate" treatment
+    // as spin/stock below. See verificationAttempted's own doc comment for
+    // where this step's completion actually gets recorded.
+    verify: true,
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
@@ -1602,6 +1631,29 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               newLabel={t('createListing.condition.new')}
               usedLabel={t('createListing.condition.used')}
             />
+          </View>
+        )}
+
+        {currentKind === 'verify' && !!cat && (
+          <View>
+            <Text style={type.soft}>{t('createListing.verifyIntro')}</Text>
+            {(language === 'ar' ? cat.verificationShotListAr : cat.verificationShotListEn).map((prompt, i) => {
+              const captured = !!verificationPhotos[i];
+              return (
+                <View key={i} style={styles.verifyRow}>
+                  <View style={styles.verifyRowText}>
+                    <Text style={type.body}>{prompt}</Text>
+                  </View>
+                  {captured ? (
+                    <Image source={{ uri: verificationPhotos[i] }} style={styles.verifyThumb} />
+                  ) : null}
+                  <Pressy onPress={() => setVerificationCameraIndex(i)} style={styles.draftBtn}>
+                    <Icon name={captured ? 'rotate' : 'camera'} size={14} color={colors.ink} />
+                    <Text style={type.soft}>{captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}</Text>
+                  </Pressy>
+                </View>
+              );
+            })}
           </View>
         )}
 
@@ -2124,7 +2176,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
       <View style={styles.footer}>
         {step < STEPS.length - 1 ? (
-          <Button label={t('common.continue')} disabled={!canNext} onPress={() => setStep((s) => s + 1)} />
+          <Button
+            label={t('common.continue')}
+            disabled={!canNext}
+            onPress={() => {
+              // Leaving the verify step -- whether or not any shot was
+              // actually captured -- is what unblocks the auto-suggest
+              // effect above (see verificationAttempted/needsVerification).
+              // Always-skippable, so this fires on a plain Continue tap
+              // just as much as after capturing every prompt.
+              if (currentKind === 'verify') setVerificationAttempted(true);
+              setStep((s) => s + 1);
+            }}
+          />
         ) : (
           <Button label={isEditMode ? t('createListing.saveChanges') : t('createListing.postListing')} loading={posting} onPress={post} />
         )}
@@ -2169,6 +2233,35 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         onFallbackToLibrary={() => {
           setPhotoCameraVisible(false);
           pickPhotosInto(setPhotos, PHOTOS_MAX);
+        }}
+      />
+
+      <CameraCapture
+        visible={verificationCameraIndex !== null}
+        // Exactly one shot per prompt -- a retake replaces it (see
+        // pickVerificationPhotoFromLibrary), it never accumulates.
+        minFrames={1}
+        maxFrames={1}
+        instructions={
+          verificationCameraIndex !== null
+            ? (language === 'ar' ? cat?.verificationShotListAr : cat?.verificationShotListEn)?.[verificationCameraIndex]
+            : undefined
+        }
+        onFinish={(uris) => {
+          const index = verificationCameraIndex;
+          setVerificationCameraIndex(null);
+          if (index === null || uris.length === 0) return;
+          setVerificationPhotos((prev) => {
+            const next = [...prev];
+            next[index] = uris[0];
+            return next;
+          });
+        }}
+        onCancel={() => setVerificationCameraIndex(null)}
+        onFallbackToLibrary={() => {
+          const index = verificationCameraIndex;
+          setVerificationCameraIndex(null);
+          if (index !== null) pickVerificationPhotoFromLibrary(index);
         }}
       />
 
@@ -2398,6 +2491,15 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 14, height: 36, marginBottom: 18,
   },
   draftBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  // Verify step: one row per verification-shot prompt (settings screen,
+  // VIN plate, rating label...) -- prompt text on the left, a small
+  // thumbnail once captured, and the take/retake draftBtn pill on the
+  // right. Mirrors the shot-list rows' spacing elsewhere in this screen.
+  verifyRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10, marginBottom: 14,
+  },
+  verifyRowText: { flex: 1 },
+  verifyThumb: { width: 40, height: 40, borderRadius: radius.sm },
   // The Classify step's confirm pill reuses draftBtn's shape but flips to
   // the primary/filled treatment once tapped, matching the checkCircle
   // icon it shows alongside -- a plain warn-tint pill read as "still

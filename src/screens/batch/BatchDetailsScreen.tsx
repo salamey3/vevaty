@@ -1,4 +1,4 @@
-import React, { useEffect, useMemo, useState } from 'react';
+import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../../components/Screen';
@@ -13,9 +13,20 @@ import { useAppStore } from '../../store/AppStore';
 import { useSettings } from '../../store/SettingsStore';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { listingToInput } from '../../lib/batchListingInput';
-import { attrHasValue } from '../../lib/attributeFormat';
+import { attrHasValue, formatAttrValue } from '../../lib/attributeFormat';
+import { useAiSpecSuggestion } from '../../hooks/useAiSpecSuggestion';
+import { estimateListingPrice, AiSuggestAttributeSchema } from '../../lib/aiSuggest';
+import { useVerificationPhotosFor } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
 import { AttributeValue, ListingVariant } from '../../types';
+
+// Same backstop as CreateListingScreen's own local copy (see its own doc
+// comment on buildAttributeSchemaForSuggestion) -- mirrors the edge
+// function's own MAX_ATTRS. Kept as its own local constant per this
+// codebase's established convention of each AI-suggestion call site
+// tuning this independently (see AI_VISION_MAX_PHOTOS in
+// useAiSpecSuggestion.ts).
+const AI_ATTRIBUTE_SUGGEST_MAX = 30;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BatchDetails'>;
 
@@ -31,7 +42,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'BatchDetails'>;
 // RootStackParamList.BatchDetails, keyed only by batchId).
 export default function BatchDetailsScreen({ navigation, route }: Props) {
   const { batchId } = route.params;
-  const { listings, updateListing, deleteListing } = useAppStore();
+  const { listings, updateListing, deleteListing, profile } = useAppStore();
   const { categoryById, resolveAttributesForCategory, categoryMatches } = useSettings();
   const { t, language } = useLanguage();
 
@@ -95,6 +106,115 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     });
     setVariantStock(vs);
     setPlainStockQty(listing.variants ? '' : listing.stockQty ? String(listing.stockQty) : '');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [listing?.id]);
+
+  // Tracks which item is actually on screen right now, read inside the
+  // async AI callbacks below -- a describe/price call can take several
+  // seconds, long enough for the seller to have already saved-and-advanced
+  // to the next item (which re-seeds title/description/attrValues to that
+  // NEW item's own values via the effect above) by the time it resolves.
+  // Without this guard, a late-arriving result for item N could land on
+  // item N+1's fields.
+  const currentListingIdRef = useRef<string | null>(null);
+  useEffect(() => {
+    currentListingIdRef.current = listing?.id ?? null;
+  }, [listing?.id]);
+
+  const { suggest: runAiSpecSuggestion } = useAiSpecSuggestion();
+  const verificationPhotosForListing = useVerificationPhotosFor(listing?.id ?? '');
+  // Fires the same "describe" AI call CreateListingScreen's applyAiSuggestion
+  // makes, once per item -- unlike the single-item wizard there's no
+  // readyToFire gate needed here, since BatchVerificationShotsScreen has
+  // already collected every item's verification shot(s) (if any) before
+  // this screen is ever reached. Guarded by listing id so a save-and-
+  // advance (which changes `listing` but not `listing.id` collisions --
+  // ids never repeat within a batch) never re-fires for an item already
+  // attempted, and so this doesn't re-run on every keystroke re-render.
+  const aiAttemptedRef = useRef<Set<string>>(new Set());
+  const priceAttemptedRef = useRef<Set<string>>(new Set());
+  useEffect(() => {
+    if (!listing || !listing.cat) return;
+    if (aiAttemptedRef.current.has(listing.id)) return;
+    aiAttemptedRef.current.add(listing.id);
+
+    const listingId = listing.id;
+    const attrsForCat = resolveAttributesForCategory(listing.cat).filter((a) => !a.isVariant);
+    const categoryName = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : '';
+    // Already-known specs (from classify or a prior edit) as confirmed
+    // ground truth, same convention as CreateListingScreen's own
+    // buildSpecsLines -- built from the persisted listing.attributes
+    // rather than local attrValues state, since this effect fires right
+    // alongside the re-seed effect above and reads the same source of
+    // truth it seeds from.
+    const specsLines = attrsForCat
+      .filter((a) => attrHasValue(listing.attributes?.[a.slug]))
+      .map((a) => `${language === 'ar' ? a.labelAr : a.labelEn}: ${formatAttrValue(a, listing.attributes?.[a.slug], language)}`);
+    const attributeSchema: AiSuggestAttributeSchema[] = attrsForCat
+      .filter((a) => !attrHasValue(listing.attributes?.[a.slug]))
+      .slice(0, AI_ATTRIBUTE_SUGGEST_MAX)
+      .map((a) => ({
+        slug: a.slug,
+        label: language === 'ar' ? a.labelAr : a.labelEn,
+        type: a.type,
+        options:
+          a.type === 'select' || a.type === 'multiselect'
+            ? a.options.map((o) => ({ value: o.value, label: language === 'ar' ? o.labelAr : o.labelEn }))
+            : undefined,
+        unit: (language === 'ar' ? a.unitAr : a.unitEn) || undefined,
+        required: a.required,
+      }));
+    const seedTitle = (language === 'ar' ? listing.titleAr : listing.titleEn).trim() || categoryName;
+    // Verification shots lead, same lead-photo-fidelity reasoning as the
+    // single-item wizard's applyAiSuggestion.
+    const photoUris = [...verificationPhotosForListing.filter(Boolean), ...listing.photos];
+    if (!seedTitle && photoUris.length === 0) return;
+
+    runAiSpecSuggestion({
+      seedTitle,
+      categoryName,
+      language,
+      specsLines,
+      photoUris,
+      attributeSchema,
+      specAttrs: attrsForCat,
+      sellerId: profile.id,
+    }).then((outcome) => {
+      if (!outcome.ok) return;
+      if (currentListingIdRef.current !== listingId) return;
+      const { result } = outcome;
+      setTitle((prev) => (prev.trim() ? prev : result.title));
+      setDescription((prev) => (prev.trim() ? prev : result.description));
+      if (Object.keys(result.attributes).length > 0) {
+        setAttrValues((prev) => {
+          const additions: Record<string, AttributeValue> = {};
+          for (const a of attrsForCat) {
+            if (attrHasValue(prev[a.slug])) continue;
+            const v = result.attributes[a.slug];
+            if (v === undefined) continue;
+            additions[a.slug] = v;
+          }
+          return Object.keys(additions).length > 0 ? { ...prev, ...additions } : prev;
+        });
+      }
+
+      if (priceAttemptedRef.current.has(listingId)) return;
+      priceAttemptedRef.current.add(listingId);
+      // Not awaited, same "researched separately, seller may already be
+      // typing" reasoning as CreateListingScreen's own price call.
+      estimateListingPrice(result.title || seedTitle, categoryName, language, result.identification, specsLines)
+        .then((priced) => {
+          if (!priced || currentListingIdRef.current !== listingId) return;
+          if (priced.priceRangeLow == null || priced.priceRangeHigh == null) return;
+          setPrice((prev) => {
+            if (prev.trim()) return prev;
+            return String(Math.round((priced.priceRangeLow! + priced.priceRangeHigh!) / 2));
+          });
+        })
+        .catch(() => {
+          // Best effort by design, same as the single-item wizard.
+        });
+    });
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listing?.id]);
 

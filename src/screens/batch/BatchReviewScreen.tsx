@@ -204,7 +204,7 @@ export default function BatchReviewScreen({ navigation, route }: Props) {
 
         <Button
           label={t('batchReview.continueBtn')}
-          onPress={() => navigation.replace('BatchDetails', { batchId })}
+          onPress={() => navigation.replace('BatchVerificationShots', { batchId })}
           disabled={!allResolved || analyzingCount > 0}
           style={styles.continueBtn}
         />

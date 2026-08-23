@@ -20,6 +20,11 @@ export type RootStackParamList = {
   // place it needs to be threaded through from there.
   BatchPhotos: { batchId: string; shopChoice?: { attachToShop: boolean } };
   BatchReview: { batchId: string };
+  // Between BatchReview and BatchDetails -- see BatchVerificationShotsScreen
+  // for why this is its own step (targeted spec-reading photos, mirroring
+  // CreateListingScreen's single-item 'verify' step) rather than folded
+  // into BatchDetails.
+  BatchVerificationShots: { batchId: string };
   BatchDetails: { batchId: string };
   BatchLocationContact: { batchId: string };
   BatchFinalReview: { batchId: string };

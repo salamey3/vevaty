@@ -29,6 +29,12 @@ function topLevel(
     supports3d: false,
     shotListEn,
     shotListAr,
+    // Offline/first-paint fallback only (see file header) -- always
+    // empty here since this builder only ever seeds top-level categories,
+    // and the 15 leaf categories with real verification shots always come
+    // from Supabase once loaded.
+    verificationShotListEn: [],
+    verificationShotListAr: [],
     sortOrder,
     active: true,
     isService,

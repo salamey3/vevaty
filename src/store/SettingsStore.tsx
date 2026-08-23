@@ -196,6 +196,8 @@ function dbToCategory(row: any): Category {
     supports3d: !!row.supports_3d,
     shotListEn: Array.isArray(row.required_shot_list) ? row.required_shot_list : [],
     shotListAr: Array.isArray(row.required_shot_list_ar) ? row.required_shot_list_ar : [],
+    verificationShotListEn: Array.isArray(row.verification_shot_list_en) ? row.verification_shot_list_en : [],
+    verificationShotListAr: Array.isArray(row.verification_shot_list_ar) ? row.verification_shot_list_ar : [],
     sortOrder: row.sort_order ?? 0,
     active: row.active !== false,
     isService: !!row.is_service,

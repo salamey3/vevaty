@@ -8,6 +8,7 @@ import CreateListingScreen from '../screens/CreateListingScreen';
 import SellHubScreen from '../screens/SellHubScreen';
 import BatchPhotosScreen from '../screens/batch/BatchPhotosScreen';
 import BatchReviewScreen from '../screens/batch/BatchReviewScreen';
+import BatchVerificationShotsScreen from '../screens/batch/BatchVerificationShotsScreen';
 import BatchDetailsScreen from '../screens/batch/BatchDetailsScreen';
 import BatchLocationContactScreen from '../screens/batch/BatchLocationContactScreen';
 import BatchFinalReviewScreen from '../screens/batch/BatchFinalReviewScreen';
@@ -106,6 +107,7 @@ export default function RootNavigator() {
         <Stack.Screen name="SellHub" component={SellHubScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="BatchPhotos" component={BatchPhotosScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="BatchReview" component={BatchReviewScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="BatchVerificationShots" component={BatchVerificationShotsScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="BatchDetails" component={BatchDetailsScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="BatchLocationContact" component={BatchLocationContactScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="BatchFinalReview" component={BatchFinalReviewScreen} options={{ presentation: 'modal' }} />

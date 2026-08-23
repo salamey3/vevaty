@@ -24,6 +24,16 @@ export interface Category {
   supports3d: boolean;
   shotListEn: string[];
   shotListAr: string[];
+  // Prompts for the "verification shot" step (CreateListingScreen's
+  // 'verify' step, right after Classify): unlike shotListEn/Ar (angle
+  // photos of the item itself, shown during ordinary Photos capture),
+  // these ask for one specific, information-dense photo -- a settings
+  // screen, a VIN plate, a rating label -- that the AI spec suggestion
+  // reads printed facts off instead of guessing them from appearance. Most
+  // categories have zero (empty array = no verify step at all); vehicles
+  // have two (VIN plate, odometer). See useAiSpecSuggestion.ts.
+  verificationShotListEn: string[];
+  verificationShotListAr: string[];
   sortOrder: number;
   active: boolean;
   // A services category (e.g. plumbing, tutoring) rather than a

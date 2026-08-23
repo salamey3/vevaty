@@ -35,6 +35,18 @@ const IDLE_STATE: BatchItemClassifyState = { status: 'idle', error: null, result
 let itemState: Record<string, BatchItemClassifyState> = {};
 const listeners = new Set<() => void>();
 
+// Verification-shot photos per batch item -- same module-scoped store as
+// itemState above, kept as its own map (rather than folded into
+// BatchItemClassifyState) since it's written by a different screen
+// (BatchVerificationShotsScreen) on a different lifecycle: it fills in
+// AFTER classify has already resolved a category, and unlike classify
+// status it's index-addressed per-item (one slot per verification prompt,
+// same shape as CreateListingScreen's own verificationPhotos state) rather
+// than a single result object. Local URIs only, same privacy-by-default
+// as the single-item wizard -- never uploaded, never merged into a
+// listing's real photos array.
+let verificationPhotoState: Record<string, string[]> = {};
+
 function notify() {
   listeners.forEach((l) => l());
 }
@@ -49,7 +61,32 @@ function patchItem(listingId: string, patch: Partial<BatchItemClassifyState>) {
 
 export function resetBatchClassifyState() {
   itemState = {};
+  verificationPhotoState = {};
   notify();
+}
+
+// Replaces one item's whole verification-photos array -- callers (the
+// verification-shots screen) always pass the full next array (e.g. via an
+// index-splice like CreateListingScreen's pickVerificationPhotoFromLibrary)
+// rather than an append, since a retake replaces a specific prompt's slot.
+export function setVerificationPhotosFor(listingId: string, photos: string[]) {
+  verificationPhotoState = { ...verificationPhotoState, [listingId]: photos };
+  notify();
+}
+
+// Subscribes to and reads ONE item's captured verification photos -- what
+// BatchVerificationShotsScreen renders itself with, and what
+// BatchDetailsScreen's auto-suggest effect reads once per item.
+export function useVerificationPhotosFor(listingId: string): string[] {
+  const [, forceRender] = useState(0);
+  useEffect(() => {
+    const listener = () => forceRender((n) => n + 1);
+    listeners.add(listener);
+    return () => {
+      listeners.delete(listener);
+    };
+  }, []);
+  return verificationPhotoState[listingId] ?? [];
 }
 
 // Subscribes to and reads ONE item's live state -- what a batch review
