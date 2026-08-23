@@ -193,6 +193,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const initialTargetDescription = editingListing ? (language === 'ar' ? editingListing.descriptionEn : editingListing.descriptionAr) : '';
   const [title, setTitle] = useState(initialSourceTitle);
   const [description, setDescription] = useState(initialSourceDescription);
+  // Drives the description textarea's height so it grows to fit whatever's
+  // typed or AI-filled instead of scrolling inside a fixed box -- see the
+  // textarea's own onContentSizeChange below. Seeded at the same 100 the
+  // box used to be fixed at, so a short/empty description looks exactly as
+  // it always has; the style itself floors it back to 100 with Math.max
+  // (content shrinking, e.g. deleting text, should never shrink the box
+  // below that starting size).
+  const [descriptionHeight, setDescriptionHeight] = useState(100);
   const [targetTitle, setTargetTitle] = useState(initialTargetTitle);
   const [targetDescription, setTargetDescription] = useState(initialTargetDescription);
   const [translating, setTranslating] = useState(false);
@@ -1887,7 +1895,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         {currentKind === 'specs' && (
           <View>
             <Text style={type.soft}>{t('createListing.specsIntro')}</Text>
-            {aiBackgroundNotice}
+            {/* No aiBackgroundNotice here (unlike Photos/Spin/Details, which
+                still use it) -- the small inline pill let a seller start
+                typing into a spec field while research was still running,
+                only to have it filled out from under them once the AI call
+                landed. The blocking AiWorkingOverlay below (see the other
+                two further down) holds the whole step until `suggesting`
+                resolves, same as Classify/Translate already do for the
+                same reason. */}
             <CategorySpecsForm
               specAttrs={specAttrs}
               attrValues={attrValues}
@@ -1989,9 +2004,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               onFocus={onInputFocus}
               value={description}
               onChangeText={(v) => { setDescription(v); setUsedDraft(false); setAiSources([]); setAiUncertain([]); }}
+              // Grows the field to fit its content instead of scrolling
+              // inside a fixed-height box -- contentSize.height is the
+              // textarea's full intrinsic height (what it'd need to show
+              // everything with no internal scroll at all), so mirroring
+              // it onto the box itself is what makes the box match the
+              // text rather than clip it. The style below floors this back
+              // to 100 so short text still looks like the field always
+              // has; there's deliberately no ceiling, since the whole
+              // point is showing the entire AI-filled or typed description
+              // without an inner scrollbar.
+              onContentSizeChange={(e) => setDescriptionHeight(e.nativeEvent.contentSize.height)}
               placeholder={categoryDescriptionPlaceholder}
               multiline
-              style={[styles.input, styles.textarea]}
+              style={[styles.input, styles.textarea, { height: Math.max(100, descriptionHeight) }]}
             />
             {aiSources.length > 0 && (
               <View style={styles.aiSourcesBox}>
@@ -2399,6 +2425,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           Classify step. */}
       <AiWorkingOverlay visible={classifying && currentKind === 'classify'} message={t('createListing.classifyWorking')} />
       <AiWorkingOverlay visible={translating} message={t('createListing.aiTranslateOverlay')} />
+      {/* Same reasoning as the classify overlay above, applied to specs:
+          `suggesting` (useAiSpecSuggestion) can already be true while the
+          seller is still on Verify/Spin/an earlier step (see the auto-run
+          effect's own doc comment -- specs research starts the instant
+          categoryResolved flips true), so this is scoped to `currentKind
+          === 'specs'` the same way, rather than blocking every step that
+          happens to still be in flight when the seller reaches it. */}
+      <AiWorkingOverlay visible={suggesting && currentKind === 'specs'} message={t('createListing.aiSpecsOverlay')} />
     </Screen>
   );
 }
@@ -2666,7 +2700,10 @@ const styles = StyleSheet.create({
   // existing removed/rejected badge background) for one consistent
   // danger-tint across the app.
   inputRequired: { borderColor: colors.danger, borderWidth: 1.5, backgroundColor: '#f5e4e2' },
-  textarea: { height: 100, paddingTop: 12, textAlignVertical: 'top' },
+  // No fixed/min height here anymore -- the description TextInput sets its
+  // own height inline (see its onContentSizeChange), seeded at the same
+  // 100 this used to be fixed at.
+  textarea: { paddingTop: 12, textAlignVertical: 'top' },
   rtlInput: { textAlign: 'right', writingDirection: 'rtl' },
   translateLoadingRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16 },
   translateNotice: { marginTop: 16, gap: 10 },
