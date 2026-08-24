@@ -1,5 +1,5 @@
 import React, { useEffect, useRef } from 'react';
-import { Platform, StyleSheet, View, Text, ViewStyle } from 'react-native';
+import { Platform, StyleSheet, View, Text, ScrollView, ViewStyle } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -12,6 +12,8 @@ import { useIsDesktop, SIDEBAR_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useScrollChrome } from '../store/ScrollChromeContext';
 import { openLegalPage } from '../lib/legalLinks';
+import { useBanners } from '../store/BannerStore';
+import { BannerSlotView } from '../components/BannerSlot';
 
 const ICONS: Record<string, IconName> = {
   HomeTab: 'home',
@@ -78,6 +80,24 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
     }
   }, [focusedIndex, showChrome]);
 
+  // Sidebar banner (slot 'sidebar_nav'). TabBar isn't a screen -- it's
+  // mounted once for the whole session and never remounted by an
+  // ordinary tab switch -- so useBannerForSlot's screen-focus signal
+  // (useIsFocused) doesn't apply here; see BannerStore.tsx's doc comment.
+  // Instead this rerolls on the same two events described in the design
+  // spec: once when the data finishes loading (covers first mount/hard
+  // refresh), and again whenever the sidebar's own focused tab changes
+  // (covers "navigated to another section and came back", since a tab
+  // switch is the sidebar's equivalent of a screen blur/focus). Desktop
+  // -only: no reason to fetch/reroll a banner a mobile visitor never
+  // sees.
+  const { reroll: rerollBanner, currentForSlot, loaded: bannersLoaded } = useBanners();
+  useEffect(() => {
+    if (bannersLoaded && isDesktop) rerollBanner('sidebar_nav');
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [bannersLoaded, isDesktop, focusedIndex]);
+  const sidebarBanner = currentForSlot('sidebar_nav');
+
   if (isDesktop) {
     return (
       <View style={[styles.sidebar, isRTL ? styles.sidebarRTL : styles.sidebarLTR]}>
@@ -85,47 +105,59 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
           <BrandMark variant="sidebar" onPress={goHome} />
         </View>
 
-        <View style={styles.navList}>
-          {state.routes.map((route, index) => {
-            const focused = state.index === index;
-            const isSell = route.name === 'SellTab';
-            const onPress = () => {
-              const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
-              if (event.defaultPrevented) return;
-              if (focused) {
-                // Tapping the tab you're already on should take you to the
-                // top of it. Home in particular is the "start again"
-                // button -- from inside a category, with filters set and
-                // something typed in the search box, tapping Home did
-                // nothing at all, because navigate() to the tab you're on
-                // is a no-op. Resetting the nested stack with a fresh key
-                // remounts the screen, which clears the search text and
-                // filters along with it; keeping the old key would restore
-                // the very state you were trying to leave.
-                resetTabToTop(route.name);
-                return;
-              }
-              navigation.navigate(route.name as never);
-            };
-            return (
-              <Pressy
-                key={route.key}
-                onPress={onPress}
-                style={[styles.navItem, isSell && styles.navItemSell, focused && !isSell && styles.navItemActive]}
-              >
-                <Icon
-                  name={ICONS[route.name]}
-                  size={18}
-                  color={isSell ? colors.white : focused ? colors.ink : colors.inkSoft}
-                  strokeWidth={focused ? 2 : 1.6}
-                />
-                <Text style={[styles.navLabel, isSell && styles.navLabelSell, focused && !isSell && styles.navLabelActive]}>
-                  {t(LABEL_KEYS[route.name])}
-                </Text>
-              </Pressy>
-            );
-          })}
-        </View>
+        {/* Scrollable so a tall sidebar_nav banner (up to its 320px cap --
+            see BannerSlot.tsx's SLOT_SIZE) can never collide with the
+            footer below: the footer sits in normal flow after this
+            ScrollView rather than absolutely pinned over it, so it's
+            physically impossible for one to cover the other, whatever the
+            banner's own aspect ratio turns out to be. On a normal-length
+            nav list (the common case) this scrolls nowhere and looks
+            identical to a plain View. */}
+        <ScrollView style={styles.navScroll} contentContainerStyle={styles.navScrollContent} showsVerticalScrollIndicator={false}>
+          <View style={styles.navList}>
+            {state.routes.map((route, index) => {
+              const focused = state.index === index;
+              const isSell = route.name === 'SellTab';
+              const onPress = () => {
+                const event = navigation.emit({ type: 'tabPress', target: route.key, canPreventDefault: true });
+                if (event.defaultPrevented) return;
+                if (focused) {
+                  // Tapping the tab you're already on should take you to the
+                  // top of it. Home in particular is the "start again"
+                  // button -- from inside a category, with filters set and
+                  // something typed in the search box, tapping Home did
+                  // nothing at all, because navigate() to the tab you're on
+                  // is a no-op. Resetting the nested stack with a fresh key
+                  // remounts the screen, which clears the search text and
+                  // filters along with it; keeping the old key would restore
+                  // the very state you were trying to leave.
+                  resetTabToTop(route.name);
+                  return;
+                }
+                navigation.navigate(route.name as never);
+              };
+              return (
+                <Pressy
+                  key={route.key}
+                  onPress={onPress}
+                  style={[styles.navItem, isSell && styles.navItemSell, focused && !isSell && styles.navItemActive]}
+                >
+                  <Icon
+                    name={ICONS[route.name]}
+                    size={18}
+                    color={isSell ? colors.white : focused ? colors.ink : colors.inkSoft}
+                    strokeWidth={focused ? 2 : 1.6}
+                  />
+                  <Text style={[styles.navLabel, isSell && styles.navLabelSell, focused && !isSell && styles.navLabelActive]}>
+                    {t(LABEL_KEYS[route.name])}
+                  </Text>
+                </Pressy>
+              );
+            })}
+          </View>
+
+          <BannerSlotView banner={sidebarBanner} slot="sidebar_nav" style={styles.sidebarBanner} />
+        </ScrollView>
 
         {/* The site-wide footer (tagline + legal links + copyright) is
             desktop-web only by design -- on native, About/Privacy/Terms
@@ -133,7 +165,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
             instead (see ProfileScreen.tsx), so there's no bare-link UX to
             hand off to a mobile OS browser from a cramped sidebar. */}
         {Platform.OS === 'web' ? (
-          <View style={[styles.footerBlock, isRTL ? styles.footerBlockRTL : styles.footerBlockLTR]}>
+          <View style={styles.footerBlock}>
             <Text style={[styles.footerTagline, isRTL && styles.textEnd]}>{t('nav.footer')}</Text>
             <View style={styles.footerLinks}>
               <Pressy onPress={() => openLegalPage('about', language)}>
@@ -149,7 +181,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
             <Text style={[styles.footerCopy, isRTL && styles.textEnd]}>{t('nav.footerCopyright')}</Text>
           </View>
         ) : (
-          <Text style={[styles.footerNote, isRTL ? styles.footerNoteRTL : styles.footerNoteLTR]}>{t('nav.footer')}</Text>
+          <Text style={[styles.footerNote, isRTL && styles.textEnd]}>{t('nav.footer')}</Text>
         )}
       </View>
     );
@@ -275,10 +307,18 @@ const styles = StyleSheet.create({
     backgroundColor: 'rgba(255,255,255,0.75)',
     paddingTop: 30,
     paddingHorizontal: 16,
+    // Column is RN's default flexDirection, made explicit here because it's
+    // what makes the scrollable-middle/fixed-footer split below work: the
+    // brand row and footer take their natural height, and navScroll (flex:
+    // 1) fills whatever's left between them and scrolls internally if its
+    // content -- the nav items plus the banner -- doesn't fit.
+    flexDirection: 'column',
   },
   sidebarLTR: { left: 0, borderRightWidth: 1, borderRightColor: colors.line },
   sidebarRTL: { right: 0, borderLeftWidth: 1, borderLeftColor: colors.line },
   brandRow: { paddingHorizontal: 6, marginBottom: 34 },
+  navScroll: { flex: 1 },
+  navScrollContent: { flexGrow: 1 },
   navList: { gap: 4 },
   navItem: { flexDirection: 'row', alignItems: 'center', gap: 12, height: 44, borderRadius: radius.md, paddingHorizontal: 12 },
   navItemActive: { backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line },
@@ -286,15 +326,18 @@ const styles = StyleSheet.create({
   navLabel: { fontSize: 14, fontWeight: '600', color: colors.inkSoft },
   navLabelActive: { color: colors.ink },
   navLabelSell: { color: colors.white },
-  footerNote: { position: 'absolute', bottom: 20, fontSize: 10.5, color: colors.inkSoft },
-  footerNoteLTR: { left: 22, right: 16 },
-  footerNoteRTL: { right: 22, left: 16 },
+  // Sits below the nav items, inside the same scroll region -- see the
+  // ScrollView in the render above. maxHeight is enforced by BannerSlot's
+  // own SLOT_SIZE (320), this just adds the breathing room around it.
+  sidebarBanner: { marginTop: 18, marginBottom: 6 },
+  // No longer absolutely positioned (see sidebar's flexDirection comment
+  // above) -- sits in normal flow after navScroll, so it can never be
+  // covered by a tall banner however long the nav list + banner get.
+  footerNote: { paddingTop: 14, paddingBottom: 20, fontSize: 10.5, color: colors.inkSoft },
   // Web-only site footer that replaces footerNote above (see the Platform
   // check in the render): tagline, then the three legal links, then a
   // copyright line -- stacked to fit the narrow persistent sidebar.
-  footerBlock: { position: 'absolute', bottom: 18, gap: 7 },
-  footerBlockLTR: { left: 22, right: 16 },
-  footerBlockRTL: { right: 22, left: 16 },
+  footerBlock: { paddingTop: 14, paddingBottom: 18, gap: 7 },
   footerTagline: { fontSize: 10.5, color: colors.inkSoft },
   footerLinks: { gap: 5 },
   footerLink: { fontSize: 10.5, fontWeight: '600', color: colors.ink },

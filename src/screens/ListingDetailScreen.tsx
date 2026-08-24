@@ -22,12 +22,15 @@ import { useAppStore } from '../store/AppStore';
 import { useChat } from '../store/ChatStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useSettings } from '../store/SettingsStore';
+import { useCollections } from '../store/CollectionsStore';
+import BannerSlot from '../components/BannerSlot';
+import { cornerBadgeFor } from '../lib/collectionBadge';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
-import { listingTitle, listingDescription, listingDistrict, listingShopName } from '../lib/listingText';
+import { listingTitle, listingDescription, listingDistrict, listingShopName, pickText } from '../lib/listingText';
 import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 
@@ -39,6 +42,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 export default function ListingDetailScreen({ route, navigation }: Props) {
   const { listings, profile, deleteListing, hideListing, markListingSold, isVerified } = useAppStore();
   const { categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory } = useSettings();
+  const { collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { t, language, isRTL } = useLanguage();
@@ -98,6 +102,37 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     scrollRef: relatedScrollRef,
     onContentSizeChange: onRelatedContentSizeChange,
   } = useRtlCarousel(relatedListings, isRTL);
+
+  // Editor's Picks and Hot Deals, alongside Similar Listings above -- see
+  // the approved Listing Detail mockup. Order is Similar Listings first
+  // (most directly relevant to this exact item), then Editor's Picks,
+  // then Hot Deals; each row excludes the current listing AND anything
+  // already shown in an earlier row, so nothing repeats down the page.
+  // Just Listed is deliberately not included here -- only these two were
+  // asked for.
+  const editorsPicksCollection = collectionBySlug('editors-picks');
+  const editorsPicksListings = useMemo(() => {
+    if (!listing || !editorsPicksCollection) return [];
+    const shown = new Set(relatedListings.map((l) => l.id));
+    return resolveCollection(editorsPicksCollection).filter((l) => l.id !== listing.id && !shown.has(l.id));
+  }, [listing, editorsPicksCollection, resolveCollection, relatedListings]);
+  const {
+    ordered: orderedEditorsPicks,
+    scrollRef: editorsPicksScrollRef,
+    onContentSizeChange: onEditorsPicksContentSizeChange,
+  } = useRtlCarousel(editorsPicksListings, isRTL);
+
+  const hotDealsCollection = collectionBySlug('hot-deals');
+  const hotDealsListings = useMemo(() => {
+    if (!listing || !hotDealsCollection) return [];
+    const shown = new Set([...relatedListings, ...editorsPicksListings].map((l) => l.id));
+    return resolveCollection(hotDealsCollection).filter((l) => l.id !== listing.id && !shown.has(l.id));
+  }, [listing, hotDealsCollection, resolveCollection, relatedListings, editorsPicksListings]);
+  const {
+    ordered: orderedHotDeals,
+    scrollRef: hotDealsScrollRef,
+    onContentSizeChange: onHotDealsContentSizeChange,
+  } = useRtlCarousel(hotDealsListings, isRTL);
 
   const handleToggleFavorite = async () => {
     if (!listing) return;
@@ -655,6 +690,75 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     </>
   );
 
+  // Same carousel shape as relatedSection above, plus a "See all" link to
+  // the collection's own page (relatedSection has none -- there's no
+  // single page "Similar Listings" points to) and each card's collection
+  // corner badge (gold sparkle / terracotta "-N%"), matching Home and
+  // CollectionScreen exactly -- see collectionBadge.ts.
+  const editorsPicksSection = editorsPicksListings.length > 0 && editorsPicksCollection && (
+    <>
+      <View style={styles.sectionLabelRow}>
+        <Text style={[styles.sectionLabelInline, isRTL && styles.rtlText]}>
+          {pickText(editorsPicksCollection.titleEn, editorsPicksCollection.titleAr, language)}
+        </Text>
+        <Pressy onPress={() => navigation.push('Collection', { slug: editorsPicksCollection.slug })}>
+          <Text style={styles.seeAllLink}>{t('listingDetail.seeAll')}</Text>
+        </Pressy>
+      </View>
+      <ScrollView
+        ref={editorsPicksScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.relatedScroll}
+        contentContainerStyle={styles.relatedRow}
+        onContentSizeChange={onEditorsPicksContentSizeChange}
+        nestedScrollEnabled
+      >
+        {orderedEditorsPicks.map((item) => (
+          <ListingCard
+            key={item.id}
+            listing={item}
+            width={140}
+            cornerBadge={cornerBadgeFor(editorsPicksCollection, item, priceDropPercent)}
+            onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
+          />
+        ))}
+      </ScrollView>
+    </>
+  );
+
+  const hotDealsSection = hotDealsListings.length > 0 && hotDealsCollection && (
+    <>
+      <View style={styles.sectionLabelRow}>
+        <Text style={[styles.sectionLabelInline, isRTL && styles.rtlText]}>
+          {pickText(hotDealsCollection.titleEn, hotDealsCollection.titleAr, language)}
+        </Text>
+        <Pressy onPress={() => navigation.push('Collection', { slug: hotDealsCollection.slug })}>
+          <Text style={styles.seeAllLink}>{t('listingDetail.seeAll')}</Text>
+        </Pressy>
+      </View>
+      <ScrollView
+        ref={hotDealsScrollRef}
+        horizontal
+        showsHorizontalScrollIndicator={false}
+        style={styles.relatedScroll}
+        contentContainerStyle={styles.relatedRow}
+        onContentSizeChange={onHotDealsContentSizeChange}
+        nestedScrollEnabled
+      >
+        {orderedHotDeals.map((item) => (
+          <ListingCard
+            key={item.id}
+            listing={item}
+            width={140}
+            cornerBadge={cornerBadgeFor(hotDealsCollection, item, priceDropPercent)}
+            onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
+          />
+        ))}
+      </ScrollView>
+    </>
+  );
+
   // Optional chaining here is deliberate defense-in-depth: a listing
   // loaded from an older on-device cache (pre-dating this field, or still
   // carrying the old flat spinPhotos shape) should never crash the render
@@ -938,11 +1042,19 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <View style={styles.desktopRow}>
             <View style={styles.desktopMediaCol}>
               {mediaSection(styles.desktopPhoto)}
+              {/* Same width as the photo above it, filling the rest of
+                  this column so the two sides of the page stay roughly
+                  balanced -- sticky rather than trying to match the
+                  info column's exact height (which varies listing to
+                  listing; see BannerSlot's per-slot size table). */}
+              <BannerSlot slot="listing_detail_desktop_rail" style={styles.desktopRailBanner} />
             </View>
             <View style={styles.desktopInfo}>
               {details}
               {ctaSection({ marginTop: 26 })}
               {relatedSection}
+              {editorsPicksSection}
+              {hotDealsSection}
             </View>
           </View>
         </ScrollView>
@@ -962,7 +1074,12 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <View style={styles.card}>
           {details}
           {relatedSection}
+          {editorsPicksSection}
+          {hotDealsSection}
         </View>
+        {/* Outside styles.card on purpose -- "page wide" means edge-to-edge,
+            not inset to the card's own 18px padding like the photo above. */}
+        <BannerSlot slot="listing_detail_mobile" style={styles.mobileBanner} />
       </ScrollView>
 
       <View style={styles.footer}>
@@ -1130,6 +1247,13 @@ const styles = StyleSheet.create({
   // `rtlText` above; type.tiny's theme-level `textAlign: 'auto'` doesn't
   // actually flip on native (see the rtlText comment).
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 22, marginBottom: 8 },
+  // Same look as sectionLabel, split out because Editor's Picks/Hot Deals
+  // also carry a "See all" link on the same row -- sectionLabel's own
+  // marginTop/marginBottom move onto the row wrapper instead so the text
+  // and link line up on one baseline.
+  sectionLabelRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', marginTop: 22, marginBottom: 8 },
+  sectionLabelInline: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5 },
+  seeAllLink: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   desc: { ...type.body, lineHeight: 21 },
   specsGrid: { gap: 2 },
   specRow: {
@@ -1204,6 +1328,19 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center', overflow: 'hidden',
   },
   desktopInfo: { flex: 1, paddingTop: 4 },
+  // Sticky rather than measured to match the info column's height exactly
+  // -- that height varies per listing (rows can be empty, descriptions
+  // vary), so this stays in view as the visitor scrolls instead of
+  // trying to land on an exact number every time. Web-only CSS value,
+  // same pass-through pattern as ListingCard's userSelect/
+  // WebkitTouchCallout -- react-native-web forwards unknown ViewStyle
+  // keys straight to the generated CSS; harmless no-op on native, where
+  // this screen's desktop layout never renders anyway (isDesktop is
+  // never true on the phone-sized native app).
+  desktopRailBanner: { position: 'sticky', top: 20, marginTop: 10 } as any,
+  // Edge-to-edge on mobile -- deliberately outside styles.card's 18px
+  // padding (see the render site).
+  mobileBanner: { marginTop: 22 },
 
   reportBackdrop: {
     flex: 1, backgroundColor: 'rgba(20,20,22,0.45)',

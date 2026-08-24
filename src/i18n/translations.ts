@@ -309,6 +309,10 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.verifiedSeller': 'Verified',
     'listingDetail.memberSince': 'Member since {date}',
     'listingDetail.relatedListings': 'Similar listings',
+    // editorsPicks/hotDeals section labels aren't translation keys -- like
+    // CollectionScreen, they render straight from the collection's own
+    // bilingual titleEn/titleAr (myazar.collections), via pickText().
+    'listingDetail.seeAll': 'See all',
 
     // Create / edit listing
     'createListing.stepCategory': 'Category',
@@ -674,6 +678,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'admin.manageCategoriesSub': 'Add, edit, reorder, or retire categories and their icons',
     'admin.manageCollections': 'Manage collections',
     'admin.manageCollectionsSub': 'Curate Editor’s Picks, and pin or exclude listings in Hot Deals and Just Listed',
+    'admin.manageBanners': 'Manage banners',
+    'admin.manageBannersSub': 'Sidebar and listing-page banners, their links, schedules, and click stats',
     'admin.manageBranding': 'Manage branding',
     'admin.manageBrandingSub': 'Colors, logos, and favicon',
     'admin.manageModeration': 'Moderation',
@@ -966,6 +972,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.verifiedSeller': 'موثّق',
     'listingDetail.memberSince': 'عضو منذ {date}',
     'listingDetail.relatedListings': 'إعلانات مشابهة',
+    'listingDetail.seeAll': 'عرض الكل',
 
     'createListing.stepCategory': 'الفئة',
     'createListing.conditionLabel': 'حالة المنتج',
@@ -1311,6 +1318,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'admin.manageCategoriesSub': 'أضف أو عدّل أو أعد ترتيب الفئات وأيقوناتها',
     'admin.manageCollections': 'إدارة المجموعات',
     'admin.manageCollectionsSub': 'نسّق اختيارات المحررين، وثبّت أو استبعد إعلانات من العروض الساخنة والمُضاف حديثًا',
+    'admin.manageBanners': 'إدارة الإعلانات البانر',
+    'admin.manageBannersSub': 'بانرات الشريط الجانبي وصفحة الإعلان، روابطها، جدولتها، وإحصاءات النقرات',
     'admin.manageBranding': 'إدارة الهوية البصرية',
     'admin.manageBrandingSub': 'الألوان، الشعارات، وأيقونة المتصفح',
     'admin.manageModeration': 'مراجعة الإعلانات',

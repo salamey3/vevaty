@@ -32,6 +32,7 @@ import AdminModerationScreen from '../screens/admin/AdminModerationScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
 import AdminCollectionsScreen from '../screens/admin/AdminCollectionsScreen';
+import AdminBannersScreen from '../screens/admin/AdminBannersScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
@@ -90,6 +91,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       AdminUsers: 'admin/users',
       AdminReports: 'admin/reports',
       AdminCollections: 'admin/collections',
+      AdminBanners: 'admin/banners',
     },
   },
 };
@@ -137,6 +139,7 @@ export default function RootNavigator() {
         <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
         <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
         <Stack.Screen name="AdminCollections" component={AdminCollectionsScreen} />
+        <Stack.Screen name="AdminBanners" component={AdminBannersScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

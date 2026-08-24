@@ -522,3 +522,38 @@ export interface CollectionItem {
   listingId: string;
   position: number;
 }
+
+// A managed banner (announcement or ad) in one of three placements -- see
+// myazar.banners and the "Vevaty — Managed Banner Placements" design spec
+// for the full behavior. Multiple banners can be active in the same slot
+// at once; BannerStore picks which one to actually show (a "shuffle bag",
+// never the same one twice in a row, equal exposure over time -- see
+// BannerStore.tsx).
+export type BannerSlot = 'sidebar_nav' | 'listing_detail_desktop_rail' | 'listing_detail_mobile';
+
+// Where the banner links to. 'external' is a plain URL; the other three
+// are resolved client-side against this app's own navigation -- see
+// bannerLink.ts.
+export type BannerLinkType = 'external' | 'collection' | 'category' | 'listing';
+
+export interface Banner {
+  id: string;
+  slot: BannerSlot;
+  // Both required -- unlike most other bilingual admin content in this
+  // app, there is no fallback from ar to en. See BannerStore's doc
+  // comment for why.
+  imageUrlEn: string;
+  imageUrlAr: string;
+  linkType: BannerLinkType;
+  // A URL for 'external'; a collection slug / CategoryId / listing id for
+  // the other three.
+  linkTarget: string;
+  // Web only -- see bannerLink.ts. On the native app every external link
+  // hands off to the device browser regardless of this flag, since there
+  // is no in-app browser tab to open a "same tab" link into.
+  openNewTab: boolean;
+  startDate: string; // 'YYYY-MM-DD'
+  endDate: string; // 'YYYY-MM-DD'
+  isActive: boolean;
+  createdAt: number;
+}

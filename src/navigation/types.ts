@@ -71,6 +71,9 @@ export type RootStackParamList = {
   // input; Hot Deals/Just Listed resolve themselves entirely from live
   // listing data (see CollectionsStore's resolveCollection).
   AdminCollections: undefined;
+  // Managed banners across the sidebar/listing-detail placements -- see
+  // myazar.banners and BannerStore.tsx.
+  AdminBanners: undefined;
 };
 
 export type MainTabParamList = {

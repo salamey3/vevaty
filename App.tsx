@@ -7,6 +7,7 @@ import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppStoreProvider } from './src/store/AppStore';
 import { CollectionsStoreProvider } from './src/store/CollectionsStore';
+import { BannerStoreProvider } from './src/store/BannerStore';
 import { ChatStoreProvider } from './src/store/ChatStore';
 import { FavoritesStoreProvider } from './src/store/FavoritesStore';
 import { SavedSearchesStoreProvider } from './src/store/SavedSearchesStore';
@@ -211,6 +212,11 @@ export default function App() {
                 actual Listings -- see CollectionsStore.tsx -- so it nests
                 inside AppStoreProvider, not alongside it. */}
             <CollectionsStoreProvider>
+              {/* Its own concern, same as CollectionsStoreProvider beside it
+                  -- doesn't need AppStore's listings, just nested wherever is
+                  convenient above RootNavigator so every screen and TabBar's
+                  sidebar can reach it. */}
+              <BannerStoreProvider>
               <ChatStoreProvider>
                 <FavoritesStoreProvider>
                   <SavedSearchesStoreProvider>
@@ -238,6 +244,7 @@ export default function App() {
                   </SavedSearchesStoreProvider>
                 </FavoritesStoreProvider>
               </ChatStoreProvider>
+              </BannerStoreProvider>
             </CollectionsStoreProvider>
           </AppStoreProvider>
         </SettingsProvider>
