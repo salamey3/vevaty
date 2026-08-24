@@ -73,6 +73,16 @@ interface CollectionsStoreValue {
   // against AppStore's current `listings` -- always active, always fresh,
   // never stored. Empty for a curated collection nobody has populated yet,
   // or a recent/price_drop collection with nothing that currently qualifies.
+  //
+  // For 'recent'/'price_drop', this is pinned items FIRST (collection_items
+  // rows an admin manually added -- see addCollectionItem below; same
+  // mechanism 'curated' uses for its entire membership), then the
+  // algorithmic candidates filling the rest, minus anything an admin has
+  // explicitly excluded (see excludeFromCollection). A listing an admin
+  // pinned always shows even if it wouldn't otherwise qualify (e.g. a
+  // pinned "hot deal" whose price hasn't actually dropped); exclusions
+  // only ever suppress an ALGORITHMIC pick, never a pin -- there's no UI
+  // path that lets the two apply to the same listing at once.
   resolveCollection: (collection: Collection) => Listing[];
   // The percent a listing's price has dropped, if it currently qualifies
   // as a "hot deal" (>= MIN_PRICE_DROP_PERCENT within the lookback
@@ -81,12 +91,28 @@ interface CollectionsStoreValue {
   // show the actual number per listing without resolveCollection itself
   // having to change shape for the other two kinds.
   priceDropPercent: (listingId: string, currentPrice: number) => number | null;
+  // Which of resolveCollection's current results were manually pinned
+  // (vs. algorithmically picked) -- purely a display concern (AdminCollectionsScreen
+  // tags each row "Pinned"/"Auto" so it's clear what removing it does).
+  pinnedListingIds: (collectionId: string) => string[];
+  // Listings an admin has manually excluded from an algorithmic collection
+  // -- ids only; AdminCollectionsScreen resolves them against AppStore's
+  // full listings itself to show what's hidden and offer to un-hide it.
+  excludedListingIds: (collectionId: string) => string[];
   refresh: () => Promise<void>;
-  // Admin curation (kind='curated' only) -- MyListingsScreen/ListingDetailScreen
-  // territory this is not; these are only ever called from AdminCollectionsScreen.
+  // Admin curation -- MyListingsScreen/ListingDetailScreen territory this
+  // is not; these are only ever called from AdminCollectionsScreen.
+  // Pin a listing INTO a collection: its entire membership for 'curated',
+  // a manual addition shown ahead of the algorithmic picks for the other
+  // two kinds.
   addCollectionItem: (collectionId: string, listingId: string) => Promise<void>;
   removeCollectionItem: (collectionId: string, listingId: string) => Promise<void>;
   reorderCollectionItems: (collectionId: string, orderedListingIds: string[]) => Promise<void>;
+  // Hide one listing FROM a 'recent'/'price_drop' collection despite it
+  // otherwise qualifying algorithmically -- the opposite of a pin, and
+  // meaningless for 'curated' (nothing there is ever algorithmic).
+  excludeFromCollection: (collectionId: string, listingId: string) => Promise<void>;
+  unexcludeFromCollection: (collectionId: string, listingId: string) => Promise<void>;
 }
 
 const CollectionsStoreContext = createContext<CollectionsStoreValue | null>(null);
@@ -95,6 +121,7 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
   const { listings } = useAppStore();
   const [collections, setCollections] = useState<Collection[]>([]);
   const [itemsByCollection, setItemsByCollection] = useState<Record<string, CollectionItem[]>>({});
+  const [exclusionsByCollection, setExclusionsByCollection] = useState<Record<string, Set<string>>>({});
   const [priceChanges, setPriceChanges] = useState<PriceChange[]>([]);
   const [loaded, setLoaded] = useState(false);
 
@@ -102,15 +129,20 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
     try {
       await ensureSession();
       const lookbackFrom = new Date(Date.now() - PRICE_DROP_LOOKBACK_DAYS * 24 * 60 * 60 * 1000).toISOString();
-      const [{ data: colRows, error: colErr }, { data: itemRows, error: itemErr }, { data: priceRows, error: priceErr }] =
-        await Promise.all([
-          supabase.from('collections').select('*').order('sort_order', { ascending: true }),
-          supabase.from('collection_items').select('*').order('position', { ascending: true }),
-          supabase
-            .from('listing_price_changes')
-            .select('listing_id, old_price, new_price, changed_at')
-            .gte('changed_at', lookbackFrom),
-        ]);
+      const [
+        { data: colRows, error: colErr },
+        { data: itemRows, error: itemErr },
+        { data: exclusionRows, error: exclusionErr },
+        { data: priceRows, error: priceErr },
+      ] = await Promise.all([
+        supabase.from('collections').select('*').order('sort_order', { ascending: true }),
+        supabase.from('collection_items').select('*').order('position', { ascending: true }),
+        supabase.from('collection_exclusions').select('collection_id, listing_id'),
+        supabase
+          .from('listing_price_changes')
+          .select('listing_id, old_price, new_price, changed_at')
+          .gte('changed_at', lookbackFrom),
+      ]);
       if (!colErr && colRows) setCollections(colRows.map(dbToCollection));
       if (!itemErr && itemRows) {
         const grouped: Record<string, CollectionItem[]> = {};
@@ -118,6 +150,13 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
           (grouped[row.collectionId] ??= []).push(row);
         }
         setItemsByCollection(grouped);
+      }
+      if (!exclusionErr && exclusionRows) {
+        const grouped: Record<string, Set<string>> = {};
+        for (const row of exclusionRows) {
+          (grouped[row.collection_id] ??= new Set()).add(row.listing_id);
+        }
+        setExclusionsByCollection(grouped);
       }
       if (!priceErr && priceRows) setPriceChanges(priceRows.map(dbToPriceChange));
     } catch (e) {
@@ -150,32 +189,58 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
   const resolveCollection = useCallback(
     (collection: Collection): Listing[] => {
       const active = listings.filter((l) => l.status === 'active');
+      const byId = new Map(active.map((l) => [l.id, l]));
+
       if (collection.kind === 'curated') {
         const items = itemsByCollection[collection.id] || [];
-        const byId = new Map(active.map((l) => [l.id, l]));
         return items
           .slice()
           .sort((a, b) => a.position - b.position)
           .map((it) => byId.get(it.listingId))
           .filter((l): l is Listing => !!l);
       }
-      if (collection.kind === 'recent') {
-        return active.slice().sort((a, b) => b.createdAt - a.createdAt).slice(0, collection.limitCount);
-      }
-      // 'price_drop'
-      return active
-        .map((l) => {
-          const earliest = earliestPriceByListing.get(l.id);
-          if (!earliest || earliest.oldPrice <= 0) return null;
-          const dropPercent = ((earliest.oldPrice - l.price) / earliest.oldPrice) * 100;
-          return dropPercent >= MIN_PRICE_DROP_PERCENT ? { listing: l, dropPercent } : null;
-        })
-        .filter((x): x is { listing: Listing; dropPercent: number } => !!x)
-        .sort((a, b) => b.dropPercent - a.dropPercent)
-        .slice(0, collection.limitCount)
-        .map((x) => x.listing);
+
+      // 'recent' / 'price_drop': pinned items first (an admin's explicit
+      // "yes, include this" -- see addCollectionItem), then the
+      // algorithmic candidates filling the rest of limitCount, with
+      // anything an admin excluded (see excludeFromCollection) dropped
+      // from the algorithmic side only -- a pin always wins.
+      const pinned = (itemsByCollection[collection.id] || [])
+        .slice()
+        .sort((a, b) => a.position - b.position)
+        .map((it) => byId.get(it.listingId))
+        .filter((l): l is Listing => !!l);
+      const pinnedIds = new Set(pinned.map((l) => l.id));
+      const excluded = exclusionsByCollection[collection.id] ?? new Set<string>();
+      const eligible = active.filter((l) => !pinnedIds.has(l.id) && !excluded.has(l.id));
+
+      const algorithmic =
+        collection.kind === 'recent'
+          ? eligible.slice().sort((a, b) => b.createdAt - a.createdAt)
+          : eligible
+              .map((l) => {
+                const earliest = earliestPriceByListing.get(l.id);
+                if (!earliest || earliest.oldPrice <= 0) return null;
+                const dropPercent = ((earliest.oldPrice - l.price) / earliest.oldPrice) * 100;
+                return dropPercent >= MIN_PRICE_DROP_PERCENT ? { listing: l, dropPercent } : null;
+              })
+              .filter((x): x is { listing: Listing; dropPercent: number } => !!x)
+              .sort((a, b) => b.dropPercent - a.dropPercent)
+              .map((x) => x.listing);
+
+      return [...pinned, ...algorithmic].slice(0, collection.limitCount);
     },
-    [listings, itemsByCollection, earliestPriceByListing]
+    [listings, itemsByCollection, exclusionsByCollection, earliestPriceByListing]
+  );
+
+  const pinnedListingIds = useCallback(
+    (collectionId: string) => (itemsByCollection[collectionId] || []).map((it) => it.listingId),
+    [itemsByCollection]
+  );
+
+  const excludedListingIds = useCallback(
+    (collectionId: string) => [...(exclusionsByCollection[collectionId] ?? [])],
+    [exclusionsByCollection]
   );
 
   const priceDropPercent = useCallback(
@@ -225,6 +290,26 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
     await refresh();
   }, [refresh]);
 
+  const excludeFromCollection = useCallback(async (collectionId: string, listingId: string) => {
+    const session = await ensureSession();
+    const uid = session?.user?.id;
+    const { error } = await supabase
+      .from('collection_exclusions')
+      .insert({ collection_id: collectionId, listing_id: listingId, excluded_by: uid || null });
+    if (error) throw error;
+    await refresh();
+  }, [refresh]);
+
+  const unexcludeFromCollection = useCallback(async (collectionId: string, listingId: string) => {
+    const { error } = await supabase
+      .from('collection_exclusions')
+      .delete()
+      .eq('collection_id', collectionId)
+      .eq('listing_id', listingId);
+    if (error) throw error;
+    await refresh();
+  }, [refresh]);
+
   const value = useMemo<CollectionsStoreValue>(
     () => ({
       loaded,
@@ -232,10 +317,14 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
       collectionBySlug,
       resolveCollection,
       priceDropPercent,
+      pinnedListingIds,
+      excludedListingIds,
       refresh,
       addCollectionItem,
       removeCollectionItem,
       reorderCollectionItems,
+      excludeFromCollection,
+      unexcludeFromCollection,
     }),
     [
       loaded,
@@ -243,10 +332,14 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
       collectionBySlug,
       resolveCollection,
       priceDropPercent,
+      pinnedListingIds,
+      excludedListingIds,
       refresh,
       addCollectionItem,
       removeCollectionItem,
       reorderCollectionItems,
+      excludeFromCollection,
+      unexcludeFromCollection,
     ]
   );
 

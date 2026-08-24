@@ -805,45 +805,56 @@ export default function HomeScreen() {
                grid. Thirteen categories over six columns spilled onto a
                third row, which pushed the listings themselves below the
                fold on a laptop -- the categories are navigation, not the
-               content, and they shouldn't cost half the first screen. */
-            <CarouselArrows
-              onScrollBy={(delta) => {
-                catRowX.current = Math.max(0, catRowX.current + delta);
-                catRowRef.current?.scrollTo({ x: catRowX.current, animated: true });
-              }}
-              // Roughly three chips a press: enough to feel like progress,
-              // little enough that nothing scrolls past unseen.
-              step={88 * 3}
-              canScrollBack={catRowEnds.back}
-              canScrollForward={catRowEnds.forward}
-              style={styles.catRowDesktop}
-            >
-              <ScrollView
-                ref={catRowRef}
-                horizontal
-                showsHorizontalScrollIndicator={false}
-                onScroll={(e) => {
-                  catRowX.current = e.nativeEvent.contentOffset.x;
-                  catRowMetrics.current.x = catRowX.current;
-                  updateCatRowEnds();
+               content, and they shouldn't cost half the first screen.
+
+               collectionRowsHeader (Editor's Picks / Hot Deals / Just
+               Listed) rides above this same header slot -- it was
+               originally wired only into the MOBILE carousels composite
+               below, which this desktop branch never touches at all (see
+               "Desktop is unchanged" above), so on desktop the collection
+               rows silently never rendered. Prepending it here is what
+               actually puts them above the category strip on desktop too. */
+            <>
+              {collectionRowsHeader}
+              <CarouselArrows
+                onScrollBy={(delta) => {
+                  catRowX.current = Math.max(0, catRowX.current + delta);
+                  catRowRef.current?.scrollTo({ x: catRowX.current, animated: true });
                 }}
-                onLayout={(e) => {
-                  catRowMetrics.current.viewport = e.nativeEvent.layout.width;
-                  updateCatRowEnds();
-                }}
-                onContentSizeChange={(w) => {
-                  catRowMetrics.current.content = w;
-                  updateCatRowEnds();
-                }}
-                scrollEventThrottle={16}
-                style={styles.catRowDesktopScroll}
-                contentContainerStyle={styles.catRowDesktopContent}
+                // Roughly three chips a press: enough to feel like progress,
+                // little enough that nothing scrolls past unseen.
+                step={88 * 3}
+                canScrollBack={catRowEnds.back}
+                canScrollForward={catRowEnds.forward}
+                style={styles.catRowDesktop}
               >
-                {categories.map((c) => (
-                  <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
-                ))}
-              </ScrollView>
-            </CarouselArrows>
+                <ScrollView
+                  ref={catRowRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={(e) => {
+                    catRowX.current = e.nativeEvent.contentOffset.x;
+                    catRowMetrics.current.x = catRowX.current;
+                    updateCatRowEnds();
+                  }}
+                  onLayout={(e) => {
+                    catRowMetrics.current.viewport = e.nativeEvent.layout.width;
+                    updateCatRowEnds();
+                  }}
+                  onContentSizeChange={(w) => {
+                    catRowMetrics.current.content = w;
+                    updateCatRowEnds();
+                  }}
+                  scrollEventThrottle={16}
+                  style={styles.catRowDesktopScroll}
+                  contentContainerStyle={styles.catRowDesktopContent}
+                >
+                  {categories.map((c) => (
+                    <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
+                  ))}
+                </ScrollView>
+              </CarouselArrows>
+            </>
           )
         ) : (
           <>

@@ -1,5 +1,5 @@
 import React, { useMemo, useState } from 'react';
-import { Image, StyleSheet, Text, TextInput, View } from 'react-native';
+import { Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { Alert } from '../../lib/alertShim';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -10,25 +10,61 @@ import { colors, type, radius } from '../../theme/theme';
 import { useAppStore } from '../../store/AppStore';
 import { useCollections } from '../../store/CollectionsStore';
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../../lib/photoSize';
-import { Listing } from '../../types';
+import { Collection, CollectionKind, Listing } from '../../types';
 import { RootStackParamList } from '../../navigation/types';
 
-// Curates Editor's Picks (the only collection kind an admin has any input
-// into -- Hot Deals and Just Listed resolve themselves entirely from live
-// listing data, see CollectionsStore's resolveCollection). Every action
-// here (add/remove/reorder) writes straight to the DB and refreshes, same
-// "no separate Save step" convention as AdminCategoriesScreen's autosave --
-// there's no local draft to lose if you navigate away mid-edit.
+const KIND_LABEL: Record<CollectionKind, string> = {
+  curated: "Editor's Picks",
+  price_drop: 'Hot Deals',
+  recent: 'Just Listed',
+};
+
+// Curates all three collections. Editor's Picks (kind='curated') is 100%
+// manual, same as always: the "in this collection" list IS its entire
+// membership. Hot Deals/Just Listed resolve themselves from live listing
+// data, but an admin can still PIN a specific listing in (shown ahead of
+// the algorithmic picks, same "search and add" flow as Editor's Picks) or
+// EXCLUDE a specific listing that would otherwise qualify -- see
+// CollectionsStore's resolveCollection for exactly how pins/exclusions
+// combine with the algorithmic result.
+//
+// Every action here (add/remove/reorder/exclude) writes straight to the
+// DB and refreshes, same "no separate Save step" convention as
+// AdminCategoriesScreen's autosave -- there's no local draft to lose if
+// you navigate away mid-edit.
 export default function AdminCollectionsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { listings: allListings } = useAppStore();
-  const { collections, resolveCollection, addCollectionItem, removeCollectionItem, reorderCollectionItems } = useCollections();
+  const {
+    collections,
+    resolveCollection,
+    pinnedListingIds,
+    excludedListingIds,
+    addCollectionItem,
+    removeCollectionItem,
+    reorderCollectionItems,
+    excludeFromCollection,
+    unexcludeFromCollection,
+  } = useCollections();
 
-  // Exactly one curated collection is seeded today (editors-picks); this
-  // screen only knows how to curate "the" curated collection rather than
-  // offering a picker, since there's nothing to pick between yet.
-  const collection = collections.find((c) => c.kind === 'curated');
+  const [selectedKind, setSelectedKind] = useState<CollectionKind>('curated');
+  const collection = collections.find((c) => c.kind === selectedKind);
+  const isAlgorithmic = selectedKind !== 'curated';
+
   const items = collection ? resolveCollection(collection) : [];
+  const pinnedIds = collection ? new Set(pinnedListingIds(collection.id)) : new Set<string>();
+  // resolveCollection puts pinned items first -- so the first pinnedIds.size
+  // entries of `items` are exactly the pinned ones, in reorderable order;
+  // everything after that is algorithmic and only removable via exclude.
+  const pinnedCount = pinnedIds.size;
+
+  const excludedListings = useMemo(() => {
+    if (!collection || !isAlgorithmic) return [];
+    const byId = new Map(allListings.map((l) => [l.id, l]));
+    return excludedListingIds(collection.id)
+      .map((id) => byId.get(id))
+      .filter((l): l is Listing => !!l);
+  }, [collection, isAlgorithmic, excludedListingIds, allListings]);
 
   const [query, setQuery] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -55,7 +91,7 @@ export default function AdminCollectionsScreen() {
     }
   };
 
-  const remove = async (listing: Listing) => {
+  const unpin = async (listing: Listing) => {
     if (!collection || busyId) return;
     setBusyId(listing.id);
     try {
@@ -67,15 +103,42 @@ export default function AdminCollectionsScreen() {
     }
   };
 
+  const exclude = async (listing: Listing) => {
+    if (!collection || busyId) return;
+    setBusyId(listing.id);
+    try {
+      await excludeFromCollection(collection.id, listing.id);
+    } catch (e: any) {
+      Alert.alert('Could not exclude listing', e?.message || String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const unexclude = async (listing: Listing) => {
+    if (!collection || busyId) return;
+    setBusyId(listing.id);
+    try {
+      await unexcludeFromCollection(collection.id, listing.id);
+    } catch (e: any) {
+      Alert.alert('Could not restore listing', e?.message || String(e));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  // Reordering only ever applies to the pinned block -- an algorithmic
+  // item's position comes from the algorithm, not from collection_items,
+  // so there's nothing to move it against.
   const move = async (index: number, dir: -1 | 1) => {
     if (!collection || busyId) return;
     const target = index + dir;
-    if (target < 0 || target >= items.length) return;
-    const ids = items.map((l) => l.id);
-    [ids[index], ids[target]] = [ids[target], ids[index]];
+    if (target < 0 || target >= pinnedCount) return;
+    const pinnedOnly = items.slice(0, pinnedCount).map((l) => l.id);
+    [pinnedOnly[index], pinnedOnly[target]] = [pinnedOnly[target], pinnedOnly[index]];
     setBusyId(items[index].id);
     try {
-      await reorderCollectionItems(collection.id, ids);
+      await reorderCollectionItems(collection.id, pinnedOnly);
     } catch (e: any) {
       Alert.alert('Could not reorder', e?.message || String(e));
     } finally {
@@ -99,43 +162,79 @@ export default function AdminCollectionsScreen() {
         <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
           <Icon name="back" size={18} />
         </Pressy>
-        <View style={{ flex: 1 }}>
-          <Text style={type.h3}>Curate: Editor's Picks</Text>
-          {!!collection && <Text style={styles.topSub}>{items.length} listings</Text>}
-        </View>
+        <Text style={type.h3}>Manage collections</Text>
+      </View>
+
+      <View style={styles.tabRow}>
+        {(Object.keys(KIND_LABEL) as CollectionKind[]).map((kind) => (
+          <Pressy
+            key={kind}
+            onPress={() => setSelectedKind(kind)}
+            style={[styles.tab, selectedKind === kind && styles.tabActive]}
+          >
+            <Text style={[styles.tabText, selectedKind === kind && styles.tabTextActive]}>{KIND_LABEL[kind]}</Text>
+          </Pressy>
+        ))}
       </View>
 
       {!collection ? (
         <View style={styles.empty}>
-          <Text style={type.soft}>No curated collection is configured yet.</Text>
+          <Text style={type.soft}>This collection isn't configured yet.</Text>
         </View>
       ) : (
-        <View style={styles.scroll}>
+        <ScrollView contentContainerStyle={styles.scroll}>
+          {isAlgorithmic && (
+            <Text style={[type.soft, styles.kindNote]}>
+              {KIND_LABEL[selectedKind]} fills itself from live listing data. Pin a listing to show it first, or
+              exclude one that qualified but shouldn't be featured.
+            </Text>
+          )}
+
           <Text style={styles.sectionLabel}>In this collection ({items.length})</Text>
           {items.length === 0 && (
-            <Text style={[type.soft, styles.emptyNote]}>Nothing added yet -- search below to add listings.</Text>
+            <Text style={[type.soft, styles.emptyNote]}>Nothing here yet -- search below to add listings.</Text>
           )}
           <View style={styles.list}>
-            {items.map((listing, index) => (
-              <View key={listing.id} style={styles.rowCard}>
-                {renderThumb(listing)}
-                <View style={styles.rowInfo}>
-                  <Text style={styles.rowTitle} numberOfLines={1}>{listing.titleEn}</Text>
-                  <Text style={styles.rowSub} numberOfLines={1}>${listing.price.toLocaleString()} · {listing.district}</Text>
+            {items.map((listing, index) => {
+              const pinned = index < pinnedCount;
+              return (
+                <View key={listing.id} style={styles.rowCard}>
+                  {renderThumb(listing)}
+                  <View style={styles.rowInfo}>
+                    <View style={styles.rowTitleLine}>
+                      <Text style={styles.rowTitle} numberOfLines={1}>{listing.titleEn}</Text>
+                      {isAlgorithmic && (
+                        <View style={[styles.tag, pinned ? styles.tagPinned : styles.tagAuto]}>
+                          <Text style={[styles.tagText, pinned ? styles.tagTextPinned : styles.tagTextAuto]}>
+                            {pinned ? 'Pinned' : 'Auto'}
+                          </Text>
+                        </View>
+                      )}
+                    </View>
+                    <Text style={styles.rowSub} numberOfLines={1}>${listing.price.toLocaleString()} · {listing.district}</Text>
+                  </View>
+                  <View style={styles.rowControls}>
+                    {pinned ? (
+                      <>
+                        <Pressy onPress={() => move(index, -1)} style={styles.smallBtn} disabled={busyId === listing.id}>
+                          <Text style={styles.smallBtnText}>↑</Text>
+                        </Pressy>
+                        <Pressy onPress={() => move(index, 1)} style={styles.smallBtn} disabled={busyId === listing.id}>
+                          <Text style={styles.smallBtnText}>↓</Text>
+                        </Pressy>
+                        <Pressy onPress={() => unpin(listing)} style={styles.removeBtn} disabled={busyId === listing.id}>
+                          <Icon name="close" size={13} color={colors.danger} />
+                        </Pressy>
+                      </>
+                    ) : (
+                      <Pressy onPress={() => exclude(listing)} style={styles.excludeBtn} disabled={busyId === listing.id}>
+                        <Text style={styles.excludeBtnText}>Exclude</Text>
+                      </Pressy>
+                    )}
+                  </View>
                 </View>
-                <View style={styles.rowControls}>
-                  <Pressy onPress={() => move(index, -1)} style={styles.smallBtn} disabled={busyId === listing.id}>
-                    <Text style={styles.smallBtnText}>↑</Text>
-                  </Pressy>
-                  <Pressy onPress={() => move(index, 1)} style={styles.smallBtn} disabled={busyId === listing.id}>
-                    <Text style={styles.smallBtnText}>↓</Text>
-                  </Pressy>
-                  <Pressy onPress={() => remove(listing)} style={styles.removeBtn} disabled={busyId === listing.id}>
-                    <Icon name="close" size={13} color={colors.danger} />
-                  </Pressy>
-                </View>
-              </View>
-            ))}
+              );
+            })}
           </View>
 
           <Text style={styles.sectionLabel}>Add listings</Text>
@@ -166,7 +265,31 @@ export default function AdminCollectionsScreen() {
               <Text style={[type.soft, styles.emptyNote]}>No active listings match "{query.trim()}".</Text>
             )}
           </View>
-        </View>
+
+          {isAlgorithmic && (
+            <>
+              <Text style={styles.sectionLabel}>Excluded from this collection ({excludedListings.length})</Text>
+              {excludedListings.length === 0 ? (
+                <Text style={[type.soft, styles.emptyNote]}>Nothing excluded.</Text>
+              ) : (
+                <View style={styles.list}>
+                  {excludedListings.map((listing) => (
+                    <View key={listing.id} style={styles.rowCard}>
+                      {renderThumb(listing)}
+                      <View style={styles.rowInfo}>
+                        <Text style={styles.rowTitle} numberOfLines={1}>{listing.titleEn}</Text>
+                        <Text style={styles.rowSub} numberOfLines={1}>${listing.price.toLocaleString()} · {listing.district}</Text>
+                      </View>
+                      <Pressy onPress={() => unexclude(listing)} style={styles.addBtn} disabled={busyId === listing.id}>
+                        <Text style={styles.addBtnText}>Un-exclude</Text>
+                      </Pressy>
+                    </View>
+                  ))}
+                </View>
+              )}
+            </>
+          )}
+        </ScrollView>
       )}
     </Screen>
   );
@@ -175,9 +298,17 @@ export default function AdminCollectionsScreen() {
 const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, height: 56 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
-  topSub: { ...type.tiny, marginTop: 1 },
+  tabRow: { flexDirection: 'row', gap: 8, paddingHorizontal: 18, marginBottom: 4 },
+  tab: {
+    flex: 1, height: 34, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center',
+  },
+  tabActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  tabText: { fontSize: 12, fontWeight: '700', color: colors.ink },
+  tabTextActive: { color: colors.white },
   scroll: { paddingBottom: 60 },
   empty: { paddingHorizontal: 18, paddingVertical: 24 },
+  kindNote: { paddingHorizontal: 18, marginTop: 14 },
   sectionLabel: {
     fontSize: 10, fontWeight: '700', letterSpacing: 0.5, textTransform: 'uppercase', color: colors.inkSoft,
     paddingHorizontal: 18, marginTop: 18, marginBottom: 8,
@@ -194,12 +325,24 @@ const styles = StyleSheet.create({
   },
   thumbImg: { width: '100%', height: '100%' },
   rowInfo: { flex: 1, minWidth: 0 },
-  rowTitle: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  rowTitleLine: { flexDirection: 'row', alignItems: 'center', gap: 6 },
+  rowTitle: { fontSize: 13, fontWeight: '600', color: colors.ink, flexShrink: 1 },
   rowSub: { ...type.tiny, marginTop: 1 },
+  tag: { borderRadius: radius.pill, paddingHorizontal: 7, height: 17, alignItems: 'center', justifyContent: 'center' },
+  tagPinned: { backgroundColor: colors.accentTint },
+  tagAuto: { backgroundColor: colors.surface },
+  tagText: { fontSize: 9, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.3 },
+  tagTextPinned: { color: colors.accentDeep },
+  tagTextAuto: { color: colors.inkSoft },
   rowControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   smallBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   smallBtnText: { fontSize: 13, fontWeight: '700', color: colors.ink },
   removeBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: '#F5E4E2' },
+  excludeBtn: {
+    height: 28, paddingHorizontal: 10, borderRadius: radius.pill, backgroundColor: '#F5E4E2',
+    alignItems: 'center', justifyContent: 'center',
+  },
+  excludeBtnText: { fontSize: 11, fontWeight: '700', color: colors.danger },
   addBtn: {
     height: 30, paddingHorizontal: 12, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
