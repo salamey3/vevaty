@@ -66,10 +66,17 @@ export function BannerSlotView({
   banner,
   slot,
   style,
+  maxHeight,
 }: {
   banner: Banner | null;
   slot: BannerSlotKind;
   style?: ViewStyle;
+  // Overrides SLOT_SIZE's own cap for this one instance. TabBar's sidebar
+  // passes the actual space measured between the nav list and the footer,
+  // so the banner grows to fill it instead of stopping at the fixed 320px
+  // every other sidebar_nav placement falls back to -- see TabBar.tsx's
+  // own comment on why a static cap was leaving dead space there.
+  maxHeight?: number;
 }) {
   const { language } = useLanguage();
   const { logClick } = useBanners();
@@ -88,7 +95,21 @@ export function BannerSlotView({
   const size = SLOT_SIZE[slot];
   const widthPct = typeof size.width === 'string';
   const naturalHeight = widthPct ? null : (size.width as number) / aspect;
-  const height = naturalHeight != null && size.maxHeight != null ? Math.min(naturalHeight, size.maxHeight) : naturalHeight;
+  // Two different jobs depending on whether a caller passed maxHeight:
+  // with no override (every slot except TabBar's sidebar), it's just a
+  // ceiling on the creative's own natural height, exactly as before this
+  // prop existed. With an override, it's an exact height budget the
+  // caller measured (how much room is actually left before it must stop)
+  // -- so the box FILLS it, letting resizeMode="cover" crop the image if
+  // its aspect ratio doesn't happen to match, rather than leaving
+  // whatever gap the creative's natural height falls short by.
+  const effectiveMaxHeight = maxHeight ?? size.maxHeight;
+  const height =
+    maxHeight != null
+      ? maxHeight
+      : naturalHeight != null && effectiveMaxHeight != null
+        ? Math.min(naturalHeight, effectiveMaxHeight)
+        : naturalHeight;
 
   return (
     <Pressy
@@ -98,7 +119,7 @@ export function BannerSlotView({
       }}
       style={[
         styles.wrap,
-        { width: size.width as any, maxHeight: size.maxHeight, height: height ?? undefined, aspectRatio: widthPct ? aspect : undefined },
+        { width: size.width as any, maxHeight: effectiveMaxHeight, height: height ?? undefined, aspectRatio: widthPct ? aspect : undefined },
         style,
       ]}
     >

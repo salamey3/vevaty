@@ -1,4 +1,4 @@
-import React, { useEffect, useRef } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { Platform, StyleSheet, View, Text, ScrollView, ViewStyle } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
@@ -98,6 +98,28 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
   }, [bannersLoaded, isDesktop, focusedIndex]);
   const sidebarBanner = currentForSlot('sidebar_nav');
 
+  // How tall the sidebar banner gets to be. navScroll (flex:1) already
+  // occupies exactly the space between brandRow and the footer -- see its
+  // own comment below -- so its measured height, minus the nav list's own
+  // height and the banner's marginTop/marginBottom (18 + 6, see
+  // sidebarBanner style), is precisely how much room is left for the
+  // banner to stretch into before it would reach the footer. Passed to
+  // BannerSlotView as an explicit height budget rather than just another
+  // ceiling (see that component's own comment on the difference) so the
+  // banner actually fills the gap instead of stopping at its creative's
+  // natural aspect-ratio height and leaving dead space below it. Falls
+  // back to SLOT_SIZE's own 320px default until both measurements land
+  // (first render, before onLayout fires), so there's no flash of an
+  // unbounded or zero-height box.
+  const [navScrollH, setNavScrollH] = useState<number | null>(null);
+  const [navListH, setNavListH] = useState<number | null>(null);
+  const SIDEBAR_BANNER_VMARGIN = 18 + 6;
+  const SIDEBAR_BANNER_DEFAULT_CAP = 320;
+  const sidebarBannerMaxHeight =
+    navScrollH != null && navListH != null
+      ? Math.max(0, navScrollH - navListH - SIDEBAR_BANNER_VMARGIN)
+      : SIDEBAR_BANNER_DEFAULT_CAP;
+
   if (isDesktop) {
     return (
       <View style={[styles.sidebar, isRTL ? styles.sidebarRTL : styles.sidebarLTR]}>
@@ -105,16 +127,21 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
           <BrandMark variant="sidebar" onPress={goHome} />
         </View>
 
-        {/* Scrollable so a tall sidebar_nav banner (up to its 320px cap --
-            see BannerSlot.tsx's SLOT_SIZE) can never collide with the
-            footer below: the footer sits in normal flow after this
-            ScrollView rather than absolutely pinned over it, so it's
-            physically impossible for one to cover the other, whatever the
-            banner's own aspect ratio turns out to be. On a normal-length
-            nav list (the common case) this scrolls nowhere and looks
-            identical to a plain View. */}
-        <ScrollView style={styles.navScroll} contentContainerStyle={styles.navScrollContent} showsVerticalScrollIndicator={false}>
-          <View style={styles.navList}>
+        {/* Scrollable so the sidebar_nav banner -- now stretched to fill
+            whatever's left below the nav list (see sidebarBannerMaxHeight
+            above) -- can never collide with the footer below: the footer
+            sits in normal flow after this ScrollView rather than
+            absolutely pinned over it, so it's physically impossible for
+            one to cover the other, whatever the banner's own aspect ratio
+            turns out to be. On a normal-length nav list (the common case)
+            this scrolls nowhere and looks identical to a plain View. */}
+        <ScrollView
+          style={styles.navScroll}
+          contentContainerStyle={styles.navScrollContent}
+          showsVerticalScrollIndicator={false}
+          onLayout={(e) => setNavScrollH(e.nativeEvent.layout.height)}
+        >
+          <View style={styles.navList} onLayout={(e) => setNavListH(e.nativeEvent.layout.height)}>
             {state.routes.map((route, index) => {
               const focused = state.index === index;
               const isSell = route.name === 'SellTab';
@@ -156,7 +183,12 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
             })}
           </View>
 
-          <BannerSlotView banner={sidebarBanner} slot="sidebar_nav" style={styles.sidebarBanner} />
+          <BannerSlotView
+            banner={sidebarBanner}
+            slot="sidebar_nav"
+            style={styles.sidebarBanner}
+            maxHeight={sidebarBannerMaxHeight}
+          />
         </ScrollView>
 
         {/* The site-wide footer (tagline + legal links + copyright) is
@@ -327,8 +359,10 @@ const styles = StyleSheet.create({
   navLabelActive: { color: colors.ink },
   navLabelSell: { color: colors.white },
   // Sits below the nav items, inside the same scroll region -- see the
-  // ScrollView in the render above. maxHeight is enforced by BannerSlot's
-  // own SLOT_SIZE (320), this just adds the breathing room around it.
+  // ScrollView in the render above. Its height is the measured
+  // sidebarBannerMaxHeight budget (computed above, passed as a prop),
+  // not a fixed SLOT_SIZE cap -- this margin is just the breathing room
+  // around it; the 18/6 split is baked into that budget's own math.
   sidebarBanner: { marginTop: 18, marginBottom: 6 },
   // No longer absolutely positioned (see sidebar's flexDirection comment
   // above) -- sits in normal flow after navScroll, so it can never be

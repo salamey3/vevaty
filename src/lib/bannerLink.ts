@@ -26,7 +26,26 @@ export function openBannerLink(banner: Banner, navigation: NavigationProp<RootSt
     return;
   }
   if (banner.linkType === 'listing') {
-    navigation.navigate('ListingDetail', { listingId: banner.linkTarget });
+    // push, not navigate -- a banner on ListingDetailScreen itself (the
+    // desktop rail / mobile placements) points at ANOTHER listing, and
+    // navigate() to a route name that's already focused reuses that same
+    // screen instance (just merging in the new listingId as a param)
+    // rather than mounting a fresh one, which left the page's scroll
+    // position exactly where the banner was tapped instead of resetting
+    // to the top for the new listing. push always mounts a new instance,
+    // matching how every other listing-card tap on this screen already
+    // navigates (see relatedSection/editorsPicksSection/hotDealsSection
+    // in ListingDetailScreen.tsx). Guarded, not called unconditionally --
+    // TabBar's sidebar banner shares this same function, and the tab
+    // navigator's own navigation prop (what useNavigation() resolves to
+    // there -- see BannerSlotView's comment) has no push of its own, only
+    // navigate's bubble-to-parent behavior.
+    const nav = navigation as any;
+    if (typeof nav.push === 'function') {
+      nav.push('ListingDetail', { listingId: banner.linkTarget });
+    } else {
+      nav.navigate('ListingDetail', { listingId: banner.linkTarget });
+    }
     return;
   }
   if (banner.linkType === 'category') {

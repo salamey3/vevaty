@@ -11,7 +11,7 @@ import HomeMarkButton from '../components/HomeMarkButton';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ActionSheet from '../components/ActionSheet';
 import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
-import CarouselArrows from '../components/CarouselArrows';
+import CarouselArrows, { ARROW_GUTTER } from '../components/CarouselArrows';
 import { useGoBack } from '../hooks/useGoBack';
 import SpinViewer from '../components/SpinViewer';
 import VideoPlayer from '../components/VideoPlayer';
@@ -1073,13 +1073,17 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {mediaSection(styles.photo, styles.mediaChromeMobile)}
         <View style={styles.card}>
           {details}
+          {/* Inside styles.card, ahead of Similar Listings/Editor's Picks/
+              Hot Deals rather than trailing all three -- and inset to the
+              card's own 18px padding (SLOT_SIZE's width:'100%' just fills
+              whatever it's placed in) rather than edge-to-edge, so it reads
+              as part of the listing's own content column instead of a
+              full-bleed strip tacked onto the bottom of the page. */}
+          <BannerSlot slot="listing_detail_mobile" style={styles.mobileBanner} />
           {relatedSection}
           {editorsPicksSection}
           {hotDealsSection}
         </View>
-        {/* Outside styles.card on purpose -- "page wide" means edge-to-edge,
-            not inset to the card's own 18px padding like the photo above. */}
-        <BannerSlot slot="listing_detail_mobile" style={styles.mobileBanner} />
       </ScrollView>
 
       <View style={styles.footer}>
@@ -1337,9 +1341,22 @@ const styles = StyleSheet.create({
   // keys straight to the generated CSS; harmless no-op on native, where
   // this screen's desktop layout never renders anyway (isDesktop is
   // never true on the phone-sized native app).
-  desktopRailBanner: { position: 'sticky', top: 20, marginTop: 10 } as any,
-  // Edge-to-edge on mobile -- deliberately outside styles.card's 18px
-  // padding (see the render site).
+  //
+  // marginLeft: ARROW_GUTTER -- the photo above sits inside
+  // CarouselArrows, which reserves a 34px gutter on each side for its
+  // hover arrows (see that component's own comment); the photo box
+  // itself is centered in the remaining space, so its actual left edge
+  // sits 34px right of desktopMediaCol's own edge. This banner isn't
+  // CarouselArrows-wrapped (nothing to carousel -- one banner), so
+  // without this margin it renders flush with the column edge instead,
+  // 34px left of where the photo starts. Matching the margin here is
+  // what keeps the two visually aligned.
+  desktopRailBanner: { position: 'sticky', top: 20, marginTop: 10, marginLeft: ARROW_GUTTER } as any,
+  // Sits inside styles.card now (see the render site), so its own
+  // width:'100%' (SLOT_SIZE) resolves to the card's inset content width
+  // rather than the full screen. marginTop echoes sectionLabel/
+  // sectionLabelRow's own marginTop:22, so the gap above this banner and
+  // the gap Similar Listings' own label adds below it stay the same size.
   mobileBanner: { marginTop: 22 },
 
   reportBackdrop: {
