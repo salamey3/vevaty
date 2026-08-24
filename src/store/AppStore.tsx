@@ -123,6 +123,12 @@ interface AppStoreValue {
   completeBatch: (batchId: string) => Promise<void>;
   addListing: (l: ListingInput) => Promise<Listing>;
   updateListing: (id: string, l: ListingInput) => Promise<void>;
+  // Soft-deletes: sets status to 'removed' rather than dropping the row,
+  // so admin can still pull up the listing (and its photos/video) for a
+  // dispute -- see the My Listings feature's delete confirmation. Vanishes
+  // from this seller's own `listings` immediately either way; a
+  // server-side pg_cron job (purge-removed-listings) actually erases it,
+  // photos, and video 15 days after removedAt.
   deleteListing: (id: string) => Promise<void>;
   // Resets a listing's 15-day clock without changing its status --
   // offered on Profile once a still-active listing is within a day of
@@ -131,6 +137,16 @@ interface AppStoreValue {
   // Brings an 'expired' ("Unpublished") listing back to 'active' with a
   // fresh 15-day clock.
   republishListing: (id: string) => Promise<void>;
+  // My Listings' "Hide Listing" action -- takes a published listing off
+  // the market by turning it back into a draft, same status a listing
+  // sits in before its first publish. No confirmation prompt (unlike
+  // delete/markListingSold): the seller can always resume and republish
+  // it later exactly like any other draft.
+  hideListing: (id: string) => Promise<void>;
+  // My Listings' "Item Sold" action. soldVia is bookkeeping only (which
+  // option the seller picked in the confirmation sheet) -- it doesn't
+  // change what buyers/sellers see anywhere yet.
+  markListingSold: (id: string, soldVia: 'vevaty' | 'elsewhere') => Promise<void>;
   awardPoints: (amount: number, label: string) => Promise<void>;
   // Persists a new avatar (already uploaded to Bunny by the caller, same
   // as shop logos -- see MyStorefrontScreen's pickLogo) to profiles.avatar_url
@@ -514,6 +530,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             // the ?. access in dbListingToLocal.
             'shop:shops(slug, name_en, name_ar)'
         )
+        // A seller's own 'removed' rows are still readable under RLS (the
+        // same "active OR mine" policy that lets drafts/rejected show up
+        // here) -- excluded here so a soft-deleted listing actually stays
+        // gone from My Listings/Profile after a refetch, not just until
+        // the next app reload. Nobody else's 'removed' rows were ever
+        // reachable through this query to begin with.
+        .neq('status', 'removed')
         .order('created_at', { ascending: false });
 
       if (error) {
@@ -1054,30 +1077,36 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     [syncPhotoKind, syncSpinSets, myShop, awardPoints]
   );
 
+  // Soft-delete, not a hard delete: the row, its photos, and its video all
+  // stay put, and status just moves to 'removed'. A seller can never
+  // retrieve it themselves again once this runs (My Listings/Profile both
+  // exclude 'removed' rows, both locally here and on every future refetch
+  // -- see the `.neq('status', 'removed')` on the listings query above),
+  // but admin can still pull the whole thing up for a dispute or a
+  // mistaken-delete recovery, and a server-side pg_cron job
+  // (purge-removed-listings, see the migration/edge function of the same
+  // name) actually erases it -- row, photos, and Bunny video -- 15 days
+  // after removed_at. This mirrors exactly what AdminModerationScreen's
+  // own "Remove" action and AdminReportsScreen's "Remove listing" action
+  // already do to someone else's listing; this is the same status change,
+  // just seller-initiated on their own row (removed_reason distinguishes
+  // the three cases -- see the migration's column comment).
   const deleteListing = useCallback(async (id: string) => {
     // Update local state immediately so the listing disappears right away.
     setListings((prev) => prev.filter((l) => l.id !== id));
 
     const uid = userIdRef.current;
     if (!uid) return;
-    // The listing_videos row cascade-deletes with the parent, but the file
-    // itself lives on Bunny and would go on being paid for every month with
-    // nothing pointing at it -- so it has to be removed explicitly, and
-    // before the row that names it disappears. (Expiry is different: an
-    // expired listing keeps its video so a one-tap renewal still has one.)
-    const { data: attachedVideo } = await supabase
-      .from('listing_videos')
-      .select('bunny_guid')
-      .eq('listing_id', id)
-      .maybeSingle();
-    if (attachedVideo?.bunny_guid) {
-      await deleteVideo(attachedVideo.bunny_guid).catch(() => {});
-    }
-
-    // RLS (myazar.listings "sellers manage their own listings") already
-    // restricts this to the caller's own rows; listing_photos cascade-
-    // deletes with the parent row, so there's nothing else to clean up.
-    await supabase.from('listings').delete().eq('id', id).eq('seller_id', uid);
+    await supabase
+      .from('listings')
+      .update({
+        status: 'removed',
+        removed_at: new Date().toISOString(),
+        removed_reason: 'seller_deleted',
+        removed_by: uid,
+      })
+      .eq('id', id)
+      .eq('seller_id', uid);
   }, []);
 
   // Resets the 15-day clock to "another 15 days from right now" -- offered
@@ -1114,6 +1143,20 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       .update({ status: 'active', expires_at: new Date(newExpiresAt).toISOString(), expiry_reminder_sent_at: null })
       .eq('id', id)
       .eq('seller_id', uid);
+  }, []);
+
+  const hideListing = useCallback(async (id: string) => {
+    setListings((prev) => prev.map((it) => (it.id === id ? { ...it, status: 'draft' } : it)));
+    const uid = userIdRef.current;
+    if (!uid) return;
+    await supabase.from('listings').update({ status: 'draft' }).eq('id', id).eq('seller_id', uid);
+  }, []);
+
+  const markListingSold = useCallback(async (id: string, soldVia: 'vevaty' | 'elsewhere') => {
+    setListings((prev) => prev.map((it) => (it.id === id ? { ...it, status: 'sold' } : it)));
+    const uid = userIdRef.current;
+    if (!uid) return;
+    await supabase.from('listings').update({ status: 'sold', sold_via: soldVia }).eq('id', id).eq('seller_id', uid);
   }, []);
 
   // "Log out" for an anonymous-auth app: there's no persistent
@@ -1325,6 +1368,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       deleteListing,
       extendListing,
       republishListing,
+      hideListing,
+      markListingSold,
       awardPoints,
       updateAvatar,
       signOut,
@@ -1348,6 +1393,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       deleteListing,
       extendListing,
       republishListing,
+      hideListing,
+      markListingSold,
       awardPoints,
       updateAvatar,
       signOut,

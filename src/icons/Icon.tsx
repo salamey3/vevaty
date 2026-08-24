@@ -9,7 +9,7 @@ export type IconName =
   | 'card' | 'diamond' | 'chevronRight' | 'sparkle' | 'camera' | 'close'
   | 'edit' | 'trophy' | 'globe' | 'trash' | 'grip'
   | 'building' | 'tv' | 'factory' | 'paw' | 'baby' | 'dumbbell' | 'briefcase' | 'wrench' | 'flag' | 'lock' | 'fingerprint'
-  | 'image' | 'expand' | 'heart' | 'share' | 'wand';
+  | 'image' | 'expand' | 'heart' | 'share' | 'wand' | 'eyeOff';
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean };
 
@@ -325,6 +325,16 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
           <Circle cx="18" cy="19" r="2.5" {...common} />
           <Line x1="8.2" y1="10.6" x2="15.8" y2="6.4" {...common} />
           <Line x1="8.2" y1="13.4" x2="15.8" y2="17.6" {...common} />
+        </>
+      )}
+      {/* Eye with a diagonal strike -- My Listings' "Hide Listing" action.
+          Reads as "hidden from view", the same convention every app uses
+          for a password-visibility or hide toggle. */}
+      {name === 'eyeOff' && (
+        <>
+          <Path d="M3 12s3.6-6.5 9-6.5S21 12 21 12s-3.6 6.5-9 6.5S3 12 3 12Z" {...common} />
+          <Circle cx="12" cy="12" r="2.6" {...common} />
+          <Line x1="4" y1="4" x2="20" y2="20" {...common} />
         </>
       )}
       {name === 'fingerprint' && (

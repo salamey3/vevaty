@@ -116,7 +116,16 @@ export default function AdminReportsScreen() {
         onPress: async () => {
           setBusyId(row.id);
           try {
-            const { error: listErr } = await supabase.from('listings').update({ status: 'removed' }).eq('id', row.listingId as string);
+            const { data: userData } = await supabase.auth.getUser();
+            const { error: listErr } = await supabase
+              .from('listings')
+              .update({
+                status: 'removed',
+                removed_at: new Date().toISOString(),
+                removed_reason: 'report_resolved',
+                removed_by: userData.user?.id ?? null,
+              })
+              .eq('id', row.listingId as string);
             if (listErr) throw listErr;
             const { error: repErr } = await supabase.from('reports').update({ status: 'resolved' }).eq('id', row.id);
             if (repErr) throw repErr;

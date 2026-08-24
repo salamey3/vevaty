@@ -17,6 +17,7 @@ import ChangePhoneScreen from '../screens/ChangePhoneScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ChatThreadScreen from '../screens/ChatThreadScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
+import MyListingsScreen from '../screens/MyListingsScreen';
 import SellerProfileScreen from '../screens/SellerProfileScreen';
 import ShopsDirectoryScreen from '../screens/ShopsDirectoryScreen';
 import StorefrontScreen from '../screens/StorefrontScreen';
@@ -72,6 +73,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       Payment: 'listing/:listingId/payment',
       ChatThread: 'messages/:threadId',
       Favorites: 'favorites',
+      MyListings: 'my-listings',
       SellerProfile: 'seller/:sellerId',
       Shops: 'shops',
       Storefront: 'shop/:shopSlug',
@@ -116,6 +118,7 @@ export default function RootNavigator() {
         <Stack.Screen name="Payment" component={PaymentScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />
+        <Stack.Screen name="MyListings" component={MyListingsScreen} />
         <Stack.Screen name="SellerProfile" component={SellerProfileScreen} />
         <Stack.Screen name="Shops" component={ShopsDirectoryScreen} />
         <Stack.Screen name="Storefront" component={StorefrontScreen} />

@@ -16,7 +16,6 @@ import { TIER_THRESHOLDS } from '../data/points';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { TIER_LABELS } from '../i18n/translations';
-import { listingTitle } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
 import { uploadPhoto } from '../lib/photoUpload';
 import { Alert } from '../lib/alertShim';
@@ -24,11 +23,9 @@ import { openLegalPage } from '../lib/legalLinks';
 import ImageCropModal from '../components/ImageCropModal';
 import ActionSheet from '../components/ActionSheet';
 
-const DAY_MS = 1000 * 60 * 60 * 24;
-
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, extendListing, republishListing, myShop, updateAvatar } = useAppStore();
+  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, myShop, updateAvatar } = useAppStore();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   // The picked-but-not-yet-cropped avatar, queued for ImageCropModal -- see
   // confirmAvatarCrop below (shared component with MyStorefrontScreen's
@@ -81,9 +78,9 @@ export default function ProfileScreen() {
   // "Admin" row below stays invisible to every ordinary user.
   const { isAdmin } = useSettings();
   const { t, language, setLanguage } = useLanguage();
+  // Only the count is still needed here -- the listings themselves moved
+  // to MyListingsScreen (see the "My Listings" nav row below).
   const myListings = useMemo(() => listings.filter((l) => l.sellerId === profile.id), [listings, profile.id]);
-  const [busyId, setBusyId] = useState<string | null>(null);
-  const [rowErrors, setRowErrors] = useState<Record<string, string>>({});
   // The phone column has SELECT revoked on myazar.profiles -- get_my_phone
   // (SECURITY DEFINER) is the only sanctioned way to read it back, and
   // only makes sense to call once there's a real verified session.
@@ -122,30 +119,6 @@ export default function ProfileScreen() {
       setDeleteError(e?.message || t('profile.deleteAccountFailed'));
     } finally {
       setDeleting(false);
-    }
-  };
-
-  const runExtend = async (id: string) => {
-    setBusyId(id);
-    setRowErrors((e) => ({ ...e, [id]: '' }));
-    try {
-      await extendListing(id);
-    } catch {
-      setRowErrors((e) => ({ ...e, [id]: t('profile.extendFailed') }));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const runRepublish = async (id: string) => {
-    setBusyId(id);
-    setRowErrors((e) => ({ ...e, [id]: '' }));
-    try {
-      await republishListing(id);
-    } catch {
-      setRowErrors((e) => ({ ...e, [id]: t('profile.republishFailed') }));
-    } finally {
-      setBusyId(null);
     }
   };
 
@@ -201,6 +174,20 @@ export default function ProfileScreen() {
             <Text style={styles.adminBtnText}>{t('profile.browseStorefronts')}</Text>
           </Pressy>
         </View>
+
+        {/* Was its own section further down the screen, mixed in among
+            Language/About/Points activity -- now a single row here, same
+            treatment as Saved listings/My Storefront below it, with the
+            actual listings (and the Delete/Item Sold/Hide Listing actions)
+            living on their own screen. See MyListingsScreen. */}
+        {isVerified && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('MyListings')} style={styles.adminBtn}>
+              <Icon name="bag" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('profile.myListings', { count: myListings.length })}</Text>
+            </Pressy>
+          </View>
+        )}
 
         {isVerified && (
           <View style={styles.section}>
@@ -275,102 +262,6 @@ export default function ProfileScreen() {
               <Text style={styles.adminBtnText}>{t('nav.termsOfUse')}</Text>
             </Pressy>
           </View>
-        </View>
-
-        <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t('profile.myListings', { count: myListings.length })}</Text>
-          {myListings.length === 0 ? (
-            <Text style={type.soft}>{t('profile.noListings')}</Text>
-          ) : (
-            myListings.map((l) => {
-              const daysLeft = Math.max(0, Math.ceil((l.expiresAt - Date.now()) / DAY_MS));
-              const expiringSoon = l.status === 'active' && l.expiresAt - Date.now() <= DAY_MS;
-              return (
-                <Pressy
-                  key={l.id}
-                  onPress={() =>
-                    l.status === 'draft'
-                      ? navigation.navigate('CreateListing', { editListingId: l.id })
-                      : navigation.navigate('ListingDetail', { listingId: l.id })
-                  }
-                  style={styles.listingRow}
-                >
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.listingTitle} numberOfLines={1}>
-                      {l.status === 'draft' && !listingTitle(l, language) ? t('profile.draftUntitled') : listingTitle(l, language)}
-                    </Text>
-
-                    {l.status === 'draft' && (
-                      <>
-                        <View style={styles.draftBadge}>
-                          <Text style={styles.draftBadgeText}>{t('profile.draft')}</Text>
-                        </View>
-                        <Text style={styles.republishHint}>{t('profile.resumeHint')}</Text>
-                      </>
-                    )}
-                    {l.status === 'expired' && (
-                      <>
-                        <View style={styles.unpublishedBadge}>
-                          <Text style={styles.unpublishedBadgeText}>{t('profile.unpublished')}</Text>
-                        </View>
-                        <Text style={styles.republishHint}>{t('profile.republishHint')}</Text>
-                      </>
-                    )}
-                    {l.status === 'pending_review' && (
-                      <View style={styles.pendingReviewBadge}>
-                        <Text style={styles.pendingReviewBadgeText}>{t('profile.underReview')}</Text>
-                      </View>
-                    )}
-                    {l.status === 'rejected' && (
-                      <>
-                        <View style={styles.rejectedBadge}>
-                          <Text style={styles.rejectedBadgeText}>{t('profile.changesNeeded')}</Text>
-                        </View>
-                        {!!l.moderationReason && <Text style={styles.republishHint}>{l.moderationReason}</Text>}
-                      </>
-                    )}
-                    {l.status === 'active' && (
-                      <Text style={styles.expiryCaption}>
-                        {daysLeft <= 0 ? t('profile.expiresToday') : t('profile.expiresIn', { n: daysLeft })}
-                      </Text>
-                    )}
-                    {!!rowErrors[l.id] && <Text style={styles.rowError}>{rowErrors[l.id]}</Text>}
-                  </View>
-
-                  {l.status === 'expired' && (
-                    <Pressy
-                      onPress={(e: any) => { e?.stopPropagation?.(); runRepublish(l.id); }}
-                      style={styles.rowActionBtn}
-                      disabled={busyId === l.id}
-                    >
-                      <Text style={styles.rowActionBtnText}>
-                        {busyId === l.id ? t('common.loading') : t('profile.republish')}
-                      </Text>
-                    </Pressy>
-                  )}
-                  {l.status === 'rejected' && (
-                    <Pressy
-                      onPress={(e: any) => { e?.stopPropagation?.(); navigation.navigate('CreateListing', { editListingId: l.id }); }}
-                      style={styles.rowActionBtn}
-                    >
-                      <Text style={styles.rowActionBtnText}>{t('profile.editAndResubmit')}</Text>
-                    </Pressy>
-                  )}
-                  {expiringSoon && (
-                    <Pressy
-                      onPress={(e: any) => { e?.stopPropagation?.(); runExtend(l.id); }}
-                      style={styles.rowActionBtn}
-                      disabled={busyId === l.id}
-                    >
-                      <Text style={styles.rowActionBtnText}>
-                        {busyId === l.id ? t('common.loading') : t('profile.extendListing')}
-                      </Text>
-                    </Pressy>
-                  )}
-                </Pressy>
-              );
-            })
-          )}
         </View>
 
         <View style={styles.section}>
@@ -487,40 +378,7 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 18, marginTop: 26 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
-  listingRow: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
-    borderRadius: radius.md, padding: 14, marginBottom: 10,
-  },
-  listingTitle: { fontSize: 14.5, fontWeight: '600', color: colors.ink },
-  expiryCaption: { fontSize: 12, color: colors.inkSoft, marginTop: 4 },
-  unpublishedBadge: {
-    alignSelf: 'flex-start', backgroundColor: colors.warnBg, borderRadius: radius.pill,
-    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
-  },
-  unpublishedBadgeText: { fontSize: 11, fontWeight: '700', color: colors.ink },
-  pendingReviewBadge: {
-    alignSelf: 'flex-start', backgroundColor: colors.warnBg, borderRadius: radius.pill,
-    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
-  },
-  pendingReviewBadgeText: { fontSize: 11, fontWeight: '700', color: colors.ink },
-  draftBadge: {
-    alignSelf: 'flex-start', backgroundColor: colors.surface, borderRadius: radius.pill,
-    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
-  },
-  draftBadgeText: { fontSize: 11, fontWeight: '700', color: colors.inkSoft },
-  rejectedBadge: {
-    alignSelf: 'flex-start', backgroundColor: '#f5e4e2', borderRadius: radius.pill,
-    paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
-  },
-  rejectedBadgeText: { fontSize: 11, fontWeight: '700', color: colors.danger },
-  republishHint: { fontSize: 12, color: colors.inkSoft, marginTop: 6 },
   rowError: { fontSize: 12, color: colors.danger, marginTop: 6 },
-  rowActionBtn: {
-    height: 36, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.ink,
-    paddingHorizontal: 14, alignItems: 'center', justifyContent: 'center',
-  },
-  rowActionBtnText: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   historyRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
     paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line,

@@ -42,6 +42,10 @@ export type RootStackParamList = {
   Payment: { listingId: string };
   ChatThread: { threadId: string };
   Favorites: undefined;
+  // The signed-in seller's own listings, with per-listing Delete/Item
+  // Sold/Hide Listing actions -- reached from ProfileScreen's "My
+  // Listings" nav row, not a bottom tab (same reasoning as Favorites).
+  MyListings: undefined;
   SellerProfile: { sellerId: string };
   // The public "browse every verified shop" directory -- no params, always
   // shows the full live set (see ShopsDirectoryScreen).

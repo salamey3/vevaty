@@ -281,7 +281,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.editListing': 'Edit listing',
     'listingDetail.deleteListing': 'Delete listing',
     'listingDetail.deleteConfirmTitle': 'Delete this listing?',
-    'listingDetail.deleteConfirmMessage': 'This removes it permanently — buyers will no longer be able to find or contact you about it.',
+    'listingDetail.deleteConfirmMessage': 'This removes it from your profile. It won’t be visible to buyers anymore.',
     'listingDetail.deleteFailed': 'Could not delete this listing. Please try again.',
     'listingDetail.postedOn': 'Posted {date}',
     'listingDetail.specs': 'Details & specs',
@@ -557,6 +557,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.republish': 'Republish',
     'profile.republishFailed': 'Could not republish this listing. Please try again.',
     'profile.underReview': 'Under review',
+    'profile.sold': 'Sold',
     'profile.changesNeeded': 'Changes needed',
     'profile.editAndResubmit': 'Edit & resubmit',
     'profile.draft': 'Draft',
@@ -572,6 +573,21 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.deleteAccountConfirmMessage': 'This permanently removes your profile, listings, messages, and saved data. This cannot be undone.',
     'profile.deleteAccountConfirmLabel': 'Delete',
     'profile.deleteAccountFailed': 'Could not delete your account. Please try again.',
+
+    // My Listings -- ProfileScreen's "My Listings" nav row leads here.
+    // Per-status badges (Draft/Unpublished/Sold/etc.) reuse the profile.*
+    // keys above, since this screen replaced ProfileScreen's own inline
+    // listings section that used to render them.
+    'myListings.title': 'My Listings',
+    'myListings.manageLabel': 'Manage listing',
+    'myListings.delete': 'Delete',
+    'myListings.itemSold': 'Item Sold',
+    'myListings.hide': 'Hide',
+    'myListings.hideFailed': 'Could not hide this listing. Please try again.',
+    'myListings.markSoldTitle': 'Mark as sold',
+    'myListings.soldOnVevaty': 'Sold on Vevaty',
+    'myListings.soldElsewhere': 'Sold elsewhere',
+    'myListings.markSoldFailed': 'Could not update this listing. Please try again.',
 
     // Chat (Phase 4 item 11)
     'chat.title': 'Messages',
@@ -912,7 +928,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.editListing': 'تعديل الإعلان',
     'listingDetail.deleteListing': 'حذف الإعلان',
     'listingDetail.deleteConfirmTitle': 'حذف هذا الإعلان؟',
-    'listingDetail.deleteConfirmMessage': 'سيتم حذفه نهائيًا — لن يتمكن المشترون بعد الآن من إيجاده أو التواصل معك بشأنه.',
+    'listingDetail.deleteConfirmMessage': 'سيُزال هذا الإعلان من ملفك الشخصي، ولن يعود ظاهرًا للمشترين.',
     'listingDetail.deleteFailed': 'تعذّر حذف هذا الإعلان. يرجى المحاولة مرة أخرى.',
     'listingDetail.postedOn': 'نُشر في {date}',
     'listingDetail.specs': 'التفاصيل والمواصفات',
@@ -1175,6 +1191,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.republish': 'إعادة النشر',
     'profile.republishFailed': 'تعذّر إعادة نشر هذا الإعلان. يرجى المحاولة مرة أخرى.',
     'profile.underReview': 'قيد المراجعة',
+    'profile.sold': 'مباع',
     'profile.changesNeeded': 'يتطلب تعديلات',
     'profile.editAndResubmit': 'تعديل وإعادة الإرسال',
     'profile.draft': 'مسودة',
@@ -1190,6 +1207,17 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.deleteAccountConfirmMessage': 'سيؤدي هذا إلى حذف ملفك الشخصي وإعلاناتك ورسائلك وبياناتك المحفوظة نهائيًا. لا يمكن التراجع عن هذا الإجراء.',
     'profile.deleteAccountConfirmLabel': 'حذف',
     'profile.deleteAccountFailed': 'تعذّر حذف حسابك. يرجى المحاولة مرة أخرى.',
+
+    'myListings.title': 'إعلاناتي',
+    'myListings.manageLabel': 'إدارة الإعلان',
+    'myListings.delete': 'حذف',
+    'myListings.itemSold': 'تم البيع',
+    'myListings.hide': 'إخفاء',
+    'myListings.hideFailed': 'تعذّر إخفاء هذا الإعلان. يرجى المحاولة مرة أخرى.',
+    'myListings.markSoldTitle': 'تحديد كمُباع',
+    'myListings.soldOnVevaty': 'تم البيع عبر Vevaty',
+    'myListings.soldElsewhere': 'تم البيع خارج التطبيق',
+    'myListings.markSoldFailed': 'تعذّر تحديث هذا الإعلان. يرجى المحاولة مرة أخرى.',
 
     'chat.title': 'الرسائل',
     'chat.emptyTitle': 'لا توجد محادثات بعد',

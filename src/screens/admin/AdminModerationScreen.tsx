@@ -6,9 +6,11 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
 import Icon from '../../icons/Icon';
+import VideoPlayer from '../../components/VideoPlayer';
 import { colors, type, radius } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
 import { useSettings } from '../../store/SettingsStore';
+import { parseResolutions } from '../../lib/bunnyVideo';
 import { RootStackParamList } from '../../navigation/types';
 
 // This screen is both the admin's after-the-fact browse-everything tool
@@ -41,7 +43,23 @@ type ModListing = {
   sellerName: string;
   categoryId: string;
   photoUrl: string | null;
+  // Full gallery + video, not just the thumbnail -- so a removed listing
+  // can actually be retrieved whole for a dispute or a mistaken-delete
+  // recovery, not just identified by its cover photo. See the expanded
+  // row's mediaSection.
+  photos: string[];
+  video: { guid: string; resolutions: number[] | null } | null;
   openReportCount: number;
+  // Only ever set once status is 'removed' -- see the migration comment
+  // on myazar.listings.removed_reason for what each value means.
+  removedReason: 'seller_deleted' | 'admin_moderated' | 'report_resolved' | null;
+  removedAt: string | null;
+};
+
+const REMOVED_REASON_LABELS: Record<string, string> = {
+  seller_deleted: 'Seller deleted it themselves',
+  admin_moderated: 'Removed by an admin',
+  report_resolved: 'Removed while resolving a report',
 };
 
 const STATUS_COLORS: Record<Status, { bg: string; fg: string }> = {
@@ -75,7 +93,9 @@ export default function AdminModerationScreen() {
         supabase
           .from('listings')
           .select(
-            'id,title_en,price,status,moderation_status,moderation_reason,district,created_at,seller_id,category_id,seller:profiles(full_name),photos:listing_photos(url,kind)'
+            'id,title_en,price,status,moderation_status,moderation_reason,district,created_at,seller_id,category_id,' +
+              'removed_reason,removed_at,' +
+              'seller:profiles(full_name),photos:listing_photos(url,kind),video:listing_videos(bunny_guid,resolutions)'
           )
           .order('created_at', { ascending: false }),
         supabase.from('reports').select('reported_listing_id').eq('status', 'open'),
@@ -105,7 +125,17 @@ export default function AdminModerationScreen() {
         photoUrl: Array.isArray(row.photos)
           ? (row.photos.find((p: any) => (p.kind || 'gallery') === 'gallery') ?? row.photos[0])?.url ?? null
           : null,
+        // The full gallery (every kind, not just the thumbnail pick above)
+        // -- this is what makes a removed listing actually retrievable for
+        // a dispute, not just identifiable by one cover photo.
+        photos: Array.isArray(row.photos) ? row.photos.map((p: any) => p.url).filter(Boolean) : [],
+        video: (() => {
+          const v = Array.isArray(row.video) ? row.video[0] : row.video;
+          return v?.bunny_guid ? { guid: v.bunny_guid, resolutions: parseResolutions(v.resolutions) } : null;
+        })(),
         openReportCount: reportCounts.get(row.id) || 0,
+        removedReason: row.removed_reason ?? null,
+        removedAt: row.removed_at ?? null,
       }));
       setRows(mapped);
     } catch (e: any) {
@@ -150,7 +180,18 @@ export default function AdminModerationScreen() {
     }
   };
 
-  const setStatus = (row: ModListing, next: Status) => patchListing(row, { status: next }, { status: next });
+  // Also used to restore a removed listing (e.g. "Set active"/"Set draft"
+  // from a removed row's action list) -- clearing the removed_* bookkeeping
+  // whenever the target isn't 'removed' so a later look at this listing
+  // doesn't show a stale removal reason for something that's live again.
+  const setStatus = (row: ModListing, next: Status) =>
+    patchListing(
+      row,
+      next === 'removed'
+        ? { status: next }
+        : { status: next, removed_at: null, removed_reason: null, removed_by: null },
+      next === 'removed' ? { status: next } : { status: next, removedReason: null, removedAt: null }
+    );
 
   // Approving a flagged listing clears the moderation flag too, not just
   // status -- otherwise it'd keep showing up under the "Flagged" filter
@@ -179,10 +220,26 @@ export default function AdminModerationScreen() {
   const confirmRemove = (row: ModListing) => {
     Alert.alert(
       `Remove "${row.titleEn}"?`,
-      'This unpublishes the listing immediately. The seller can still see it as removed, but buyers will no longer find it.',
+      'This unpublishes the listing immediately and takes it off the seller\'s own listings too. It stays fully retrievable here (photos and video included) under the Removed filter for 15 days before it\'s purged for good.',
       [
         { text: 'Cancel', style: 'cancel' },
-        { text: 'Remove', style: 'destructive', onPress: () => setStatus(row, 'removed') },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            const { data: userData } = await supabase.auth.getUser();
+            patchListing(
+              row,
+              {
+                status: 'removed',
+                removed_at: new Date().toISOString(),
+                removed_reason: 'admin_moderated',
+                removed_by: userData.user?.id ?? null,
+              },
+              { status: 'removed', removedReason: 'admin_moderated', removedAt: new Date().toISOString() }
+            );
+          },
+        },
       ]
     );
   };
@@ -278,9 +335,44 @@ export default function AdminModerationScreen() {
 
                 {expanded && (
                   <View style={styles.actions}>
-                    <Pressy onPress={() => navigation.navigate('ListingDetail', { listingId: row.id })} style={styles.actionBtn}>
-                      <Text style={styles.actionBtnText}>View listing</Text>
-                    </Pressy>
+                    {row.status === 'removed' ? (
+                      // A removed listing was pulled out of AppStore's shared
+                      // `listings` (the same fetch every screen -- including
+                      // ListingDetailScreen -- reads from now excludes
+                      // status='removed', so this row wouldn't resolve
+                      // there). The gallery/video below is the retrieval
+                      // path for a removed listing instead.
+                      <View style={styles.removedInfoBox}>
+                        <Text style={styles.moderationReasonText}>
+                          {REMOVED_REASON_LABELS[row.removedReason || ''] || 'Removed'}
+                          {row.removedAt ? ` · ${new Date(row.removedAt).toLocaleString()}` : ''}
+                        </Text>
+                        <Text style={styles.removedInfoSub}>
+                          Purges automatically 15 days after removal unless restored before then.
+                        </Text>
+                      </View>
+                    ) : (
+                      <Pressy onPress={() => navigation.navigate('ListingDetail', { listingId: row.id })} style={styles.actionBtn}>
+                        <Text style={styles.actionBtnText}>View listing</Text>
+                      </Pressy>
+                    )}
+
+                    {(row.photos.length > 0 || row.video) && (
+                      <View style={styles.mediaSection}>
+                        {row.photos.length > 0 && (
+                          <ScrollView horizontal showsHorizontalScrollIndicator={false} contentContainerStyle={styles.mediaPhotoRow}>
+                            {row.photos.map((url, i) => (
+                              <Image key={`${url}-${i}`} source={{ uri: url }} style={styles.mediaPhoto} />
+                            ))}
+                          </ScrollView>
+                        )}
+                        {row.video && (
+                          <View style={styles.mediaVideoWrap}>
+                            <VideoPlayer guid={row.video.guid} resolutions={row.video.resolutions} />
+                          </View>
+                        )}
+                      </View>
+                    )}
 
                     {isFlagged(row) && (
                       <View style={styles.moderationBox}>
@@ -397,4 +489,13 @@ const styles = StyleSheet.create({
     minHeight: 40, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.card, paddingHorizontal: 10, paddingVertical: 8, fontSize: 12.5, color: colors.ink,
   },
+  removedInfoBox: {
+    width: '100%', gap: 4, padding: 10, borderRadius: radius.sm,
+    backgroundColor: '#f5e4e2', borderWidth: 1, borderColor: colors.line,
+  },
+  removedInfoSub: { fontSize: 11.5, color: colors.inkSoft },
+  mediaSection: { width: '100%', gap: 10 },
+  mediaPhotoRow: { gap: 8 },
+  mediaPhoto: { width: 84, height: 84, borderRadius: radius.sm, backgroundColor: colors.surface },
+  mediaVideoWrap: { width: '100%', height: 220, borderRadius: radius.sm, overflow: 'hidden' },
 });
