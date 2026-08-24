@@ -549,12 +549,22 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // reselect the same value the AI guessed" correctly NOT bring the pill
   // back: once manuallyChosen flips true, the pill is gone for good.
   const showConfirmPill = !!aiCategoryId && !manuallyChosen;
+  // Editing a listing that has already cleared moderation at least once
+  // (moderationStatus survives a Hide -> draft round-trip, unlike status
+  // itself -- see hideListing in AppStore.tsx) means the seller already
+  // captured this exact shot for this exact item; asking again on every
+  // edit would just be friction with no new signal for the AI to read. A
+  // listing still 'pending'/'rejected' has never actually cleared
+  // moderation, so it keeps the verify step -- rejected in particular may
+  // need a fresh shot if that was part of what got flagged.
+  const editListingAlreadyVerified =
+    isEditMode && (editingListing?.moderationStatus === 'ai_approved' || editingListing?.moderationStatus === 'human_approved');
   // True for the 15 categories seeded with verification-shot prompts (see
   // the migration -- most categories have none). Drives both whether the
   // new 'verify' step appears in stepKinds and the auto-suggest effect's
   // extra gate below (it must NOT fire before this step is reached, or the
   // whole point of the targeted photo is lost).
-  const needsVerification = (cat?.verificationShotListEn.length ?? 0) > 0;
+  const needsVerification = !editListingAlreadyVerified && (cat?.verificationShotListEn.length ?? 0) > 0;
   // Every prompt slot must hold a real captured/picked URI -- verifyRow's
   // camera and library-fallback paths both write into verificationPhotos
   // by index, so a `.filter(Boolean)` count against the prompt list length

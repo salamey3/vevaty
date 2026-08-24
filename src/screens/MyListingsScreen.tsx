@@ -17,18 +17,23 @@ import { useGoBack } from '../hooks/useGoBack';
 const DAY_MS = 1000 * 60 * 60 * 24;
 
 // Everything the seller can do with one of their own listings, pulled out
-// of ProfileScreen into its own screen -- see the "My Listings" nav row on
-// Profile. Previously this was one section mixed in among Browse
-// storefronts/Language/About/Points activity/Log out, which only had room
-// to grow as a cramped list; now it's the whole screen, same as Favorites
-// and My Storefront before it.
+// of ProfileScreen into its own screen -- see the "Listings Manager" nav
+// row on Profile (originally shipped as "My Listings", renamed once Edit/
+// Delete/Item Sold/Hide landed on ListingDetailScreen too). Previously this
+// was one section mixed in among Browse storefronts/Language/About/Points
+// activity/Log out, which only had room to grow as a cramped list; now
+// it's the whole screen, same as Favorites and My Storefront before it.
 //
-// New here (the reason this screen exists, not just a relocation): each
-// active listing gets three more actions below whatever it already had --
-// Delete, Item Sold, Hide Listing. Delete and Item Sold both prompt first
-// (a ConfirmDialog, an ActionSheet); Hide does not -- it's a one-tap
-// "take this off the market for now" that a seller can always undo later
-// by resuming the resulting draft, same as any other draft.
+// New here (the reason this screen exists, not just a relocation): every
+// listing gets a manage row below whatever it already had -- Edit and
+// Delete always, plus Item Sold and Hide Listing once it's actually live.
+// Delete and Item Sold both prompt first (a ConfirmDialog, an ActionSheet);
+// Hide does not -- it's a one-tap "take this off the market for now" that a
+// seller can always undo later by resuming the resulting draft, same as any
+// other draft. Edit here replaces the old status-specific "Edit & resubmit"
+// row action for rejected listings -- both did the exact same
+// navigation.navigate('CreateListing', { editListingId }), so a single
+// uniform Edit pill covers every status without a redundant second control.
 export default function MyListingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goBack = useGoBack();
@@ -201,14 +206,6 @@ export default function MyListingsScreen() {
                       </Text>
                     </Pressy>
                   )}
-                  {l.status === 'rejected' && (
-                    <Pressy
-                      onPress={(e: any) => { e?.stopPropagation?.(); navigation.navigate('CreateListing', { editListingId: l.id }); }}
-                      style={[styles.rowActionBtn, styles.rowActionSpacing]}
-                    >
-                      <Text style={styles.rowActionBtnText}>{t('profile.editAndResubmit')}</Text>
-                    </Pressy>
-                  )}
                   {expiringSoon && (
                     <Pressy
                       onPress={(e: any) => { e?.stopPropagation?.(); runExtend(l.id); }}
@@ -224,9 +221,17 @@ export default function MyListingsScreen() {
                   <Text style={styles.manageLabel}>{t('myListings.manageLabel')}</Text>
                   <View style={styles.manageRow}>
                     <Pressy
+                      onPress={(e: any) => { e?.stopPropagation?.(); navigation.navigate('CreateListing', { editListingId: l.id }); }}
+                      disabled={busyId === l.id}
+                      style={styles.actionPill}
+                    >
+                      <Icon name="edit" size={15} color={colors.ink} />
+                      <Text style={styles.actionPillLabel}>{t('myListings.edit')}</Text>
+                    </Pressy>
+                    <Pressy
                       onPress={(e: any) => { e?.stopPropagation?.(); setDeleteError(''); setConfirmDeleteId(l.id); }}
                       disabled={busyId === l.id}
-                      style={[styles.actionPill, styles.actionDelete, !isActive && styles.actionPillThird]}
+                      style={[styles.actionPill, styles.actionDelete]}
                     >
                       <Icon name="trash" size={15} color={colors.danger} />
                       <Text style={[styles.actionPillLabel, { color: colors.danger }]}>{t('myListings.delete')}</Text>
@@ -344,7 +349,6 @@ const styles = StyleSheet.create({
     flex: 1, height: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 4,
   },
-  actionPillThird: { flex: 0, minWidth: 100 },
   actionDelete: { borderColor: '#E3C4C1' },
   actionSold: { borderColor: colors.primaryTint, backgroundColor: colors.primaryTint },
   actionPillLabel: { fontSize: 10.5, fontWeight: '700', color: colors.ink },

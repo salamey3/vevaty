@@ -9,6 +9,7 @@ import Button from '../components/Button';
 import LanguageSwitch from '../components/LanguageSwitch';
 import HomeMarkButton from '../components/HomeMarkButton';
 import ConfirmDialog from '../components/ConfirmDialog';
+import ActionSheet from '../components/ActionSheet';
 import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
 import CarouselArrows from '../components/CarouselArrows';
 import { useGoBack } from '../hooks/useGoBack';
@@ -36,7 +37,7 @@ type ReportReason = (typeof REPORT_REASONS)[number];
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
-  const { listings, profile, deleteListing, isVerified } = useAppStore();
+  const { listings, profile, deleteListing, hideListing, markListingSold, isVerified } = useAppStore();
   const { categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory } = useSettings();
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -47,6 +48,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const [deleting, setDeleting] = useState(false);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [deleteError, setDeleteError] = useState<string | null>(null);
+  const [hiding, setHiding] = useState(false);
+  const [hideError, setHideError] = useState<string | null>(null);
+  const [soldSheetVisible, setSoldSheetVisible] = useState(false);
+  const [markingSold, setMarkingSold] = useState(false);
+  const [soldError, setSoldError] = useState<string | null>(null);
   const [reportVisible, setReportVisible] = useState(false);
   const [reportReason, setReportReason] = useState<ReportReason>('spam');
   const [reportNote, setReportNote] = useState('');
@@ -121,6 +127,37 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       setDeleting(false);
       setConfirmingDelete(false);
       setDeleteError(e?.message || t('listingDetail.deleteFailed'));
+    }
+  };
+
+  // Hide and Item Sold both leave the listing in place (unlike Delete,
+  // which navigates away) -- the seller is still looking at their own
+  // listing right after either one, just with an updated status, same as
+  // staying on MyListingsScreen after tapping either action there.
+  const runHide = async () => {
+    if (!listing) return;
+    setHiding(true);
+    setHideError(null);
+    try {
+      await hideListing(listing.id);
+    } catch (e: any) {
+      setHideError(e?.message || t('myListings.hideFailed'));
+    } finally {
+      setHiding(false);
+    }
+  };
+
+  const runMarkSold = async (soldVia: 'vevaty' | 'elsewhere') => {
+    if (!listing) return;
+    setSoldSheetVisible(false);
+    setMarkingSold(true);
+    setSoldError(null);
+    try {
+      await markListingSold(listing.id, soldVia);
+    } catch (e: any) {
+      setSoldError(e?.message || t('myListings.markSoldFailed'));
+    } finally {
+      setMarkingSold(false);
     }
   };
 
@@ -318,18 +355,51 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     </Modal>
   );
 
-  const editButton = isOwner && (
-    <View style={styles.ownerActions}>
-      <Pressy
-        onPress={() => navigation.navigate('CreateListing', { editListingId: listing.id })}
-        style={styles.editBtn}
-      >
-        <Icon name="edit" size={15} color={colors.ink} />
-        <Text style={styles.editBtnText}>{t('common.edit')}</Text>
-      </Pressy>
-      <Pressy onPress={() => setConfirmingDelete(true)} disabled={deleting} style={styles.deleteIconBtn}>
-        <Icon name="trash" size={15} color={colors.danger} />
-      </Pressy>
+  // Full-width row, styled identically to MyListingsScreen's manage row
+  // (same actionPill/actionDelete/actionSold styles) rather than the old
+  // inline edit-button-plus-bare-delete-icon squeezed into priceRow --
+  // Item Sold and Hide need somewhere to live too, and there was never
+  // room for four controls next to the price. Item Sold/Hide only show
+  // for a currently-active listing, same isActive gating MyListingsScreen
+  // already uses.
+  const manageRow = isOwner && (
+    <View style={styles.manageBlock}>
+      <Text style={styles.manageLabel}>{t('myListings.manageLabel')}</Text>
+      <View style={styles.manageRow}>
+        <Pressy
+          onPress={() => navigation.navigate('CreateListing', { editListingId: listing.id })}
+          style={styles.actionPill}
+        >
+          <Icon name="edit" size={15} color={colors.ink} />
+          <Text style={styles.actionPillLabel}>{t('myListings.edit')}</Text>
+        </Pressy>
+        <Pressy
+          onPress={() => setConfirmingDelete(true)}
+          disabled={deleting}
+          style={[styles.actionPill, styles.actionDelete]}
+        >
+          <Icon name="trash" size={15} color={colors.danger} />
+          <Text style={[styles.actionPillLabel, { color: colors.danger }]}>{t('myListings.delete')}</Text>
+        </Pressy>
+        {listing.status === 'active' && (
+          <>
+            <Pressy
+              onPress={() => setSoldSheetVisible(true)}
+              disabled={markingSold}
+              style={[styles.actionPill, styles.actionSold]}
+            >
+              <Icon name="banknote" size={15} color={colors.success} />
+              <Text style={[styles.actionPillLabel, { color: colors.success }]}>{t('myListings.itemSold')}</Text>
+            </Pressy>
+            <Pressy onPress={runHide} disabled={hiding} style={styles.actionPill}>
+              <Icon name="eyeOff" size={15} color={colors.ink} />
+              <Text style={styles.actionPillLabel}>{t('myListings.hide')}</Text>
+            </Pressy>
+          </>
+        )}
+      </View>
+      {!!hideError && <Text style={styles.manageErrorText}>{hideError}</Text>}
+      {!!soldError && <Text style={styles.manageErrorText}>{soldError}</Text>}
     </View>
   );
 
@@ -347,6 +417,19 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         setConfirmingDelete(false);
         setDeleteError(null);
       }}
+    />
+  );
+
+  const soldSheet = (
+    <ActionSheet
+      visible={soldSheetVisible}
+      title={t('myListings.markSoldTitle')}
+      options={[
+        { label: t('myListings.soldOnVevaty'), icon: 'banknote', onPress: () => runMarkSold('vevaty') },
+        { label: t('myListings.soldElsewhere'), icon: 'bag', onPress: () => runMarkSold('elsewhere') },
+      ]}
+      cancelLabel={t('common.cancel')}
+      onCancel={() => setSoldSheetVisible(false)}
     />
   );
 
@@ -376,7 +459,6 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     <>
       <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
         <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
-        {editButton}
       </View>
       {/* Only for a 'multiple' stock-mode category -- every 'unique'-mode
           listing (still the vast majority) is one specific item and this
@@ -437,6 +519,8 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <Text style={type.soft}>{t('listingDetail.postedOn', { date: absoluteDate(listing.createdAt, language) })} · {relativeTimeFrom(listing.createdAt, language)}</Text>
         </View>
       </View>
+
+      {manageRow}
 
       {listing.aiGenerated && (
         <View style={[styles.aiTag, isRTL && styles.aiTagRTL]}>
@@ -863,6 +947,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           </View>
         </ScrollView>
         {confirmDialog}
+        {soldSheet}
         {reportModal}
       </Screen>
     );
@@ -884,6 +969,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {ctaSection()}
       </View>
       {confirmDialog}
+      {soldSheet}
       {reportModal}
     </Screen>
   );
@@ -973,12 +1059,12 @@ const styles = StyleSheet.create({
 
   card: { padding: 18 },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 14 },
-  // With a single child (the price, whenever this isn't the owner's own
-  // listing and editButton is null) justify-content: space-between still
-  // resolves to flex-start of the row -- i.e. the LEFT edge, even in
-  // Arabic. row-reverse flips which edge "flex-start" actually is, so the
-  // price (and, for the owner, the edit actions alongside it) anchors to
-  // the right instead.
+  // priceRow now holds only the price -- owner actions moved out into
+  // their own full-width manageRow below (see manageRow/actionPill). With
+  // a single child, justify-content: space-between still resolves to
+  // flex-start of the row -- i.e. the LEFT edge, even in Arabic.
+  // row-reverse flips which edge "flex-start" actually is, so the price
+  // anchors to the right instead.
   priceRowRTL: { flexDirection: 'row-reverse' },
   stockText: { ...type.soft, marginTop: 4, fontWeight: '600' },
   stockTextEmpty: { color: colors.danger },
@@ -988,18 +1074,24 @@ const styles = StyleSheet.create({
   },
   ownerRejectedNotice: { backgroundColor: '#f5e4e2' },
   ownerModerationNoticeText: { ...type.soft, flex: 1, fontSize: 12.5 },
-  ownerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
-  editBtn: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
-    paddingHorizontal: 12, height: 32, borderRadius: radius.pill,
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
+  // Same manage-row treatment as MyListingsScreen's actionPill/actionDelete/
+  // actionSold -- kept pixel-identical on purpose so Edit/Delete/Item Sold/
+  // Hide look and behave the same whether the seller reaches them from
+  // Listings Manager or from the listing's own page.
+  manageBlock: { marginTop: 18 },
+  manageLabel: {
+    ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5,
+    marginBottom: 8, paddingTop: 14, borderTopWidth: 1, borderTopColor: colors.line,
   },
-  editBtnText: { fontSize: 13, fontWeight: '600', color: colors.ink },
-  deleteIconBtn: {
-    width: 32, height: 32, borderRadius: radius.pill,
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
-    alignItems: 'center', justifyContent: 'center',
+  manageRow: { flexDirection: 'row', gap: 8 },
+  actionPill: {
+    flex: 1, height: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 4,
   },
+  actionDelete: { borderColor: '#E3C4C1' },
+  actionSold: { borderColor: colors.primaryTint, backgroundColor: colors.primaryTint },
+  actionPillLabel: { fontSize: 10.5, fontWeight: '700', color: colors.ink },
+  manageErrorText: { fontSize: 12, color: colors.danger, marginTop: 8 },
   price: { fontSize: 24, fontWeight: '700', color: colors.primary },
   metaBlock: { gap: 5, marginTop: 2 },
   categoryLink: { textDecorationLine: 'underline' },
