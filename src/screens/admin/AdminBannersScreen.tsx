@@ -31,7 +31,18 @@ const SLOT_LABEL: Record<BannerSlot, string> = {
 };
 
 const SLOT_DIMENSIONS: Record<BannerSlot, string> = {
-  sidebar_nav: '200px wide · up to 320px tall',
+  // No longer a fixed cap -- TabBar.tsx now measures the real gap between
+  // the nav list and the footer and passes it to BannerSlotView as an
+  // exact height budget (see that component's own comment on the
+  // difference), so the box stretches to fill it rather than stopping at
+  // the creative's natural aspect-ratio height. That budget varies by
+  // window height (roughly 500-700px+ tall on a typical desktop, taller on
+  // a bigger monitor), so there's no one fixed number to give here --
+  // hence "varies by screen" rather than a hard cap like the other slots.
+  // resizeMode="cover" fills whatever height it's given, cropping the
+  // creative if its own aspect ratio falls short, so a tall image (not
+  // one authored for the old 320px cap) is what avoids visible cropping.
+  sidebar_nav: '200px wide · height fills the sidebar down to the footer (varies by screen, often 500-700px+ tall) -- design tall, since it crops via cover',
   listing_detail_desktop_rail: '440px wide · up to 800px tall',
   listing_detail_mobile: 'Full page width · height follows the creative',
 };
