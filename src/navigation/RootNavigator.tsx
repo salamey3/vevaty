@@ -21,6 +21,7 @@ import MyListingsScreen from '../screens/MyListingsScreen';
 import SellerProfileScreen from '../screens/SellerProfileScreen';
 import ShopsDirectoryScreen from '../screens/ShopsDirectoryScreen';
 import StorefrontScreen from '../screens/StorefrontScreen';
+import CollectionScreen from '../screens/CollectionScreen';
 import MyStorefrontScreen from '../screens/MyStorefrontScreen';
 import AdminShopsScreen from '../screens/admin/AdminShopsScreen';
 import AdminGateScreen from '../screens/admin/AdminGateScreen';
@@ -30,6 +31,7 @@ import AdminBrandingScreen from '../screens/admin/AdminBrandingScreen';
 import AdminModerationScreen from '../screens/admin/AdminModerationScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
+import AdminCollectionsScreen from '../screens/admin/AdminCollectionsScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
@@ -77,6 +79,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       SellerProfile: 'seller/:sellerId',
       Shops: 'shops',
       Storefront: 'shop/:shopSlug',
+      Collection: 'collection/:slug',
       MyStorefront: 'storefront/manage',
       AdminShops: 'admin/storefronts',
       Admin: 'admin',
@@ -86,6 +89,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       AdminModeration: 'admin/moderation',
       AdminUsers: 'admin/users',
       AdminReports: 'admin/reports',
+      AdminCollections: 'admin/collections',
     },
   },
 };
@@ -122,6 +126,7 @@ export default function RootNavigator() {
         <Stack.Screen name="SellerProfile" component={SellerProfileScreen} />
         <Stack.Screen name="Shops" component={ShopsDirectoryScreen} />
         <Stack.Screen name="Storefront" component={StorefrontScreen} />
+        <Stack.Screen name="Collection" component={CollectionScreen} />
         <Stack.Screen name="MyStorefront" component={MyStorefrontScreen} />
         <Stack.Screen name="AdminShops" component={AdminShopsScreen} />
         <Stack.Screen name="Admin" component={AdminGateScreen} />
@@ -131,6 +136,7 @@ export default function RootNavigator() {
         <Stack.Screen name="AdminModeration" component={AdminModerationScreen} />
         <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
         <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
+        <Stack.Screen name="AdminCollections" component={AdminCollectionsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

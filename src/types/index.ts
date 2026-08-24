@@ -486,3 +486,39 @@ export interface SiteSettings {
   logoArUrl: string | null;
   faviconUrl: string | null;
 }
+
+// A Home-screen collection (Editor's Picks, Hot Deals, Just Listed) and its
+// own shareable page -- see myazar.collections. `kind` decides how it gets
+// its listings: 'curated' is hand-picked (see CollectionItem below);
+// 'recent' and 'price_drop' are both resolved client-side against whatever
+// is already in AppStore's `listings`/CollectionsStore's `priceChanges`,
+// never stored as rows of their own. See CollectionsStore.tsx.
+export type CollectionKind = 'curated' | 'recent' | 'price_drop';
+
+export interface Collection {
+  id: string;
+  slug: string;
+  kind: CollectionKind;
+  titleEn: string;
+  titleAr: string;
+  descriptionEn: string | null;
+  descriptionAr: string | null;
+  active: boolean;
+  sortOrder: number;
+  // Cap on how many listings a 'recent'/'price_drop' collection resolves
+  // to. Meaningless for 'curated' (its size is just however many
+  // CollectionItem rows exist), kept anyway so the column always has a
+  // sane value rather than needing a kind-conditional read everywhere.
+  limitCount: number;
+  createdAt: number;
+  updatedAt: number;
+}
+
+// One hand-picked listing inside a kind='curated' collection, in
+// admin-controlled order (position, ascending).
+export interface CollectionItem {
+  id: string;
+  collectionId: string;
+  listingId: string;
+  position: number;
+}

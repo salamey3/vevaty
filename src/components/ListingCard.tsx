@@ -4,7 +4,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Pressy from './Pressy';
 import CardPreview from './CardPreview';
-import Icon from '../icons/Icon';
+import Icon, { IconName } from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
 import { Listing } from '../types';
 import { useSettings } from '../store/SettingsStore';
@@ -25,6 +25,13 @@ import { RootStackParamList } from '../navigation/types';
 // it as instant.
 const HOVER_PREVIEW_DELAY_MS = 180;
 
+// A single small badge in the thumbnail's top-right corner -- Editor's
+// Picks (sparkle, gold) and Hot Deals (a "-15%" style label, terracotta)
+// both use this same slot, one collection row at a time, so it's a plain
+// either/or rather than a list. Just Listed intentionally passes none: not
+// every row needs to shout, per the approved Collections mockup.
+export type CornerBadge = { icon: IconName; color: string } | { text: string; color: string };
+
 export default function ListingCard({
   listing,
   onPress,
@@ -35,6 +42,11 @@ export default function ListingCard({
   // primary place to save something, this is just a convenience on the
   // main browse grid. Defaults on since that's the common case.
   showFavorite = true,
+  // Collection badge (Editor's Picks / Hot Deals) -- see CornerBadge above.
+  // Shares the thumbnail's top-right corner with spinBadge; on the rare
+  // listing that's both a 360-spin AND in a collection, this one wins the
+  // corner and spinBadge shifts down rather than the two overlapping.
+  cornerBadge,
 }: {
   listing: Listing;
   onPress: () => void;
@@ -44,6 +56,7 @@ export default function ListingCard({
   // columns-derived percentage when set.
   width?: number;
   showFavorite?: boolean;
+  cornerBadge?: CornerBadge;
 }) {
   const { categoryById, resolveAttributesForCategory } = useSettings();
   const { isVerified, profile } = useAppStore();
@@ -181,8 +194,17 @@ export default function ListingCard({
             <Text style={styles.outOfStockRibbonText}>{t('listingCard.outOfStock')}</Text>
           </View>
         )}
+        {cornerBadge && (
+          <View style={[styles.cornerBadge, { backgroundColor: cornerBadge.color }]}>
+            {'icon' in cornerBadge ? (
+              <Icon name={cornerBadge.icon} size={11} color={colors.white} />
+            ) : (
+              <Text style={styles.cornerBadgeText}>{cornerBadge.text}</Text>
+            )}
+          </View>
+        )}
         {(listing.spinSets?.length ?? 0) > 0 && (
-          <View style={styles.spinBadge}>
+          <View style={[styles.spinBadge, cornerBadge && styles.spinBadgeBelowCorner]}>
             <Icon name="rotate" size={11} color={colors.white} />
           </View>
         )}
@@ -324,6 +346,17 @@ const styles = StyleSheet.create({
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
   },
+  // Only applied on the rare card that has both a spin set and a
+  // cornerBadge -- pushes the spin icon below it instead of overlapping.
+  spinBadgeBelowCorner: { top: 30 },
+  // Collection badge (Editor's Picks sparkle / Hot Deals "-N%") -- same
+  // corner and footprint as spinBadge, since a card only ever shows one
+  // collection badge at a time and this takes priority for the slot.
+  cornerBadge: {
+    position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  cornerBadgeText: { fontSize: 8, fontWeight: '800', color: colors.white },
   // Opposite corner from spinBadge above -- the two can both be visible on
   // the same card (a 360°-spin listing someone's favorited) without
   // overlapping.

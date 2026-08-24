@@ -6,6 +6,7 @@ import { StatusBar } from 'expo-status-bar';
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppStoreProvider } from './src/store/AppStore';
+import { CollectionsStoreProvider } from './src/store/CollectionsStore';
 import { ChatStoreProvider } from './src/store/ChatStore';
 import { FavoritesStoreProvider } from './src/store/FavoritesStore';
 import { SavedSearchesStoreProvider } from './src/store/SavedSearchesStore';
@@ -206,33 +207,38 @@ export default function App() {
       <LanguageProvider>
         <SettingsProvider>
           <AppStoreProvider>
-            <ChatStoreProvider>
-              <FavoritesStoreProvider>
-                <SavedSearchesStoreProvider>
-                  <ScrollChromeProvider>
-                    {/* An explicit full-height box purely so the bottom
-                        strip below has a positioned parent that is exactly
-                        the window -- an absolutely positioned view needs
-                        one, and relying on whatever React Native happens to
-                        mount as the root would be an assumption. */}
-                    <View style={styles.root}>
-                      <StatusBar style="dark" />
-                      <RootNavigator />
-                      <AlertHost />
-                      <AdminLockScreen />
-                      <AdminActivityListener />
-                      <WebFocusStyles />
-                      <WebScrollAnywhere />
-                      {/* Last, so it paints over the navigator and the
-                          floating tab bar alike. Modals are their own
-                          native windows and this cannot reach them -- each
-                          one renders its own copy. */}
-                      <SystemBottomStrip />
-                    </View>
-                  </ScrollChromeProvider>
-                </SavedSearchesStoreProvider>
-              </FavoritesStoreProvider>
-            </ChatStoreProvider>
+            {/* Needs AppStore's `listings` to resolve a collection into
+                actual Listings -- see CollectionsStore.tsx -- so it nests
+                inside AppStoreProvider, not alongside it. */}
+            <CollectionsStoreProvider>
+              <ChatStoreProvider>
+                <FavoritesStoreProvider>
+                  <SavedSearchesStoreProvider>
+                    <ScrollChromeProvider>
+                      {/* An explicit full-height box purely so the bottom
+                          strip below has a positioned parent that is exactly
+                          the window -- an absolutely positioned view needs
+                          one, and relying on whatever React Native happens to
+                          mount as the root would be an assumption. */}
+                      <View style={styles.root}>
+                        <StatusBar style="dark" />
+                        <RootNavigator />
+                        <AlertHost />
+                        <AdminLockScreen />
+                        <AdminActivityListener />
+                        <WebFocusStyles />
+                        <WebScrollAnywhere />
+                        {/* Last, so it paints over the navigator and the
+                            floating tab bar alike. Modals are their own
+                            native windows and this cannot reach them -- each
+                            one renders its own copy. */}
+                        <SystemBottomStrip />
+                      </View>
+                    </ScrollChromeProvider>
+                  </SavedSearchesStoreProvider>
+                </FavoritesStoreProvider>
+              </ChatStoreProvider>
+            </CollectionsStoreProvider>
           </AppStoreProvider>
         </SettingsProvider>
       </LanguageProvider>

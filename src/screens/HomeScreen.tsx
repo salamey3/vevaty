@@ -10,6 +10,7 @@ import ListingCard from '../components/ListingCard';
 import CategoryCard from '../components/CategoryCard';
 import CarouselArrows from '../components/CarouselArrows';
 import CategoryCarouselSection from '../components/CategoryCarouselSection';
+import CollectionCarouselSection from '../components/CollectionCarouselSection';
 import LanguageSwitch from '../components/LanguageSwitch';
 import FilterSection, { FilterOption } from '../components/FilterSection';
 import RangeSlider from '../components/RangeSlider';
@@ -24,6 +25,7 @@ import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { useScrollChrome } from '../store/ScrollChromeContext';
 import { useSavedSearches } from '../store/SavedSearchesStore';
+import { useCollections } from '../store/CollectionsStore';
 import { RootStackParamList, HomeStackParamList } from '../navigation/types';
 import { Category, CategoryAttribute, CategoryId, FilterFacet, Listing, SavedSearchCriteria } from '../types';
 import { useIsDesktop, useGridColumns } from '../hooks/useResponsive';
@@ -69,6 +71,7 @@ export default function HomeScreen() {
   const homeNav = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const route = useRoute<RouteProp<HomeStackParamList, 'HomeCategory'>>();
   const { listings: allListings, profile, isVerified } = useAppStore();
+  const { collections, resolveCollection } = useCollections();
   // Browse/search only ever wants to show published listings -- RLS already
   // keeps other sellers' non-active listings out of what's fetched, but the
   // signed-in seller's OWN rows of any status (pending_review, rejected,
@@ -412,6 +415,24 @@ export default function HomeScreen() {
   }, [topCat, query, categories, listings, categoryMatches]);
   const showCarousels = categoryCarousels.length > 0;
 
+  // Editor's Picks / Hot Deals / Just Listed rows -- same "all categories,
+  // nothing searched" gate as the category carousels above, and same
+  // "don't render an empty row" rule: a collection nobody's curated yet
+  // (Editor's Picks with no items) or one that currently has nothing
+  // qualifying (Hot Deals with no active price drops) simply doesn't
+  // appear, rather than showing an empty section. Sorted by the
+  // collection's own sortOrder (already applied server-side, see
+  // CollectionsStore's fetch), and always placed ABOVE the per-category
+  // rows -- these are the "look at this" surface, the category rows below
+  // are "browse everything".
+  const collectionCarousels = useMemo(() => {
+    if (topCat !== 'all' || query.trim().length > 0) return [];
+    return collections
+      .filter((c) => c.active)
+      .map((c) => ({ collection: c, items: resolveCollection(c) }))
+      .filter((section) => section.items.length > 0);
+  }, [topCat, query, collections, resolveCollection]);
+
   // The categories chip strip is one "All" chip followed by every top-level
   // category. Reversing that whole sequence (rather than transforming the
   // scroller) is what gives the strip its RTL swipe direction -- see the
@@ -660,12 +681,32 @@ export default function HomeScreen() {
   // painted -- not a one-time load blip. A conservative initial render +
   // one screen of look-ahead keeps far-off sections from mounting (and
   // fetching) until they're actually about to be scrolled into view.
+  // Collection rows (Editor's Picks / Hot Deals / Just Listed) render as a
+  // plain header on the same FlatList, above the windowed category rows --
+  // there are at most 3 of them (one per collection kind), so they don't
+  // need windowing of their own, and putting them in the header keeps them
+  // pinned above every category row regardless of how many of those exist.
+  const collectionRowsHeader = collectionCarousels.length > 0 ? (
+    <>
+      {collectionCarousels.map(({ collection, items }) => (
+        <CollectionCarouselSection
+          key={collection.id}
+          collection={collection}
+          items={items}
+          onSeeAll={() => navigation.navigate('Collection', { slug: collection.slug })}
+          onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
+        />
+      ))}
+    </>
+  ) : null;
+
   const carousels = (
     <FlatList
       data={categoryCarousels}
       keyExtractor={({ category }) => category.id}
       style={styles.list}
       contentContainerStyle={styles.carouselsContent}
+      ListHeaderComponent={collectionRowsHeader}
       onScroll={onChromeScroll}
       scrollEventThrottle={16}
       // Android's native ScrollView doesn't support nested scrolling by

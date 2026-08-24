@@ -199,6 +199,18 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'storefront.allFilters': 'All filters',
     'storefront.allFiltersCount': 'All filters ({n})',
     'storefront.noFilterMatches': 'No listings match these filters.',
+    // Collections (Editor's Picks / Hot Deals / Just Listed) -- the
+    // collection's own title/description come from the DB row (bilingual
+    // columns, see myazar.collections), these are just the surrounding
+    // screen chrome.
+    'collection.header': 'Collection',
+    'collection.count': '{count} listings',
+    'collection.share': 'Share collection',
+    'collection.shareText': 'Check out {name} on vevaty',
+    'collection.linkCopied': 'Link copied',
+    'collection.shareFailed': 'Could not copy link',
+    'collection.notFoundTitle': 'This collection could not be found.',
+    'collection.empty': 'Nothing here yet — check back soon.',
     // ShopsDirectoryScreen -- the public "browse every verified shop"
     // screen (see profile.browseStorefronts / home.browseStorefronts).
     'shopsDirectory.title': 'Storefronts',
@@ -660,6 +672,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'admin.dashboardTitle': 'Admin dashboard',
     'admin.manageCategories': 'Manage categories',
     'admin.manageCategoriesSub': 'Add, edit, reorder, or retire categories and their icons',
+    'admin.manageCollections': 'Manage collections',
+    'admin.manageCollectionsSub': 'Curate Editor’s Picks -- Hot Deals and Just Listed fill themselves',
     'admin.manageBranding': 'Manage branding',
     'admin.manageBrandingSub': 'Colors, logos, and favicon',
     'admin.manageModeration': 'Moderation',
@@ -853,6 +867,14 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'storefront.allFilters': 'كل الفلاتر',
     'storefront.allFiltersCount': 'كل الفلاتر ({n})',
     'storefront.noFilterMatches': 'لا توجد إعلانات مطابقة لهذه الفلاتر.',
+    'collection.header': 'المجموعة',
+    'collection.count': '{count} إعلان',
+    'collection.share': 'مشاركة المجموعة',
+    'collection.shareText': 'شاهد {name} على ڤيڤاتي',
+    'collection.linkCopied': 'تم نسخ الرابط',
+    'collection.shareFailed': 'تعذّر نسخ الرابط',
+    'collection.notFoundTitle': 'تعذّر العثور على هذه المجموعة.',
+    'collection.empty': 'لا يوجد شيء هنا بعد — تحقق لاحقًا.',
     'shopsDirectory.title': 'المتاجر',
     'shopsDirectory.searchPlaceholder': 'ابحث عن متجر',
     'shopsDirectory.categoryAll': 'كل الفئات',
@@ -1287,6 +1309,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'admin.dashboardTitle': 'لوحة تحكم المسؤول',
     'admin.manageCategories': 'إدارة الفئات',
     'admin.manageCategoriesSub': 'أضف أو عدّل أو أعد ترتيب الفئات وأيقوناتها',
+    'admin.manageCollections': 'إدارة المجموعات',
+    'admin.manageCollectionsSub': 'نسّق اختيارات المحررين -- العروض الساخنة والمُضاف حديثًا تُعبَّأ تلقائيًا',
     'admin.manageBranding': 'إدارة الهوية البصرية',
     'admin.manageBrandingSub': 'الألوان، الشعارات، وأيقونة المتصفح',
     'admin.manageModeration': 'مراجعة الإعلانات',

@@ -112,6 +112,50 @@ export function deployWeb() {
     console.log(`  WARNING: could not set permissions on the uploaded files (${e?.message || e}).`);
     console.log('  If a page 403s after this, set it to 644 by hand (cPanel File Manager or chmod over SSH).');
   }
+
+  deployShareSnippets(cfg, port);
+}
+
+// dist/share/collection/<slug>/index.html -- the static OG-meta-tag
+// snippets build-og.mjs generates (see that file for why they exist and
+// why they live at their own /share/... path). Unlike everything in FILES
+// above, this is a whole directory TREE with a variable number of
+// subdirectories (one per collection), so it can't go through the flat
+// basename()-keyed upload above -- that would collide every slug's
+// index.html onto the same remote filename. `scp -r` instead, preserving
+// structure, as its own step: best-effort and non-fatal, same as
+// build-og.mjs generating these in the first place -- link previews just
+// fall back to a generic default if this doesn't run, the app itself is
+// unaffected either way.
+function deployShareSnippets(cfg, port) {
+  const localShareDir = 'dist/share';
+  if (!existsSync(localShareDir)) {
+    console.log('  (no dist/share/ -- OG snippets not built, skipping)');
+    return;
+  }
+  const remoteDir = cfg.remoteDir.replace(/\/$/, '');
+  const target = `${cfg.user}@${cfg.host}:${remoteDir}/`;
+  console.log(`  uploading ${localShareDir} (collection share/OG snippets)`);
+  try {
+    try {
+      execFileSync('scp', ['-r', '-P', port, localShareDir, target], { stdio: 'inherit' });
+    } catch {
+      execFileSync('scp', ['-r', '-O', '-P', port, localShareDir, target], { stdio: 'inherit' });
+    }
+    // Same first-upload-defaults-to-wrong-permission risk as above,
+    // separately for directories (need 755, not 644) and files.
+    execFileSync(
+      'ssh',
+      [
+        '-p', port, `${cfg.user}@${cfg.host}`,
+        `find '${remoteDir}/share' -type d -exec chmod 755 {} \\; -o -type f -exec chmod 644 {} \\;`,
+      ],
+      { stdio: 'inherit' }
+    );
+  } catch (e) {
+    console.log(`  WARNING: could not upload collection share/OG snippets (${e?.message || e}).`);
+    console.log('  The main site deploy above still succeeded -- this only affects link-preview cards.');
+  }
 }
 
 // Allow `node deploy-web.mjs` on its own, as well as being imported by ship.

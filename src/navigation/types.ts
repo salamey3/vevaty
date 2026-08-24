@@ -51,6 +51,11 @@ export type RootStackParamList = {
   // shows the full live set (see ShopsDirectoryScreen).
   Shops: undefined;
   Storefront: { shopSlug: string };
+  // Editor's Picks / Hot Deals / Just Listed -- see CollectionScreen and
+  // myazar.collections. slug, not id: it's what the shareable URL and the
+  // linking config below use, and it's stable/human-legible where an id
+  // wouldn't be.
+  Collection: { slug: string };
   // The signed-in seller's own shop -- create or manage. No params: it
   // always operates on AppStore's myShop, never someone else's.
   MyStorefront: undefined;
@@ -62,6 +67,10 @@ export type RootStackParamList = {
   AdminModeration: undefined;
   AdminUsers: undefined;
   AdminReports: undefined;
+  // Curating Editor's Picks -- the only collection kind with any admin
+  // input; Hot Deals/Just Listed resolve themselves entirely from live
+  // listing data (see CollectionsStore's resolveCollection).
+  AdminCollections: undefined;
 };
 
 export type MainTabParamList = {

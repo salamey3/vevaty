@@ -76,6 +76,13 @@ export const colors = {
   // indistinguishable from a button.
   success: '#1F5E43',
   warnBg: '#F6EBD3',
+  // "Hot Deals" collection accent -- a muted terracotta, deliberately its
+  // own hue rather than reusing `danger` (reserved for errors/destructive
+  // actions -- a price drop is good news, not a warning) or `accent` (the
+  // brand gold already means "storefront" on a card). See the approved
+  // Collections mockup.
+  deal: '#B5652E',
+  dealTint: '#F5E6DA',
 };
 
 // Called once site_settings loads from Supabase (and again whenever the
