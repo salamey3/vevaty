@@ -157,6 +157,12 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // Listing detail
     'listingDetail.fallbackTitle': 'Listing',
     'listingDetail.unavailable': 'This listing isn’t available anymore.',
+    // Share button in the top bar -- same navigator.share/clipboard-copy
+    // idiom as storefront.share*/collection.share*/sellerProfile.share*.
+    'listingDetail.share': 'Share',
+    'listingDetail.shareText': 'Check out "{title}" on vevaty',
+    'listingDetail.linkCopied': 'Link copied',
+    'listingDetail.shareFailed': 'Could not copy link',
     // The bold accordion header above the Photos/360° View/Videos tabs.
     'listingDetail.media': 'Media',
     'listingDetail.photosTab': 'Photos',
@@ -840,6 +846,10 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     'listingDetail.fallbackTitle': 'إعلان',
     'listingDetail.unavailable': 'هذا الإعلان لم يعد متوفرًا.',
+    'listingDetail.share': 'مشاركة',
+    'listingDetail.shareText': 'شاهد "{title}" على ڤيڤاتي',
+    'listingDetail.linkCopied': 'تم نسخ الرابط',
+    'listingDetail.shareFailed': 'تعذّر نسخ الرابط',
     'listingDetail.media': 'الوسائط',
     'listingDetail.photosTab': 'الصور',
     'listingDetail.spinViewTab': 'عرض 360°',

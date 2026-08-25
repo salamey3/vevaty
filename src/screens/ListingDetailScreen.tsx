@@ -33,6 +33,8 @@ import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingTitle, listingDescription, listingDistrict, listingShopName, pickText } from '../lib/listingText';
 import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
+import { shareLink } from '../lib/share';
+import { Alert } from '../lib/alertShim';
 
 const REPORT_REASONS = ['spam', 'prohibited', 'scam', 'other'] as const;
 type ReportReason = (typeof REPORT_REASONS)[number];
@@ -148,6 +150,27 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       // Best-effort -- nothing else to show for a single heart tap failing.
     } finally {
       setFavBusy(false);
+    }
+  };
+
+  // Icon swaps to a checkmark briefly after a successful clipboard copy
+  // (web desktop, where there's no native share sheet of its own to give
+  // feedback) -- see shareLink. Native's Share.share and web's
+  // navigator.share both present their own UI, so a 'shared'/'dismissed'
+  // outcome never touches this at all.
+  const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const handleShareListing = async () => {
+    if (!listing) return;
+    const outcome = await shareLink({
+      path: `/listing/${listing.id}`,
+      title: listingTitle(listing, language),
+      text: t('listingDetail.shareText', { title: listingTitle(listing, language) }),
+    });
+    if (outcome === 'copied') {
+      setShareState('copied');
+      setTimeout(() => setShareState('idle'), 2000);
+    } else if (outcome === 'error') {
+      Alert.alert(t('listingDetail.shareFailed'));
     }
   };
 
@@ -1029,6 +1052,9 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             <Icon name="flag" size={16} color={colors.inkSoft} />
           </Pressy>
         )}
+        <Pressy onPress={handleShareListing} style={styles.iconBtn} accessibilityLabel={t('listingDetail.share')}>
+          <Icon name={shareState === 'copied' ? 'checkCircle' : 'share'} size={17} color={colors.inkSoft} />
+        </Pressy>
         <LanguageSwitch compact />
       </View>
     </View>

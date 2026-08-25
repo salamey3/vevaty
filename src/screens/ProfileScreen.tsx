@@ -20,6 +20,7 @@ import { supabase } from '../lib/supabase';
 import { uploadPhoto } from '../lib/photoUpload';
 import { Alert } from '../lib/alertShim';
 import { openLegalPage } from '../lib/legalLinks';
+import { shareLink } from '../lib/share';
 import ImageCropModal from '../components/ImageCropModal';
 import ActionSheet from '../components/ActionSheet';
 
@@ -77,7 +78,26 @@ export default function ProfileScreen() {
   // no separate admin-login entry point anywhere in the UI anymore, so the
   // "Admin" row below stays invisible to every ordinary user.
   const { isAdmin } = useSettings();
-  const { t, language, setLanguage } = useLanguage();
+  const { t, language, isRTL, setLanguage } = useLanguage();
+  // Icon swaps to a checkmark briefly after a successful clipboard copy
+  // (web desktop, where there's no native share sheet to give its own
+  // feedback) -- see handleShare. Native's Share.share and web's
+  // navigator.share both present their own UI, so 'shared'/'dismissed'
+  // outcomes never touch this at all.
+  const [shareState, setShareState] = useState<'idle' | 'copied'>('idle');
+  const handleShareProfile = async () => {
+    const outcome = await shareLink({
+      path: `/seller/${profile.id}`,
+      title: profile.name && profile.name !== 'You' ? profile.name : t('profile.yourProfile'),
+      text: t('sellerProfile.shareText', { name: profile.name && profile.name !== 'You' ? profile.name : t('profile.yourProfile') }),
+    });
+    if (outcome === 'copied') {
+      setShareState('copied');
+      setTimeout(() => setShareState('idle'), 2000);
+    } else if (outcome === 'error') {
+      Alert.alert(t('sellerProfile.shareFailed'));
+    }
+  };
   // Only the count is still needed here -- the listings themselves moved
   // to MyListingsScreen (see the "My Listings" nav row below).
   const myListings = useMemo(() => listings.filter((l) => l.sellerId === profile.id), [listings, profile.id]);
@@ -126,6 +146,20 @@ export default function ProfileScreen() {
     <Screen reserveSidebar maxWidth={1180}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={[colors.heroA, colors.heroB]} style={styles.hero}>
+          {/* Corner button rather than a labeled pill (compare
+              SellerProfileScreen's shareBtn) -- this hero is a centered
+              vertical stack with no header row to put a pill in, and the
+              request was specifically for an icon. Absolute + isRTL-
+              swapped side so it sits in the same reading-direction-
+              appropriate corner as icon buttons elsewhere (e.g.
+              ListingDetailScreen's topBar). */}
+          <Pressy
+            onPress={handleShareProfile}
+            style={[styles.shareProfileBtn, isRTL ? { left: 14 } : { right: 14 }]}
+            accessibilityLabel={t('sellerProfile.shareProfile')}
+          >
+            <Icon name={shareState === 'copied' ? 'checkCircle' : 'share'} size={16} color={colors.white} />
+          </Pressy>
           {isVerified ? (
             <Pressy
               onPress={profile.avatarUrl ? () => setAvatarMenuOpen(true) : pickAvatar}
@@ -357,6 +391,21 @@ export default function ProfileScreen() {
 const styles = StyleSheet.create({
   scroll: { paddingBottom: 110 },
   hero: { marginHorizontal: 18, borderRadius: radius.xl, padding: 22, alignItems: 'center', marginTop: 8 },
+  // top/right(or left) rather than a flex row -- every View is an implicit
+  // positioning context in RN (unlike web, no position:'relative' needed
+  // on `hero` itself), and this needs to sit in the hero's corner without
+  // disturbing the centered avatar/name/points stack below it.
+  shareProfileBtn: {
+    position: 'absolute',
+    top: 14,
+    width: 32,
+    height: 32,
+    borderRadius: 16,
+    backgroundColor: 'rgba(255,255,255,0.18)',
+    alignItems: 'center',
+    justifyContent: 'center',
+    zIndex: 1,
+  },
   avatar: {
     width: 54, height: 54, borderRadius: 27, backgroundColor: 'rgba(255,255,255,0.15)',
     alignItems: 'center', justifyContent: 'center', marginBottom: 10,
