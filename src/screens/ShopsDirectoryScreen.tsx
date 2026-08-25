@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
@@ -12,9 +12,10 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
-import { Shop } from '../types';
+import { Category, Shop } from '../types';
 import { useGoBack } from '../hooks/useGoBack';
 import HomeMarkButton from '../components/HomeMarkButton';
+import { useRtlCarousel } from '../lib/useRtlCarousel';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Shops'>;
 
@@ -106,6 +107,18 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
     return topCategories.filter((c) => ids.has(c.id));
   }, [shops, topCategories]);
 
+  // One horizontally-scrolling row instead of the old flexWrap chip grid,
+  // which stacked into several full-width rows once there were more than a
+  // handful of categories in use -- the same "All" + wrapping-chips shape
+  // HomeScreen's own category slider already uses, for the same reason
+  // (see that screen's catChips/orderedCatChips). useRtlCarousel handles
+  // the Arabic swipe-direction reversal the same way it does there.
+  const catChips = useMemo<('all' | Category)[]>(() => ['all', ...categoriesInUse], [categoriesInUse]);
+  const { ordered: orderedCatChips, scrollRef: chipScrollRef, onContentSizeChange: onChipContentSizeChange } = useRtlCarousel(
+    catChips,
+    isRTL,
+  );
+
   const filteredShops = useMemo(() => {
     const q = query.trim().toLowerCase();
     return shops.filter((s) => {
@@ -140,27 +153,37 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
         />
       </View>
       {categoriesInUse.length > 0 && (
-        <View style={styles.chipRow}>
-          <Pressy
-            onPress={() => setActiveCategoryId(null)}
-            style={[styles.chip, activeCategoryId === null && styles.chipActive]}
-          >
-            <Text style={[styles.chipText, activeCategoryId === null && styles.chipTextActive]}>
-              {t('shopsDirectory.categoryAll')}
-            </Text>
-          </Pressy>
-          {categoriesInUse.map((c) => (
-            <Pressy
-              key={c.id}
-              onPress={() => setActiveCategoryId(c.id)}
-              style={[styles.chip, activeCategoryId === c.id && styles.chipActive]}
-            >
-              <Text style={[styles.chipText, activeCategoryId === c.id && styles.chipTextActive]}>
-                {pickText(c.nameEn, c.nameAr, language)}
-              </Text>
-            </Pressy>
-          ))}
-        </View>
+        <ScrollView
+          ref={chipScrollRef}
+          horizontal
+          showsHorizontalScrollIndicator={false}
+          contentContainerStyle={styles.chipRow}
+          onContentSizeChange={onChipContentSizeChange}
+        >
+          {orderedCatChips.map((c) =>
+            c === 'all' ? (
+              <Pressy
+                key="all"
+                onPress={() => setActiveCategoryId(null)}
+                style={[styles.chip, activeCategoryId === null && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, activeCategoryId === null && styles.chipTextActive]}>
+                  {t('shopsDirectory.categoryAll')}
+                </Text>
+              </Pressy>
+            ) : (
+              <Pressy
+                key={c.id}
+                onPress={() => setActiveCategoryId(c.id)}
+                style={[styles.chip, activeCategoryId === c.id && styles.chipActive]}
+              >
+                <Text style={[styles.chipText, activeCategoryId === c.id && styles.chipTextActive]} numberOfLines={1}>
+                  {pickText(c.nameEn, c.nameAr, language)}
+                </Text>
+              </Pressy>
+            )
+          )}
+        </ScrollView>
       )}
     </>
   );
@@ -247,7 +270,14 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 14, color: colors.ink, height: '100%' },
   rtlInput: { textAlign: 'right', writingDirection: 'rtl' },
-  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, paddingHorizontal: 18, marginBottom: 16 },
+  // contentContainerStyle of the horizontal chip ScrollView -- no flexWrap
+  // now that it scrolls in one row instead of wrapping onto several
+  // full-width ones. alignItems:'flex-start' matches HomeScreen's own chip
+  // strip: without it, a horizontal ScrollView with no height of its own
+  // stretches its row to the parent's cross-axis space and RN's default
+  // alignItems:'stretch' would pull every chip to that same height instead
+  // of leaving them their own natural pill height.
+  chipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 18, marginBottom: 16 },
   chip: {
     height: 32, paddingHorizontal: 14, borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
