@@ -62,13 +62,13 @@ function emptySelection(): SelectionState {
 }
 
 // Fallback height (px) for mobileChromeOverlay (mobile's floating greeting
-// + search bar + category slider) before its real, measured height is
+// + search row + category slider) before its real, measured height is
 // known -- see mobileChromeHeight below. A rough estimate of the combined
-// height those three pieces actually render at (header ~70 + search row
-// ~60 + category slider 94), so the very first frame, before onLayout has
-// fired, doesn't reserve zero space above the listing grid and let a card
-// flash in from underneath the chrome.
-const MOBILE_CHROME_DEFAULT_HEIGHT = 224;
+// height those actually render at (greeting+search row ~68 + category
+// slider 80 + the overlay's own bottom padding 16), so the very first
+// frame, before onLayout has fired, doesn't reserve zero space above the
+// listing grid and let a card flash in from underneath the chrome.
+const MOBILE_CHROME_DEFAULT_HEIGHT = 164;
 
 export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -802,6 +802,36 @@ export default function HomeScreen() {
     </View>
   );
 
+  // Mobile-only: greeting and search bar side by side on one row instead
+  // of stacked on two (greetingBlock/searchBlock above stay as they are,
+  // for desktop's separate stacked layout). Sharing one row -- rather than
+  // the category slider simply moving up to fill the space a separate
+  // search row used to occupy -- is what actually frees that vertical
+  // space for it to move into; mirrorRow flips the row for Arabic the same
+  // way brandBar above it does. numberOfLines=1 on both greeting lines is
+  // a safety net now that they share the row with the search bar instead
+  // of having the full width to themselves -- a long name truncates
+  // instead of squeezing the search input down to nothing.
+  const mobileGreetingSearchRow = (
+    <View style={[styles.mobileGreetingRow, mirrorRow(isRTL)]}>
+      <View style={styles.mobileGreetingText}>
+        <Text style={type.soft} numberOfLines={1}>{profile.name && profile.name !== 'You' ? t('home.greeting') : ''}</Text>
+        <Text style={styles.name} numberOfLines={1}>{profile.name && profile.name !== 'You' ? profile.name : t('home.welcome')}</Text>
+      </View>
+      <View style={styles.mobileSearchRow}>
+        <Icon name="search" size={17} color={colors.inkSoft} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder={t('home.search')}
+          placeholderTextColor={colors.inkSoft}
+          style={[styles.searchInput, isRTL && styles.searchInputRTL]}
+          autoComplete="off"
+        />
+      </View>
+    </View>
+  );
+
   return (
     <Screen reserveSidebar maxWidth={1180}>
       {/* Mobile brand bar. Desktop has no equivalent because the sidebar
@@ -960,10 +990,10 @@ export default function HomeScreen() {
                 carouselsContent/grid's paddingTop reserves space so content
                 doesn't start out from under it while visible.
 
-                Bundles the greeting, search bar, and category slider into
-                ONE overlay (rather than three separate floating pieces) so
+                Bundles the greeting+search row and the category slider into
+                ONE overlay (rather than two separately floating pieces) so
                 they hide and reappear as a single unit, and so there's one
-                height to measure/reserve rather than three. Height isn't
+                height to measure/reserve rather than two. Height isn't
                 fixed in the stylesheet -- the greeting text's length varies
                 by name/locale -- so it's measured on layout and mirrored
                 into mobileChromeHeight, which carouselsContent/grid's
@@ -979,8 +1009,7 @@ export default function HomeScreen() {
                 if (h > 0 && h !== mobileChromeHeight) setMobileChromeHeight(h);
               }}
             >
-              {greetingBlock}
-              {searchBlock}
+              {mobileGreetingSearchRow}
 
               {/* RTL swipe direction here is done by reversing the chip
                   ORDER and parking the viewport at the far end, not by
@@ -1054,6 +1083,42 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerDesktop: { paddingHorizontal: 0, paddingTop: 26 },
+  // Mobile only -- see mobileGreetingSearchRow. Greeting text and search
+  // bar share this one row instead of stacking on two, freeing the height
+  // a separate search row used to take up for the category slider to move
+  // up into. justifyContent isn't needed here: mobileGreetingText doesn't
+  // flex/grow, and mobileSearchRow's flex:1 is what actually claims
+  // whatever width the greeting text (also capped via flexShrink) leaves
+  // behind -- the two divide the row between them on their own.
+  mobileGreetingRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 12,
+    paddingHorizontal: 18,
+    paddingTop: 10,
+    paddingBottom: 14,
+  },
+  // flexShrink (not a fixed maxWidth) lets a short name give almost all
+  // the row to the search bar and a long one give up only as much as it
+  // has to -- numberOfLines=1 on both lines at the render site is what
+  // actually stops an overlong name from wrapping instead of truncating.
+  mobileGreetingText: { flexShrink: 1 },
+  // Smaller/plainer variant of searchRow below (44 vs 46 tall, no
+  // marginHorizontal/marginBottom of its own) -- it's sharing a row with
+  // the greeting now instead of spanning the full width on its own line,
+  // so its own spacing comes from mobileGreetingRow's padding/gap instead.
+  mobileSearchRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 8,
+    flex: 1,
+    backgroundColor: colors.card,
+    borderWidth: 1,
+    borderColor: colors.line,
+    borderRadius: radius.pill,
+    paddingHorizontal: 14,
+    height: 44,
+  },
   // Mobile only -- see the render site. A hairline underneath rather than a
   // filled bar, so it reads as chrome sitting above the page instead of a
   // second surface competing with the cards below it.
@@ -1151,25 +1216,29 @@ const styles = StyleSheet.create({
   // carouselsAnchor.
   carouselsAnchor: { flex: 1, position: 'relative' },
   // Auto-hide overlay (see ScrollChromeContext and the render-side comment
-  // above) -- bundles the greeting, search bar, and category slider into
+  // above) -- bundles the greeting+search row and the category slider into
   // one floating unit above carouselsAnchor's scrollable content instead of
-  // any of them sitting in normal flow next to it, so hiding/showing them
-  // can never resize that content's own box. No fixed height here (unlike
-  // the old catSliderWrap this replaces) -- the greeting text's length
-  // varies by name/locale, so the box sizes to its own content and that
-  // height is measured on layout into mobileChromeHeight, which
-  // carouselsContent/grid's paddingTop then matches, so content doesn't
-  // start out from under it while visible. Opaque background (matches the
-  // screen bg) since content now scrolls behind it, not just below it.
-  // Web-only CSS transition props still drive the fade/slide smoothly on
-  // the web build (react-native-web interprets them); on native,
-  // ScrollChromeContext's LayoutAnimation.configureNext call takes over for
-  // the same effect.
+  // either sitting in normal flow next to it, so hiding/showing them can
+  // never resize that content's own box. No fixed height here (unlike the
+  // old catSliderWrap this replaces) -- the greeting text's length varies
+  // by name/locale, so the box sizes to its own content and that height is
+  // measured on layout into mobileChromeHeight, which carouselsContent/
+  // grid's paddingTop then matches, so content doesn't start out from
+  // under it while visible. paddingBottom is breathing room after the
+  // category chips (the last thing in the overlay) before its bottom edge
+  // -- without it the chips sat flush against wherever the listing content
+  // scrolls up to underneath, reported as feeling cramped. Opaque
+  // background (matches the screen bg) since content now scrolls behind
+  // it, not just below it. Web-only CSS transition props still drive the
+  // fade/slide smoothly on the web build (react-native-web interprets
+  // them); on native, ScrollChromeContext's LayoutAnimation.configureNext
+  // call takes over for the same effect.
   mobileChromeOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
+    paddingBottom: 16,
     zIndex: 5,
     backgroundColor: colors.bg,
     opacity: 1,
