@@ -1,5 +1,5 @@
 import React, { useEffect, useState } from 'react';
-import { ActivityIndicator, Image, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../../components/Screen';
@@ -128,7 +128,7 @@ export default function AdminGateScreen() {
     return (
       <Screen maxWidth={480}>
         {topBar}
-        <View style={styles.scroll}>
+        <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={styles.dashboardTitle}>{t('admin.dashboardTitle')}</Text>
 
           <Pressy onPress={() => navigation.navigate('AdminCategories')} style={styles.row}>
@@ -238,7 +238,7 @@ export default function AdminGateScreen() {
             <Icon name="close" size={15} color={colors.danger} />
             <Text style={styles.signOutText}>{t('admin.signOut')}</Text>
           </Pressy>
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -247,7 +247,7 @@ export default function AdminGateScreen() {
     return (
       <Screen maxWidth={480}>
         {topBar}
-        <View style={styles.scroll}>
+        <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={styles.dashboardTitle}>
             {mode === 'mfaEnroll' ? t('admin.mfaEnrollTitle') : t('admin.mfaChallengeTitle')}
           </Text>
@@ -289,7 +289,7 @@ export default function AdminGateScreen() {
           <Pressy onPress={() => { setMode('signIn'); setError(null); setMfaCode(''); }} style={styles.switchLink}>
             <Text style={styles.switchLinkText}>{t('admin.backToSignIn')}</Text>
           </Pressy>
-        </View>
+        </ScrollView>
       </Screen>
     );
   }
@@ -297,7 +297,7 @@ export default function AdminGateScreen() {
   return (
     <Screen maxWidth={480}>
       {topBar}
-      <View style={styles.scroll}>
+      <ScrollView contentContainerStyle={styles.scroll}>
         <Text style={styles.dashboardTitle}>{mode === 'signIn' ? t('admin.signInTitle') : t('admin.setupTitle')}</Text>
         {mode === 'signIn' ? (
           <Text style={styles.note}>{t('admin.signInNote')}</Text>
@@ -344,7 +344,7 @@ export default function AdminGateScreen() {
             <Text style={styles.switchLinkText}>{t('admin.backToSignIn')}</Text>
           </Pressy>
         )}
-      </View>
+      </ScrollView>
     </Screen>
   );
 }
@@ -353,6 +353,16 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
+  // Content padding for the ScrollViews below (renamed from a plain View
+  // this used to be -- see the render sites). Screen.tsx never scrolls on
+  // its own (every wrapper in that chain is just flex:1), so a dashboard
+  // this long -- 8 section rows plus the whole Security block -- had no
+  // way to reach anything past roughly the Users row on a phone-height
+  // viewport or in the native app, where there's no page-level scroll to
+  // fall back on the way a wide desktop browser window has. Every other
+  // admin screen (AdminBrandingScreen, AdminCollectionsScreen, ...)
+  // already wraps its content in a ScrollView; this one just hadn't been
+  // updated to match as rows were added to it over time.
   scroll: { paddingHorizontal: 18, paddingTop: 10, paddingBottom: 40 },
   dashboardTitle: { ...type.title, fontSize: 21, marginBottom: 16 },
   note: { ...type.soft, lineHeight: 18, marginBottom: 20 },
