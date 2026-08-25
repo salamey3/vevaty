@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { Platform, StyleSheet, View, Text, ScrollView, ViewStyle } from 'react-native';
+import { Animated, Platform, StyleSheet, View, Text, ScrollView, ViewStyle } from 'react-native';
 import { BottomTabBarProps } from '@react-navigation/bottom-tabs';
 import { BlurView } from 'expo-blur';
 import { useSafeAreaInsets } from 'react-native-safe-area-context';
@@ -70,7 +70,7 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
   // up onChromeScroll today, so without this reset, leaving Home mid-
   // scroll-down would strand the bar hidden on Chat/Sell/Profile with no
   // way to bring it back.
-  const { chromeVisible, showChrome } = useScrollChrome();
+  const { chromeVisible, chromeAnim, showChrome } = useScrollChrome();
   const focusedIndex = state.index;
   const lastIndexRef = useRef(focusedIndex);
   useEffect(() => {
@@ -219,9 +219,24 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
     );
   }
 
+  // Native: interpolate straight off chromeAnim (Animated.timing,
+  // useNativeDriver -- UI-thread only, scoped to this node) instead of
+  // relying on a global LayoutAnimation call to smooth the discrete style
+  // flip below; see ScrollChromeContext's file comment for why that used
+  // to cause scroll lag. Web keeps its existing discrete-style + CSS-
+  // transition path (styles.wrap/wrapHidden's transitionProperty) exactly
+  // as before -- chromeAnim isn't driven or read there.
+  const wrapAnimStyle =
+    Platform.OS === 'web'
+      ? !chromeVisible && styles.wrapHidden
+      : {
+          opacity: chromeAnim,
+          transform: [{ translateY: chromeAnim.interpolate({ inputRange: [0, 1], outputRange: [120, 0] }) }],
+        };
+
   return (
-    <View
-      style={[styles.wrap, { paddingBottom: 20 + insets.bottom }, !chromeVisible && styles.wrapHidden]}
+    <Animated.View
+      style={[styles.wrap, { paddingBottom: 20 + insets.bottom }, wrapAnimStyle]}
       pointerEvents={chromeVisible ? 'box-none' : 'none'}
     >
       <View style={styles.pillShadow}>
@@ -274,16 +289,21 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
           })}
         </View>
       </View>
-    </View>
+    </Animated.View>
   );
 }
 
 const styles = StyleSheet.create({
   // Mobile: floating bottom pill (unchanged from before).
-  // Auto-hide transition (see ScrollChromeContext) -- web-only CSS
-  // transition props rather than RN's Animated API, same reasoning as
-  // Pressy.tsx's press-scale motion (this app is web-only and Animated's
-  // web fallback has real, previously-hit bugs).
+  // Auto-hide transition (see ScrollChromeContext, and wrapAnimStyle in the
+  // render above). On web this still animates via these CSS transition
+  // props alone, not RN's Animated API -- same reasoning as Pressy.tsx's
+  // press-scale motion: react-native-web's Animated fallback has real,
+  // previously-hit bugs, so web deliberately never drives chromeAnim.
+  // Native now does use Animated (useNativeDriver, UI-thread-only, scoped
+  // to just this node) to smooth the same flip -- see wrapAnimStyle -- so
+  // opacity/transform below are only this style's resting (fully shown)
+  // values on native, overridden per-frame by whichever branch applies.
   wrap: {
     position: 'absolute', left: 0, right: 0, bottom: 0, alignItems: 'center', paddingBottom: 20,
     transform: [{ translateY: 0 }],

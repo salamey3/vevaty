@@ -1,5 +1,5 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
-import { LayoutAnimation, NativeScrollEvent, NativeSyntheticEvent, Platform, UIManager } from 'react-native';
+import { Animated, Easing, NativeScrollEvent, NativeSyntheticEvent, Platform } from 'react-native';
 
 // Shared "is the floating chrome visible right now" flag for mobile's
 // auto-hiding home-screen chrome (greeting+search row, category slider --
@@ -9,31 +9,48 @@ import { LayoutAnimation, NativeScrollEvent, NativeSyntheticEvent, Platform, UIM
 // has no direct way to reach TabBar without lifting the flag up to a shared
 // context like this one.
 //
-// Consumers still just read the plain `chromeVisible` boolean and flip a
-// couple of CSS-transition-backed style props (transitionProperty/
-// transitionDuration) -- that's a react-native-web-only feature, and it's
-// genuinely what animates the fade/slide on the web build. But on the real
-// native build there's no CSS engine to interpret those props at all, so
-// the style change (e.g. the category chip row's height snapping between
-// 94 and 0) applied INSTANTLY with no animation. An ~94px layout change
-// happening synchronously, right above an actively-scrolling list, mid-
-// gesture, was enough to visibly disturb the list's own scroll position on
-// Android (content jumping backward, already-loaded images re-flashing
-// their placeholder state) -- reported as "scrolling acts up" on-device.
-// LayoutAnimation is native RN's own mechanism for exactly this (animating
-// a layout change that's about to happen, without wiring an Animated.Value
-// per style prop) and is a no-op on web, so triggering it here -- right
-// before every setChromeVisible call, guarded to non-web -- smooths the
-// transition on native without touching the working web CSS path at all.
-if (Platform.OS === 'android' && UIManager.setLayoutAnimationEnabledExperimental) {
-  UIManager.setLayoutAnimationEnabledExperimental(true);
-}
-const animateChromeTransition = () => {
-  if (Platform.OS === 'web') return;
-  LayoutAnimation.configureNext(LayoutAnimation.create(220, LayoutAnimation.Types.easeInEaseOut, LayoutAnimation.Properties.opacity));
-};
+// Consumers read the plain `chromeVisible` boolean for pointerEvents/layout
+// branching, plus (native only -- see chromeAnim below) an Animated.Value
+// they drive their own opacity/translateY interpolation from. On web,
+// `chromeVisible` alone is enough: each consumer also declares a couple of
+// CSS-transition-backed style props (transitionProperty/transitionDuration)
+// -- a react-native-web-only feature -- and flipping a discrete style is
+// genuinely what animates the fade/slide there, no JS involved.
+//
+// Native has no CSS engine to interpret those props at all, so it needs an
+// actual animation driver. This used to be LayoutAnimation.configureNext,
+// called once right before every visibility flip -- and that worked for
+// the bug it was fixing (an ~94px layout change snapping INSTANTLY, right
+// above an actively-scrolling list, mid-gesture, was enough to visibly
+// disturb the list's own scroll position on Android -- content jumping
+// backward, already-loaded images re-flashing their placeholder state --
+// reported as "scrolling acts up"). But LayoutAnimation's contract is "just
+// animate whatever layout commits next," globally, across every view in the
+// tree -- it isn't scoped to the one node it was meant for. Once the
+// reappear countdown started running off the finger lifting rather than
+// scrolling going quiet (see endChromeInteraction), the chrome could come
+// back while HomeScreen's FlatList was still gliding under momentum and
+// actively recycling cells (windowSize=3 keeps very few mounted at once) --
+// and when a configureNext call landed on the same commit as one of the
+// FlatList's OWN cell mounts, that cell recycling got swept into the
+// animation too, instead of just the chrome fade. That's what reads as
+// scroll lag: card content easing in/out on every recycle instead of
+// appearing instantly, for as long as the animation windows kept
+// overlapping. Horizontal carousel swipes rarely trigger it -- those
+// gestures are short, and their rows aren't windowed as tightly.
+//
+// Animated.Value with useNativeDriver runs the transition entirely on the
+// native UI thread and only ever touches the specific node it's attached
+// to (see chromeAnim, and its use in HomeScreen's mobileChromeOverlay and
+// TabBar's wrap) -- it has no "next commit" concept to collide with, so it
+// can't end up animating a FlatList cell it was never told about.
 type ScrollChromeContextValue = {
   chromeVisible: boolean;
+  // 1 = fully shown, 0 = fully hidden. Native-only consumers interpolate
+  // their own opacity/translateY from this (see the file comment above);
+  // web consumers ignore it and animate off the `chromeVisible` boolean's
+  // CSS-transition path instead, so this is never driven or read on web.
+  chromeAnim: Animated.Value;
   // Per-frame scroll handler for the ONE vertical, page-level scroller
   // (HomeScreen's grid/carousels FlatList) -- the only scroller with a
   // meaningful "near the very top" position, which is what TOP_SNAP_ZONE
@@ -72,16 +89,27 @@ export function ScrollChromeProvider({ children }: { children: React.ReactNode }
   // stable useCallbacks with `[]`/near-`[]` deps, so they'd otherwise only
   // ever see the initial value) -- lets each call site check "is this
   // visibility change actually a change" before bothering to animate,
-  // instead of reconfiguring LayoutAnimation on every single scroll frame
-  // near the top (TOP_SNAP_ZONE calls setVisible(true) unconditionally on
-  // every event while in that zone, not just once on entry).
+  // instead of restarting the chromeAnim timing on every single scroll
+  // frame near the top (TOP_SNAP_ZONE calls setVisible(true)
+  // unconditionally on every event while in that zone, not just once on
+  // entry).
   const chromeVisibleRef = useRef(true);
+  // Native-only animation driver -- see the file comment. Starts at 1
+  // (shown) to match chromeVisible's own initial value.
+  const chromeAnim = useRef(new Animated.Value(1)).current;
   const setVisible = useCallback((next: boolean) => {
     if (chromeVisibleRef.current === next) return;
     chromeVisibleRef.current = next;
-    animateChromeTransition();
     setChromeVisible(next);
-  }, []);
+    if (Platform.OS !== 'web') {
+      Animated.timing(chromeAnim, {
+        toValue: next ? 1 : 0,
+        duration: 220,
+        easing: Easing.inOut(Easing.ease),
+        useNativeDriver: true,
+      }).start();
+    }
+  }, [chromeAnim]);
 
   // Pending "reveal the chrome" timer, armed only by endChromeInteraction
   // (the user's finger lifting off whichever scrollable they were
@@ -149,8 +177,8 @@ export function ScrollChromeProvider({ children }: { children: React.ReactNode }
   }, [clearStopTimer, setVisible]);
 
   const value = useMemo(
-    () => ({ chromeVisible, onChromeScroll, beginChromeInteraction, endChromeInteraction, showChrome }),
-    [chromeVisible, onChromeScroll, beginChromeInteraction, endChromeInteraction, showChrome],
+    () => ({ chromeVisible, chromeAnim, onChromeScroll, beginChromeInteraction, endChromeInteraction, showChrome }),
+    [chromeVisible, chromeAnim, onChromeScroll, beginChromeInteraction, endChromeInteraction, showChrome],
   );
 
   return <ScrollChromeContext.Provider value={value}>{children}</ScrollChromeContext.Provider>;

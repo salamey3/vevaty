@@ -1,5 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
-import { Modal, StyleSheet, Text, View, TextInput, FlatList, ScrollView, ViewStyle } from 'react-native';
+import { Animated, Modal, Platform, StyleSheet, Text, View, TextInput, FlatList, ScrollView, ViewStyle } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -133,7 +133,7 @@ export default function HomeScreen() {
   // through one of those keeps this chrome hidden too, same as scrolling
   // the page itself -- see this screen's carouselsCarousel/collections
   // render sites below.
-  const { chromeVisible, onChromeScroll, beginChromeInteraction, endChromeInteraction } = useScrollChrome();
+  const { chromeVisible, chromeAnim, onChromeScroll, beginChromeInteraction, endChromeInteraction } = useScrollChrome();
   // Measured height of mobileChromeOverlay (greeting + search + category
   // slider stacked), reserved as paddingTop on the scrollable content below
   // it -- see that overlay's own style comment, and MOBILE_CHROME_DEFAULT_
@@ -811,6 +811,24 @@ export default function HomeScreen() {
     </View>
   );
 
+  // Native: interpolate opacity/translateY straight off chromeAnim, which
+  // ScrollChromeContext only ever drives via Animated.timing with
+  // useNativeDriver -- runs on the UI thread, touches only this node, can't
+  // collide with the FlatList's own cell-recycling layout commits the way
+  // the old global LayoutAnimation call could (see that file's comment).
+  // Web: unchanged from before -- a discrete style flip, animated by the
+  // transitionProperty/transitionDuration CSS props already declared on
+  // mobileChromeOverlay/mobileChromeOverlayHidden (react-native-web turns
+  // those into real CSS transitions on its own); chromeAnim is never
+  // driven or read on web, so this branch doesn't touch it.
+  const mobileChromeOverlayAnimStyle =
+    Platform.OS === 'web'
+      ? !chromeVisible && styles.mobileChromeOverlayHidden
+      : {
+          opacity: chromeAnim,
+          transform: [{ translateY: chromeAnim.interpolate({ inputRange: [0, 1], outputRange: [-16, 0] }) }],
+        };
+
   // Mobile-only: greeting and search bar side by side on one row instead
   // of stacked on two (greetingBlock/searchBlock above stay as they are,
   // for desktop's separate stacked layout). Sharing one row -- rather than
@@ -1010,8 +1028,8 @@ export default function HomeScreen() {
                 reasonable estimate (MOBILE_CHROME_DEFAULT_HEIGHT) so the
                 very first frame, before onLayout has fired, doesn't reserve
                 zero space and let a card flash in from underneath. */}
-            <View
-              style={[styles.mobileChromeOverlay, !chromeVisible && styles.mobileChromeOverlayHidden]}
+            <Animated.View
+              style={[styles.mobileChromeOverlay, mobileChromeOverlayAnimStyle]}
               pointerEvents={chromeVisible ? 'auto' : 'none'}
               onLayout={(e) => {
                 const h = Math.round(e.nativeEvent.layout.height);
@@ -1051,7 +1069,7 @@ export default function HomeScreen() {
                   )
                 )}
               </ScrollView>
-            </View>
+            </Animated.View>
           </View>
 
           <Modal visible={mobileFiltersOpen} animationType="slide" onRequestClose={() => setMobileFiltersOpen(false)}>
@@ -1240,8 +1258,10 @@ const styles = StyleSheet.create({
   // background (matches the screen bg) since content now scrolls behind
   // it, not just below it. Web-only CSS transition props still drive the
   // fade/slide smoothly on the web build (react-native-web interprets
-  // them); on native, ScrollChromeContext's LayoutAnimation.configureNext
-  // call takes over for the same effect.
+  // them); on native, this View is rendered as an Animated.View instead
+  // (see mobileChromeOverlayAnimStyle) and chromeAnim takes over for the
+  // same effect -- opacity/transform below are just this style's resting
+  // (fully shown) values, overridden per-frame by whichever branch applies.
   mobileChromeOverlay: {
     position: 'absolute',
     top: 0,
