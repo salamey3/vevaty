@@ -20,6 +20,7 @@ import { RootStackParamList } from '../navigation/types';
 import { CategoryAttribute, Listing, Shop } from '../types';
 import { useGoBack } from '../hooks/useGoBack';
 import HomeMarkButton from '../components/HomeMarkButton';
+import { shareLink } from '../lib/share';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Storefront'>;
 
@@ -400,34 +401,28 @@ export default function StorefrontScreen({ route, navigation }: Props) {
 
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
 
+  // Was a hand-rolled web-only implementation (window.location.origin +
+  // navigator.share/clipboard) that silently no-op'd on native -- none of
+  // those globals exist in React Native, so tapping this on the app always
+  // fell through to the "error" branch without ever opening anything. See
+  // shareLink (src/lib/share.ts) for the shared cross-platform version:
+  // RN's own Share module on native, the same web-API branches as before
+  // on web. Only 'copied'/'error' still drive this screen's own inline
+  // button-text feedback -- 'shared'/'dismissed' mean the native share
+  // sheet (native) or the browser's share sheet (web) already gave the
+  // user their own feedback, so there's nothing left for this state to do.
   const handleShare = async () => {
     if (!shop) return;
     const shopName = pickText(shop.nameEn, shop.nameAr || '', language);
-    const shareUrl = typeof window !== 'undefined' ? `${window.location.origin}/shop/${shop.slug}` : '';
-    const shareData = {
+    const outcome = await shareLink({
+      path: `/shop/${shop.slug}`,
       title: shopName,
       text: t('storefront.shareText', { name: shopName }),
-      url: shareUrl,
-    };
-    if (typeof navigator !== 'undefined' && (navigator as any).share) {
-      try {
-        await (navigator as any).share(shareData);
-      } catch {
-        // Cancelled -- the native sheet already gave the user the choice.
-      }
-      return;
+    });
+    if (outcome === 'copied' || outcome === 'error') {
+      setShareState(outcome);
+      setTimeout(() => setShareState('idle'), 2000);
     }
-    try {
-      if (typeof navigator !== 'undefined' && navigator.clipboard) {
-        await navigator.clipboard.writeText(shareUrl);
-        setShareState('copied');
-      } else {
-        setShareState('error');
-      }
-    } catch {
-      setShareState('error');
-    }
-    setTimeout(() => setShareState('idle'), 2000);
   };
 
   const header = (
