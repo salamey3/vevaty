@@ -45,14 +45,12 @@ const ScrollChromeContext = createContext<ScrollChromeContextValue | null>(null)
 // to snap it back visible (and sticky) immediately, which is exactly the
 // behavior that was reported as the complaint: the user wants it gone
 // while they're actively scrolling either way, and back only once they've
-// actually stopped. Momentum/deceleration scrolling still fires onScroll
-// events several times a second right up until it genuinely stops
-// (scrollEventThrottle=16 below means ~16ms between frames while actively
-// moving), so this only needs to comfortably clear the gap between two
-// consecutive in-motion frames -- long enough that natural frame-to-frame
-// jitter never flickers the chrome back mid-scroll, short enough that it
-// doesn't feel sluggish to reappear once the list actually settles.
-const SCROLL_STOP_DELAY = 150;
+// actually stopped. The floor this needs to clear is small --
+// scrollEventThrottle=16 below means ~16ms between onScroll frames while
+// actively moving, so anything even a little above that already stops mid-
+// scroll flicker. 800 is well past that floor: a deliberate pause after
+// the list settles, tuned by feel rather than by the frame-gap minimum.
+const SCROLL_STOP_DELAY = 800;
 // Always keep the chrome visible near the very top -- both so the first
 // screenful never starts with it hidden, and so "scroll to top" is always
 // enough to get it back regardless of whether a stop timer is pending.
