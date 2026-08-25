@@ -61,6 +61,15 @@ function emptySelection(): SelectionState {
   return { subCatIds: [], facetValues: {}, priceMin: null, priceMax: null, distanceKm: null, condition: [] };
 }
 
+// Fallback height (px) for mobileChromeOverlay (mobile's floating greeting
+// + search bar + category slider) before its real, measured height is
+// known -- see mobileChromeHeight below. A rough estimate of the combined
+// height those three pieces actually render at (header ~70 + search row
+// ~60 + category slider 94), so the very first frame, before onLayout has
+// fired, doesn't reserve zero space above the listing grid and let a card
+// flash in from underneath the chrome.
+const MOBILE_CHROME_DEFAULT_HEIGHT = 224;
+
 export default function HomeScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Same underlying navigation object as `navigation` above (useNavigation
@@ -116,10 +125,16 @@ export default function HomeScreen() {
     const next = { back: x > 1, forward: content - viewport - x > 1 };
     setCatRowEnds((prev) => (prev.back === next.back && prev.forward === next.forward ? prev : next));
   }, []);
-  // Mobile-only auto-hide for the category slider below (see
-  // ScrollChromeContext -- also drives the bottom tab bar in TabBar.tsx,
-  // which can't see this screen's own scroll events directly).
+  // Mobile-only auto-hide for the greeting/search/category-slider chrome
+  // below (see ScrollChromeContext -- also drives the bottom tab bar in
+  // TabBar.tsx, which can't see this screen's own scroll events directly).
   const { chromeVisible, onChromeScroll } = useScrollChrome();
+  // Measured height of mobileChromeOverlay (greeting + search + category
+  // slider stacked), reserved as paddingTop on the scrollable content below
+  // it -- see that overlay's own style comment, and MOBILE_CHROME_DEFAULT_
+  // HEIGHT above, for why this is measured rather than a fixed stylesheet
+  // number.
+  const [mobileChromeHeight, setMobileChromeHeight] = useState(MOBILE_CHROME_DEFAULT_HEIGHT);
 
   // `topCat === 'all'` is the entry state: a big category grid (this is
   // where Browse's one distinct value over the old Home lived -- folded
@@ -649,7 +664,7 @@ export default function HomeScreen() {
       numColumns={columns}
       style={styles.list}
       columnWrapperStyle={{ justifyContent: 'space-between' }}
-      contentContainerStyle={[styles.grid, isDesktop ? styles.gridDesktop : styles.gridMobileTopReserve]}
+      contentContainerStyle={[styles.grid, isDesktop ? styles.gridDesktop : { paddingTop: mobileChromeHeight }]}
       onScroll={!isDesktop ? onChromeScroll : undefined}
       scrollEventThrottle={16}
       ListEmptyComponent={
@@ -705,7 +720,7 @@ export default function HomeScreen() {
       data={categoryCarousels}
       keyExtractor={({ category }) => category.id}
       style={styles.list}
-      contentContainerStyle={styles.carouselsContent}
+      contentContainerStyle={[styles.carouselsContent, { paddingTop: mobileChromeHeight }]}
       ListHeaderComponent={collectionRowsHeader}
       onScroll={onChromeScroll}
       scrollEventThrottle={16}
@@ -756,6 +771,37 @@ export default function HomeScreen() {
     </View>
   );
 
+  // Greeting ("Good to see you, X") and search bar markup -- shared between
+  // desktop (static, normal document flow, unchanged) and mobile (folded
+  // into the floating auto-hide chrome below, alongside the category
+  // slider -- see mobileChromeHeight/onMobileChromeLayout) so the two
+  // copies of this markup can never drift apart. The isDesktop checks
+  // inside still do the right thing in both places: on mobile they're
+  // simply always false.
+  const greetingBlock = (
+    <View style={[styles.header, isDesktop && styles.headerDesktop]}>
+      <View>
+        <Text style={type.soft}>{profile.name && profile.name !== 'You' ? t('home.greeting') : ''}</Text>
+        <Text style={[styles.name, isDesktop && styles.nameDesktop]}>{profile.name && profile.name !== 'You' ? profile.name : t('home.welcome')}</Text>
+      </View>
+      {isDesktop && headerControls}
+    </View>
+  );
+
+  const searchBlock = (
+    <View style={[styles.searchRow, isDesktop && styles.searchRowDesktop]}>
+      <Icon name="search" size={17} color={colors.inkSoft} />
+      <TextInput
+        value={query}
+        onChangeText={setQuery}
+        placeholder={t('home.search')}
+        placeholderTextColor={colors.inkSoft}
+        style={[styles.searchInput, isRTL && styles.searchInputRTL]}
+        autoComplete="off"
+      />
+    </View>
+  );
+
   return (
     <Screen reserveSidebar maxWidth={1180}>
       {/* Mobile brand bar. Desktop has no equivalent because the sidebar
@@ -775,25 +821,17 @@ export default function HomeScreen() {
         </View>
       )}
 
-      <View style={[styles.header, isDesktop && styles.headerDesktop]}>
-        <View>
-          <Text style={type.soft}>{profile.name && profile.name !== 'You' ? t('home.greeting') : ''}</Text>
-          <Text style={[styles.name, isDesktop && styles.nameDesktop]}>{profile.name && profile.name !== 'You' ? profile.name : t('home.welcome')}</Text>
-        </View>
-        {isDesktop && headerControls}
-      </View>
-
-      <View style={[styles.searchRow, isDesktop && styles.searchRowDesktop]}>
-        <Icon name="search" size={17} color={colors.inkSoft} />
-        <TextInput
-          value={query}
-          onChangeText={setQuery}
-          placeholder={t('home.search')}
-          placeholderTextColor={colors.inkSoft}
-          style={[styles.searchInput, isRTL && styles.searchInputRTL]}
-          autoComplete="off"
-        />
-      </View>
+      {/* On mobile, the greeting and search bar move into the floating
+          auto-hide chrome below (with the category slider) instead of
+          rendering here in normal flow -- see mobileChromeOverlay. Desktop
+          keeps them exactly where they've always been; nothing there
+          auto-hides. */}
+      {isDesktop && (
+        <>
+          {greetingBlock}
+          {searchBlock}
+        </>
+      )}
 
       {isDesktop ? (
         // Desktop is unchanged: a big tile grid at "all", a persistent
@@ -895,13 +933,13 @@ export default function HomeScreen() {
             </View>
           )}
 
-          {/* carouselsAnchor is the positioning root for catSliderWrap below
-              (position: absolute positions relative to the nearest parent
-              View regardless of whether it declares position:'relative' --
-              that's just how RN works, unlike web CSS -- so catSliderWrap
-              needs to share a parent with exactly the content it overlays,
-              not the whole screen, or `top: 0` would land under the
-              greeting/search row instead of at the top of the list). */}
+          {/* carouselsAnchor is the positioning root for mobileChromeOverlay
+              below (position: absolute positions relative to the nearest
+              parent View regardless of whether it declares
+              position:'relative' -- that's just how RN works, unlike web
+              CSS -- so the overlay needs to share a parent with exactly the
+              content it overlays, not the whole screen, or `top: 0` would
+              land under the brand bar instead of at the top of the list). */}
           <View style={styles.carouselsAnchor}>
             {showCarousels ? carousels : grid}
 
@@ -920,11 +958,30 @@ export default function HomeScreen() {
                 list's own box never resizes when this hides/shows; hiding
                 it just slides/fades the overlay itself, full stop.
                 carouselsContent/grid's paddingTop reserves space so content
-                doesn't start out from under it while visible. */}
+                doesn't start out from under it while visible.
+
+                Bundles the greeting, search bar, and category slider into
+                ONE overlay (rather than three separate floating pieces) so
+                they hide and reappear as a single unit, and so there's one
+                height to measure/reserve rather than three. Height isn't
+                fixed in the stylesheet -- the greeting text's length varies
+                by name/locale -- so it's measured on layout and mirrored
+                into mobileChromeHeight, which carouselsContent/grid's
+                paddingTop then matches. mobileChromeHeight starts at a
+                reasonable estimate (MOBILE_CHROME_DEFAULT_HEIGHT) so the
+                very first frame, before onLayout has fired, doesn't reserve
+                zero space and let a card flash in from underneath. */}
             <View
-              style={[styles.catSliderWrap, !chromeVisible && styles.catSliderWrapHidden]}
+              style={[styles.mobileChromeOverlay, !chromeVisible && styles.mobileChromeOverlayHidden]}
               pointerEvents={chromeVisible ? 'auto' : 'none'}
+              onLayout={(e) => {
+                const h = Math.round(e.nativeEvent.layout.height);
+                if (h > 0 && h !== mobileChromeHeight) setMobileChromeHeight(h);
+              }}
             >
+              {greetingBlock}
+              {searchBlock}
+
               {/* RTL swipe direction here is done by reversing the chip
                   ORDER and parking the viewport at the far end, not by
                   mirroring the scroller with scaleX(-1) and counter-
@@ -1089,30 +1146,30 @@ const styles = StyleSheet.create({
   // how tall the surrounding screen is.
   catSlider: { height: 80, flexGrow: 0, flexShrink: 0 },
   catSliderContent: { paddingHorizontal: 18, gap: 10, alignItems: 'flex-start' },
-  // Positioning root shared by catSliderWrap (absolute) and the scrollable
-  // content it overlays -- see the render-side comment on carouselsAnchor.
+  // Positioning root shared by mobileChromeOverlay (absolute) and the
+  // scrollable content it overlays -- see the render-side comment on
+  // carouselsAnchor.
   carouselsAnchor: { flex: 1, position: 'relative' },
   // Auto-hide overlay (see ScrollChromeContext and the render-side comment
-  // above) -- floats above carouselsAnchor's scrollable content instead of
-  // sitting in normal flow next to it, so hiding/showing it can never
-  // resize that content's own box. CAT_SLIDER_HEIGHT (94 = 80 chip height +
-  // 14 spacing) is also reserved as paddingTop on carouselsContent/grid
-  // below so content doesn't start out from under it while visible. Opaque
-  // background (matches the screen bg) since content now scrolls behind
-  // it, not just below it. Web-only CSS transition props still drive the
-  // fade/slide smoothly on the web build (react-native-web interprets
-  // them); on native, ScrollChromeContext's LayoutAnimation.configureNext
-  // call takes over for the same effect.
-  catSliderWrap: {
+  // above) -- bundles the greeting, search bar, and category slider into
+  // one floating unit above carouselsAnchor's scrollable content instead of
+  // any of them sitting in normal flow next to it, so hiding/showing them
+  // can never resize that content's own box. No fixed height here (unlike
+  // the old catSliderWrap this replaces) -- the greeting text's length
+  // varies by name/locale, so the box sizes to its own content and that
+  // height is measured on layout into mobileChromeHeight, which
+  // carouselsContent/grid's paddingTop then matches, so content doesn't
+  // start out from under it while visible. Opaque background (matches the
+  // screen bg) since content now scrolls behind it, not just below it.
+  // Web-only CSS transition props still drive the fade/slide smoothly on
+  // the web build (react-native-web interprets them); on native,
+  // ScrollChromeContext's LayoutAnimation.configureNext call takes over for
+  // the same effect.
+  mobileChromeOverlay: {
     position: 'absolute',
     top: 0,
     left: 0,
     right: 0,
-    // 94 = 80 chip height + 14 bottom breathing room before the overlaid
-    // content -- carouselsContent/grid's paddingTop matches this exactly so
-    // the first row of listings lines up right below the chips, not
-    // underneath them.
-    height: 94,
     zIndex: 5,
     backgroundColor: colors.bg,
     opacity: 1,
@@ -1121,7 +1178,7 @@ const styles = StyleSheet.create({
     transitionDuration: '220ms',
     transitionTimingFunction: 'ease-out',
   } as ViewStyle,
-  catSliderWrapHidden: {
+  mobileChromeOverlayHidden: {
     opacity: 0,
     transform: [{ translateY: -16 }],
   },
@@ -1228,18 +1285,16 @@ const styles = StyleSheet.create({
   list: { flex: 1 },
   grid: { paddingHorizontal: 18, paddingBottom: 110 },
   gridDesktop: { paddingHorizontal: 0, paddingBottom: 60 },
-  // Mobile-only: `grid` is also used (unmodified) on desktop, which has no
-  // catSliderWrap overlay at all -- this reserves space for it only when
-  // actually needed. 94 matches catSliderWrap's height exactly.
-  gridMobileTopReserve: { paddingTop: 94 },
   empty: { alignItems: 'center', paddingTop: 60, gap: 4 },
   // Per-category carousels (mobile "all categories" home view) -- each
   // CategoryCarouselSection carries its own horizontal padding, so this
   // only needs bottom breathing room (the same tab-bar clearance the
-  // combined grid has) plus catSliderWrap's reserved top space (94, see
-  // that style) since it now floats over this content instead of sitting
-  // beside it.
-  carouselsContent: { paddingTop: 94, paddingBottom: 110 },
+  // combined grid has). Top space for mobileChromeOverlay is added
+  // separately as an inline paddingTop (mobileChromeHeight) at the render
+  // site, on both this and `grid` -- it's measured rather than fixed here
+  // since the overlay's height now varies (greeting text length), so a
+  // static stylesheet number can't track it.
+  carouselsContent: { paddingBottom: 110 },
 
   // Mobile filters modal.
   modalTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, height: 52 },
