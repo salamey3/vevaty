@@ -9,7 +9,7 @@ export type IconName =
   | 'card' | 'diamond' | 'chevronRight' | 'sparkle' | 'camera' | 'close'
   | 'edit' | 'trophy' | 'globe' | 'trash' | 'grip'
   | 'building' | 'tv' | 'factory' | 'paw' | 'baby' | 'dumbbell' | 'briefcase' | 'wrench' | 'flag' | 'lock' | 'fingerprint'
-  | 'image' | 'expand' | 'heart' | 'share' | 'wand' | 'eyeOff';
+  | 'image' | 'expand' | 'heart' | 'share' | 'wand' | 'eyeOff' | 'filter';
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean };
 
@@ -336,6 +336,15 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
           <Circle cx="12" cy="12" r="2.6" {...common} />
           <Line x1="4" y1="4" x2="20" y2="20" {...common} />
         </>
+      )}
+      {/* Classic funnel glyph -- the storefronts directory's "open the
+          category filter" button (see ShopsDirectoryScreen /
+          ShopCategoryFilterModal). A single closed path rather than the
+          three-line "sliders" glyph some apps use for filter, since a
+          funnel reads unambiguously as "narrow this list down" even at
+          the small size this renders at next to a text label. */}
+      {name === 'filter' && (
+        <Path d="M4 5.5h16l-6.2 7.6v5.4l-3.6 2v-7.4z" {...common} strokeLinejoin="round" />
       )}
       {name === 'fingerprint' && (
         <>

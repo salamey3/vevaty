@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useState } from 'react';
-import { ActivityIndicator, FlatList, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
+import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
@@ -12,10 +12,11 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
-import { Category, Shop } from '../types';
+import { Shop } from '../types';
 import { useGoBack } from '../hooks/useGoBack';
 import HomeMarkButton from '../components/HomeMarkButton';
-import { useRtlCarousel } from '../lib/useRtlCarousel';
+import { mirrorRow } from '../lib/mirrorRow';
+import ShopCategoryFilterModal from '../components/ShopCategoryFilterModal';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Shops'>;
 
@@ -64,6 +65,7 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(true);
   const [query, setQuery] = useState('');
   const [activeCategoryId, setActiveCategoryId] = useState<string | null>(null);
+  const [filterModalVisible, setFilterModalVisible] = useState(false);
 
   useEffect(() => {
     let cancelled = false;
@@ -107,17 +109,7 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
     return topCategories.filter((c) => ids.has(c.id));
   }, [shops, topCategories]);
 
-  // One horizontally-scrolling row instead of the old flexWrap chip grid,
-  // which stacked into several full-width rows once there were more than a
-  // handful of categories in use -- the same "All" + wrapping-chips shape
-  // HomeScreen's own category slider already uses, for the same reason
-  // (see that screen's catChips/orderedCatChips). useRtlCarousel handles
-  // the Arabic swipe-direction reversal the same way it does there.
-  const catChips = useMemo<('all' | Category)[]>(() => ['all', ...categoriesInUse], [categoriesInUse]);
-  const { ordered: orderedCatChips, scrollRef: chipScrollRef, onContentSizeChange: onChipContentSizeChange } = useRtlCarousel(
-    catChips,
-    isRTL,
-  );
+  const activeCategory = activeCategoryId ? categoryById(activeCategoryId) : undefined;
 
   const filteredShops = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -153,38 +145,37 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
         />
       </View>
       {categoriesInUse.length > 0 && (
-        <ScrollView
-          ref={chipScrollRef}
-          horizontal
-          showsHorizontalScrollIndicator={false}
-          contentContainerStyle={styles.chipRow}
-          onContentSizeChange={onChipContentSizeChange}
-        >
-          {orderedCatChips.map((c) =>
-            c === 'all' ? (
-              <Pressy
-                key="all"
-                onPress={() => setActiveCategoryId(null)}
-                style={[styles.chip, activeCategoryId === null && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, activeCategoryId === null && styles.chipTextActive]}>
-                  {t('shopsDirectory.categoryAll')}
-                </Text>
-              </Pressy>
-            ) : (
-              <Pressy
-                key={c.id}
-                onPress={() => setActiveCategoryId(c.id)}
-                style={[styles.chip, activeCategoryId === c.id && styles.chipActive]}
-              >
-                <Text style={[styles.chipText, activeCategoryId === c.id && styles.chipTextActive]} numberOfLines={1}>
-                  {pickText(c.nameEn, c.nameAr, language)}
-                </Text>
-              </Pressy>
-            )
+        <View style={[styles.filterRow, mirrorRow(isRTL)]}>
+          <Pressy
+            onPress={() => setFilterModalVisible(true)}
+            style={[styles.filterBtn, !!activeCategory && styles.filterBtnActive, mirrorRow(isRTL)]}
+          >
+            <Icon name="filter" size={14} color={activeCategory ? colors.white : colors.ink} />
+            <Text
+              style={[styles.filterBtnText, !!activeCategory && styles.filterBtnTextActive]}
+              numberOfLines={1}
+            >
+              {activeCategory ? pickText(activeCategory.nameEn, activeCategory.nameAr, language) : t('shopsDirectory.filterButton')}
+            </Text>
+          </Pressy>
+          {!!activeCategory && (
+            <Pressy onPress={() => setActiveCategoryId(null)} style={[styles.resetBtn, mirrorRow(isRTL)]}>
+              <Icon name="close" size={11} color={colors.inkSoft} />
+              <Text style={styles.resetBtnText}>{t('shopsDirectory.categoryAll')}</Text>
+            </Pressy>
           )}
-        </ScrollView>
+        </View>
       )}
+      <ShopCategoryFilterModal
+        visible={filterModalVisible}
+        categories={categoriesInUse}
+        activeCategoryId={activeCategoryId}
+        onSelect={(id) => {
+          setActiveCategoryId(id);
+          setFilterModalVisible(false);
+        }}
+        onClose={() => setFilterModalVisible(false)}
+      />
     </>
   );
 
@@ -270,22 +261,27 @@ const styles = StyleSheet.create({
   },
   searchInput: { flex: 1, fontSize: 14, color: colors.ink, height: '100%' },
   rtlInput: { textAlign: 'right', writingDirection: 'rtl' },
-  // contentContainerStyle of the horizontal chip ScrollView -- no flexWrap
-  // now that it scrolls in one row instead of wrapping onto several
-  // full-width ones. alignItems:'flex-start' matches HomeScreen's own chip
-  // strip: without it, a horizontal ScrollView with no height of its own
-  // stretches its row to the parent's cross-axis space and RN's default
-  // alignItems:'stretch' would pull every chip to that same height instead
-  // of leaving them their own natural pill height.
-  chipRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 8, paddingHorizontal: 18, marginBottom: 16 },
-  chip: {
-    height: 32, paddingHorizontal: 14, borderRadius: radius.pill,
+  // A single "Filter" button that opens ShopCategoryFilterModal's
+  // scrollable list, plus (only once a category is chosen) a small "All
+  // categories" pill next to it that clears the filter -- replaces the old
+  // horizontally-scrolling chip row, which hid most of its options off the
+  // right edge once there were more than a handful of categories in use,
+  // with no hint there was more to swipe to.
+  filterRow: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 18, marginBottom: 16 },
+  filterBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    height: 32, paddingHorizontal: 14, maxWidth: '70%', borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
-    alignItems: 'center', justifyContent: 'center',
   },
-  chipActive: { backgroundColor: colors.ink, borderColor: colors.ink },
-  chipText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
-  chipTextActive: { color: colors.white },
+  filterBtnActive: { backgroundColor: colors.ink, borderColor: colors.ink },
+  filterBtnText: { fontSize: 12.5, fontWeight: '600', color: colors.ink, flexShrink: 1 },
+  filterBtnTextActive: { color: colors.white },
+  resetBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 5,
+    height: 32, paddingHorizontal: 12, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.surface,
+  },
+  resetBtnText: { fontSize: 12, fontWeight: '600', color: colors.inkSoft },
   grid: { paddingHorizontal: 18, paddingBottom: 110 },
   gridDesktop: { paddingHorizontal: 0, paddingBottom: 60 },
   card: {

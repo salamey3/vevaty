@@ -221,6 +221,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // screen (see profile.browseStorefronts / home.browseStorefronts).
     'shopsDirectory.title': 'Storefronts',
     'shopsDirectory.searchPlaceholder': 'Search storefronts',
+    'shopsDirectory.filterButton': 'Filter',
+    'shopsDirectory.filterModalTitle': 'Filter by category',
     'shopsDirectory.categoryAll': 'All categories',
     'shopsDirectory.listingsCount': '{count} listings',
     'shopsDirectory.emptyTitle': 'No storefronts found.',
@@ -893,6 +895,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'collection.empty': 'لا يوجد شيء هنا بعد — تحقق لاحقًا.',
     'shopsDirectory.title': 'المتاجر',
     'shopsDirectory.searchPlaceholder': 'ابحث عن متجر',
+    'shopsDirectory.filterButton': 'تصفية',
+    'shopsDirectory.filterModalTitle': 'تصفية حسب الفئة',
     'shopsDirectory.categoryAll': 'كل الفئات',
     'shopsDirectory.listingsCount': '{count} إعلان',
     'shopsDirectory.emptyTitle': 'لم يتم العثور على متاجر.',
