@@ -128,7 +128,12 @@ export default function HomeScreen() {
   // Mobile-only auto-hide for the greeting/search/category-slider chrome
   // below (see ScrollChromeContext -- also drives the bottom tab bar in
   // TabBar.tsx, which can't see this screen's own scroll events directly).
-  const { chromeVisible, onChromeScroll } = useScrollChrome();
+  // beginChromeInteraction/endChromeInteraction are also passed down to
+  // CategoryCarouselSection/CollectionCarouselSection so a horizontal swipe
+  // through one of those keeps this chrome hidden too, same as scrolling
+  // the page itself -- see this screen's carouselsCarousel/collections
+  // render sites below.
+  const { chromeVisible, onChromeScroll, beginChromeInteraction, endChromeInteraction } = useScrollChrome();
   // Measured height of mobileChromeOverlay (greeting + search + category
   // slider stacked), reserved as paddingTop on the scrollable content below
   // it -- see that overlay's own style comment, and MOBILE_CHROME_DEFAULT_
@@ -666,6 +671,8 @@ export default function HomeScreen() {
       columnWrapperStyle={{ justifyContent: 'space-between' }}
       contentContainerStyle={[styles.grid, isDesktop ? styles.gridDesktop : { paddingTop: mobileChromeHeight }]}
       onScroll={!isDesktop ? onChromeScroll : undefined}
+      onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
+      onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
       scrollEventThrottle={16}
       ListEmptyComponent={
         <View style={styles.empty}>
@@ -723,6 +730,8 @@ export default function HomeScreen() {
       contentContainerStyle={[styles.carouselsContent, { paddingTop: mobileChromeHeight }]}
       ListHeaderComponent={collectionRowsHeader}
       onScroll={onChromeScroll}
+      onScrollBeginDrag={beginChromeInteraction}
+      onScrollEndDrag={endChromeInteraction}
       scrollEventThrottle={16}
       // Android's native ScrollView doesn't support nested scrolling by
       // default -- and every CategoryCarouselSection below nests its own

@@ -2,7 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import { LayoutAnimation, NativeScrollEvent, NativeSyntheticEvent, Platform, UIManager } from 'react-native';
 
 // Shared "is the floating chrome visible right now" flag for mobile's
-// auto-hiding home-screen chrome (greeting, search bar, category slider --
+// auto-hiding home-screen chrome (greeting+search row, category slider --
 // HomeScreen) and the bottom tab bar (TabBar) -- two components that aren't
 // parent/child (TabBar is mounted once by the tab navigator, HomeScreen is
 // one of several screens it hosts), so a scroll event on HomeScreen's list
@@ -34,26 +34,36 @@ const animateChromeTransition = () => {
 };
 type ScrollChromeContextValue = {
   chromeVisible: boolean;
+  // Per-frame scroll handler for the ONE vertical, page-level scroller
+  // (HomeScreen's grid/carousels FlatList) -- the only scroller with a
+  // meaningful "near the very top" position, which is what TOP_SNAP_ZONE
+  // below keys off. Horizontal carousels have no such position and don't
+  // use this -- see beginChromeInteraction/endChromeInteraction.
   onChromeScroll: (e: NativeSyntheticEvent<NativeScrollEvent>) => void;
+  // Gesture-lifecycle pair, wired to onScrollBeginDrag/onScrollEndDrag on
+  // EVERY scrollable in the body -- the page's own vertical list AND every
+  // horizontal carousel (category rows, collection rows). Direction and
+  // axis don't matter: any of them dragging is "the user is doing
+  // something," which is what should keep the chrome hidden.
+  beginChromeInteraction: () => void;
+  endChromeInteraction: () => void;
   showChrome: () => void;
 };
 
 const ScrollChromeContext = createContext<ScrollChromeContextValue | null>(null);
 
-// How long, in ms, a scroll has to go quiet before the chrome reappears.
-// Motion is what hides the chrome now, not direction -- scrolling up used
-// to snap it back visible (and sticky) immediately, which is exactly the
-// behavior that was reported as the complaint: the user wants it gone
-// while they're actively scrolling either way, and back only once they've
-// actually stopped. The floor this needs to clear is small --
-// scrollEventThrottle=16 below means ~16ms between onScroll frames while
-// actively moving, so anything even a little above that already stops mid-
-// scroll flicker. 800 is well past that floor: a deliberate pause after
-// the list settles, tuned by feel rather than by the frame-gap minimum.
+// How long, in ms, after the user's finger lifts before the chrome
+// reappears -- see endChromeInteraction. Tuned by feel (previously 150,
+// raised to 800 after seeing it live) rather than derived from anything
+// about scroll physics.
 const SCROLL_STOP_DELAY = 800;
-// Always keep the chrome visible near the very top -- both so the first
-// screenful never starts with it hidden, and so "scroll to top" is always
-// enough to get it back regardless of whether a stop timer is pending.
+// Always keep the chrome visible near the very top of the page -- both so
+// the first screenful never starts with it hidden, and so "scroll to top"
+// is always enough to get it back regardless of whether a reappear timer
+// is pending. Only meaningful for the vertical page scroller (see
+// onChromeScroll) -- a horizontal carousel's contentOffset.y is always 0,
+// which would make this fire on every horizontal frame if it were ever
+// applied there.
 const TOP_SNAP_ZONE = 24;
 
 export function ScrollChromeProvider({ children }: { children: React.ReactNode }) {
@@ -73,10 +83,13 @@ export function ScrollChromeProvider({ children }: { children: React.ReactNode }
     setChromeVisible(next);
   }, []);
 
-  // Pending "the scroll has gone quiet" timer -- (re)armed on every scroll
-  // event and cleared on the next one, so it only ever actually fires once
-  // nothing has re-armed it for SCROLL_STOP_DELAY ms, i.e. the scroll has
-  // truly stopped rather than just changed direction.
+  // Pending "reveal the chrome" timer, armed only by endChromeInteraction
+  // (the user's finger lifting off whichever scrollable they were
+  // dragging) -- NOT by scroll motion going quiet. Momentum can keep a
+  // list gliding well after the finger is gone; the countdown to
+  // reappearing starts at the lift itself, per direct feedback ("when the
+  // user lifts up their finger, start only then counting"), not once the
+  // list has also fully settled.
   const stopTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
   const clearStopTimer = useCallback(() => {
     if (stopTimer.current != null) {
@@ -95,25 +108,49 @@ export function ScrollChromeProvider({ children }: { children: React.ReactNode }
     setVisible(true);
   }, [clearStopTimer, setVisible]);
 
-  const onChromeScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
-    const y = Math.max(0, e.nativeEvent.contentOffset.y);
+  // onScrollBeginDrag on any scrollable -- the user has just put a finger
+  // down and started dragging it (vertically or horizontally, doesn't
+  // matter which). Hide immediately, and drop any reappear timer a
+  // PREVIOUS interaction may have armed: starting a new drag before that
+  // timer fired means the chrome should stay hidden, not pop back mid-
+  // gesture because an earlier countdown happened to land right now.
+  const beginChromeInteraction = useCallback(() => {
     clearStopTimer();
-
-    if (y <= TOP_SNAP_ZONE) {
-      setVisible(true);
-      return;
-    }
-
     setVisible(false);
+  }, [clearStopTimer, setVisible]);
+
+  // onScrollEndDrag on any scrollable -- the finger has lifted. This is
+  // the moment the reappear countdown starts, even if momentum scrolling
+  // continues on whatever was just released.
+  const endChromeInteraction = useCallback(() => {
+    clearStopTimer();
     stopTimer.current = setTimeout(() => {
       stopTimer.current = null;
       setVisible(true);
     }, SCROLL_STOP_DELAY);
   }, [clearStopTimer, setVisible]);
 
+  // Per-frame handler for the vertical page scroller only (see the type's
+  // own comment). Keeps the chrome hidden through every frame of motion
+  // (belt-and-suspenders alongside beginChromeInteraction -- covers
+  // momentum/inertial frames and any programmatic scroll that doesn't fire
+  // a drag event at all) and force-shows it once back near the top,
+  // overriding whatever reappear timer might be pending.
+  const onChromeScroll = useCallback((e: NativeSyntheticEvent<NativeScrollEvent>) => {
+    const y = Math.max(0, e.nativeEvent.contentOffset.y);
+
+    if (y <= TOP_SNAP_ZONE) {
+      clearStopTimer();
+      setVisible(true);
+      return;
+    }
+
+    setVisible(false);
+  }, [clearStopTimer, setVisible]);
+
   const value = useMemo(
-    () => ({ chromeVisible, onChromeScroll, showChrome }),
-    [chromeVisible, onChromeScroll, showChrome],
+    () => ({ chromeVisible, onChromeScroll, beginChromeInteraction, endChromeInteraction, showChrome }),
+    [chromeVisible, onChromeScroll, beginChromeInteraction, endChromeInteraction, showChrome],
   );
 
   return <ScrollChromeContext.Provider value={value}>{children}</ScrollChromeContext.Provider>;

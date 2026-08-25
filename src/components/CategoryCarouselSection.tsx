@@ -6,6 +6,8 @@ import { colors, type } from '../theme/theme';
 import { Category, Listing } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
+import { useIsDesktop } from '../hooks/useResponsive';
+import { useScrollChrome } from '../store/ScrollChromeContext';
 
 // One home-page section for a single top-level category: a
 // "[Category name] · See all" header row followed by its own
@@ -33,6 +35,18 @@ export default function CategoryCarouselSection({
   // on web.
   const { ordered, scrollRef, onContentSizeChange } = useRtlCarousel(items, isRTL);
 
+  // This component only ever renders on mobile (HomeScreen's "all
+  // categories" carousels view -- see that screen's own comment), but
+  // check isDesktop anyway rather than assume it: swiping through this
+  // row's own horizontal scroller should keep the page's floating chrome
+  // (greeting/search/category slider, bottom tab bar) hidden too, exactly
+  // like scrolling the page itself does, and that's only meaningful where
+  // the chrome exists to hide. This row isn't the vertical page scroller,
+  // so it uses the gesture-lifecycle pair rather than onChromeScroll --
+  // see that context's own comment on why TOP_SNAP_ZONE is vertical-only.
+  const isDesktop = useIsDesktop();
+  const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
+
   return (
     <View style={styles.section}>
       <View style={[styles.headerRow, isRTL && styles.headerRowRTL]}>
@@ -47,6 +61,8 @@ export default function CategoryCarouselSection({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
         onContentSizeChange={onContentSizeChange}
+        onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
+        onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
         // Back to a plain ScrollView rather than a windowed FlatList: these
         // rows are capped at 10 items (see HomeScreen's categoryCarousels),
         // and a FlatList that hasn't rendered its tail yet reports a content

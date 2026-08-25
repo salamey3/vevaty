@@ -8,6 +8,8 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useCollections } from '../store/CollectionsStore';
 import { cornerBadgeFor } from '../lib/collectionBadge';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
+import { useIsDesktop } from '../hooks/useResponsive';
+import { useScrollChrome } from '../store/ScrollChromeContext';
 
 // Home-screen row for one Collection (Editor's Picks / Hot Deals / Just
 // Listed) -- same header+horizontal-scroll shape as
@@ -33,6 +35,18 @@ export default function CollectionCarouselSection({
 
   const { ordered, scrollRef, onContentSizeChange } = useRtlCarousel(items, isRTL);
 
+  // This component renders on BOTH mobile (inside HomeScreen's floating
+  // auto-hide carousels view) and desktop (folded into the "all
+  // categories" grid header, which has no auto-hide chrome at all) --
+  // unlike CategoryCarouselSection, which is mobile-only. isDesktop is
+  // what makes this the same JSX safe to reuse in both places: swiping
+  // this row's own horizontal scroller only touches the shared chrome
+  // flag where that chrome actually exists. See CategoryCarouselSection's
+  // matching comment for why this uses the gesture-lifecycle pair rather
+  // than onChromeScroll.
+  const isDesktop = useIsDesktop();
+  const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
+
   return (
     <View style={styles.section}>
       <View style={[styles.headerRow, isRTL && styles.headerRowRTL]}>
@@ -47,6 +61,8 @@ export default function CollectionCarouselSection({
         showsHorizontalScrollIndicator={false}
         contentContainerStyle={styles.row}
         onContentSizeChange={onContentSizeChange}
+        onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
+        onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
         nestedScrollEnabled
       >
         {ordered.map((item) => (
