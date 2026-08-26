@@ -909,9 +909,10 @@ export default function HomeScreen() {
           onFocus={() => setSearchFocused(true)}
           // Losing focus is the single source of truth for leaving search
           // mode -- covers the keyboard's own dismiss/back/return action,
-          // tabbing to another field, and (see the outer
-          // TouchableWithoutFeedback below) a tap anywhere outside this
-          // input, all without needing separate handling for each.
+          // tabbing to another field, a tap on the results below (see
+          // carouselsAnchor's TouchableWithoutFeedback), and -- on web,
+          // for free, no handler needed -- a click anywhere else on the
+          // page, which blurs a focused input natively in every browser.
           onBlur={() => setSearchFocused(false)}
           placeholder={t('home.search')}
           placeholderTextColor={colors.inkSoft}
@@ -924,279 +925,281 @@ export default function HomeScreen() {
 
   return (
     <Screen reserveSidebar maxWidth={1180}>
-      {/* Wraps everything below so a tap anywhere that isn't itself a
-          touchable (a listing card, a chip, a button -- any of those still
-          claims the gesture for its own onPress first, same as always)
-          dismisses the keyboard. That's the actual mechanism behind
-          "tap outside the search bar to leave search mode": dismissing the
-          keyboard blurs whichever TextInput currently holds focus, and
-          mobileGreetingSearchRow's own onBlur (see that component) is what
-          turns searchFocused back off from there -- this wrapper doesn't
-          touch searchFocused directly. Harmless on desktop and web too:
-          desktop's search box is a separate element this state never
-          applies to, and clicking outside an input already blurs it
-          natively in a browser regardless of this handler. */}
-      <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-        <View style={styles.rootTouchArea}>
-        {/* Mobile brand bar. Desktop has no equivalent because the sidebar
-            already carries the lockup permanently -- on a phone there is no
-            sidebar, so before this the brand was visible exactly once, on the
-            first-run language picker, and never again. Mobile web is the
-            weaker case of the two: no app icon on a home screen doing the
-            remembering, just a browser tab.
+      {/* Mobile brand bar. Desktop has no equivalent because the sidebar
+          already carries the lockup permanently -- on a phone there is no
+          sidebar, so before this the brand was visible exactly once, on the
+          first-run language picker, and never again. Mobile web is the
+          weaker case of the two: no app icon on a home screen doing the
+          remembering, just a browser tab.
 
-            The language and points controls move up here on mobile so the
-            bar earns its height rather than only holding a logo, which
-            leaves the greeting below on a line of its own. */}
-        {!isDesktop && (
-          <View style={[styles.brandBar, mirrorRow(isRTL)]}>
-            <BrandMark variant="sidebar" onPress={goHome} />
-            {headerControls}
-          </View>
-        )}
+          The language and points controls move up here on mobile so the
+          bar earns its height rather than only holding a logo, which
+          leaves the greeting below on a line of its own. */}
+      {!isDesktop && (
+        <View style={[styles.brandBar, mirrorRow(isRTL)]}>
+          <BrandMark variant="sidebar" onPress={goHome} />
+          {headerControls}
+        </View>
+      )}
 
-        {/* On mobile, the greeting and search bar move into the floating
-            auto-hide chrome below (with the category slider) instead of
-            rendering here in normal flow -- see mobileChromeOverlay. Desktop
-            keeps them exactly where they've always been; nothing there
-            auto-hides. */}
-        {isDesktop && (
-          <>
-            {greetingBlock}
-            {searchBlock}
-          </>
-        )}
+      {/* On mobile, the greeting and search bar move into the floating
+          auto-hide chrome below (with the category slider) instead of
+          rendering here in normal flow -- see mobileChromeOverlay. Desktop
+          keeps them exactly where they've always been; nothing there
+          auto-hides. */}
+      {isDesktop && (
+        <>
+          {greetingBlock}
+          {searchBlock}
+        </>
+      )}
 
-        {isDesktop ? (
-          // Desktop is unchanged: a big tile grid at "all", a persistent
-          // left sidebar of facet filters once a category is picked. Plenty
-          // of vertical room there already -- this redesign is mobile-only.
-          topCat === 'all' ? (
-            renderGrid(
-              /* One scrollable row, same as mobile, rather than a wrapping
-                 grid. Thirteen categories over six columns spilled onto a
-                 third row, which pushed the listings themselves below the
-                 fold on a laptop -- the categories are navigation, not the
-                 content, and they shouldn't cost half the first screen.
+      {isDesktop ? (
+        // Desktop is unchanged: a big tile grid at "all", a persistent
+        // left sidebar of facet filters once a category is picked. Plenty
+        // of vertical room there already -- this redesign is mobile-only.
+        topCat === 'all' ? (
+          renderGrid(
+            /* One scrollable row, same as mobile, rather than a wrapping
+               grid. Thirteen categories over six columns spilled onto a
+               third row, which pushed the listings themselves below the
+               fold on a laptop -- the categories are navigation, not the
+               content, and they shouldn't cost half the first screen.
 
-                 collectionRowsHeader (Editor's Picks / Hot Deals / Just
-                 Listed) rides above this same header slot -- it was
-                 originally wired only into the MOBILE carousels composite
-                 below, which this desktop branch never touches at all (see
-                 "Desktop is unchanged" above), so on desktop the collection
-                 rows silently never rendered. Prepending it here is what
-                 actually puts them above the category strip on desktop too. */
-              <>
-                {collectionRowsHeader}
-                <CarouselArrows
-                  onScrollBy={(delta) => {
-                    catRowX.current = Math.max(0, catRowX.current + delta);
-                    catRowRef.current?.scrollTo({ x: catRowX.current, animated: true });
-                  }}
-                  // Roughly three chips a press: enough to feel like progress,
-                  // little enough that nothing scrolls past unseen.
-                  step={88 * 3}
-                  canScrollBack={catRowEnds.back}
-                  canScrollForward={catRowEnds.forward}
-                  style={styles.catRowDesktop}
-                >
-                  <ScrollView
-                    ref={catRowRef}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    onScroll={(e) => {
-                      catRowX.current = e.nativeEvent.contentOffset.x;
-                      catRowMetrics.current.x = catRowX.current;
-                      updateCatRowEnds();
-                    }}
-                    onLayout={(e) => {
-                      catRowMetrics.current.viewport = e.nativeEvent.layout.width;
-                      updateCatRowEnds();
-                    }}
-                    onContentSizeChange={(w) => {
-                      catRowMetrics.current.content = w;
-                      updateCatRowEnds();
-                    }}
-                    scrollEventThrottle={16}
-                    style={styles.catRowDesktopScroll}
-                    contentContainerStyle={styles.catRowDesktopContent}
-                  >
-                    {categories.map((c) => (
-                      <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
-                    ))}
-                  </ScrollView>
-                </CarouselArrows>
-              </>
-            )
-          ) : (
+               collectionRowsHeader (Editor's Picks / Hot Deals / Just
+               Listed) rides above this same header slot -- it was
+               originally wired only into the MOBILE carousels composite
+               below, which this desktop branch never touches at all (see
+               "Desktop is unchanged" above), so on desktop the collection
+               rows silently never rendered. Prepending it here is what
+               actually puts them above the category strip on desktop too. */
             <>
-              <View style={[styles.categoryBar, styles.categoryBarDesktop]}>
-                <Pressy onPress={clearAllCategories} style={styles.backRow}>
-                  <Icon name="back" size={14} color={colors.inkSoft} />
-                  <Text style={styles.backText}>{t('home.categoryBack')}</Text>
-                </Pressy>
-                <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
-              </View>
-              <View style={[styles.body, styles.bodyDesktop]}>
-                <ScrollView style={styles.sidebar} contentContainerStyle={styles.sidebarContent}>
-                  {renderFilterSections()}
+              {collectionRowsHeader}
+              <CarouselArrows
+                onScrollBy={(delta) => {
+                  catRowX.current = Math.max(0, catRowX.current + delta);
+                  catRowRef.current?.scrollTo({ x: catRowX.current, animated: true });
+                }}
+                // Roughly three chips a press: enough to feel like progress,
+                // little enough that nothing scrolls past unseen.
+                step={88 * 3}
+                canScrollBack={catRowEnds.back}
+                canScrollForward={catRowEnds.forward}
+                style={styles.catRowDesktop}
+              >
+                <ScrollView
+                  ref={catRowRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  onScroll={(e) => {
+                    catRowX.current = e.nativeEvent.contentOffset.x;
+                    catRowMetrics.current.x = catRowX.current;
+                    updateCatRowEnds();
+                  }}
+                  onLayout={(e) => {
+                    catRowMetrics.current.viewport = e.nativeEvent.layout.width;
+                    updateCatRowEnds();
+                  }}
+                  onContentSizeChange={(w) => {
+                    catRowMetrics.current.content = w;
+                    updateCatRowEnds();
+                  }}
+                  scrollEventThrottle={16}
+                  style={styles.catRowDesktopScroll}
+                  contentContainerStyle={styles.catRowDesktopContent}
+                >
+                  {categories.map((c) => (
+                    <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
+                  ))}
                 </ScrollView>
-                {grid}
-              </View>
+              </CarouselArrows>
             </>
           )
         ) : (
-          // Mobile: categories are always a compact horizontal slider right
-          // under the search bar (an "All" chip plus every top-level
-          // category), never a wall of big tiles -- and the listings grid
-          // (search-filtered, and category-filtered once a chip is picked)
-          // always renders directly under it, same page, no separate
-          // "choose a category first" step. Matches the OLX-style layout
-          // the user asked for, and as a side effect fixes the search box
-          // feeling broken on mobile -- it always filtered correctly, it
-          // was just buried below a full-screen wall of category tiles with
-          // nothing else visible above the fold.
           <>
-            {topCat !== 'all' && (
-              <View style={styles.mobileCatRow}>
-                <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
-                <Pressy onPress={() => setMobileFiltersOpen(true)} style={styles.filtersBtn}>
-                  <Icon name="gear" size={13} color={colors.ink} />
-                  <Text style={styles.filtersBtnText}>{t('home.filters.filters')}</Text>
+            <View style={[styles.categoryBar, styles.categoryBarDesktop]}>
+              <Pressy onPress={clearAllCategories} style={styles.backRow}>
+                <Icon name="back" size={14} color={colors.inkSoft} />
+                <Text style={styles.backText}>{t('home.categoryBack')}</Text>
+              </Pressy>
+              <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
+            </View>
+            <View style={[styles.body, styles.bodyDesktop]}>
+              <ScrollView style={styles.sidebar} contentContainerStyle={styles.sidebarContent}>
+                {renderFilterSections()}
+              </ScrollView>
+              {grid}
+            </View>
+          </>
+        )
+      ) : (
+        // Mobile: categories are always a compact horizontal slider right
+        // under the search bar (an "All" chip plus every top-level
+        // category), never a wall of big tiles -- and the listings grid
+        // (search-filtered, and category-filtered once a chip is picked)
+        // always renders directly under it, same page, no separate
+        // "choose a category first" step. Matches the OLX-style layout
+        // the user asked for, and as a side effect fixes the search box
+        // feeling broken on mobile -- it always filtered correctly, it
+        // was just buried below a full-screen wall of category tiles with
+        // nothing else visible above the fold.
+        <>
+          {topCat !== 'all' && (
+            <View style={styles.mobileCatRow}>
+              <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
+              <Pressy onPress={() => setMobileFiltersOpen(true)} style={styles.filtersBtn}>
+                <Icon name="gear" size={13} color={colors.ink} />
+                <Text style={styles.filtersBtnText}>{t('home.filters.filters')}</Text>
+              </Pressy>
+            </View>
+          )}
+
+          {/* carouselsAnchor is the positioning root for mobileChromeOverlay
+              below (position: absolute positions relative to the nearest
+              parent View regardless of whether it declares
+              position:'relative' -- that's just how RN works, unlike web
+              CSS -- so the overlay needs to share a parent with exactly the
+              content it overlays, not the whole screen, or `top: 0` would
+              land under the brand bar instead of at the top of the list). */}
+          <View style={styles.carouselsAnchor}>
+            {/* Tap-outside-to-leave-search-mode lives here, wrapping only
+                the results/carousels content -- NOT an ancestor of
+                mobileChromeOverlay (rendered as this View's next sibling
+                below, still fully unwrapped), which is where the search
+                TextInput itself lives. An earlier version of this wrapped
+                the entire screen, TextInput included, and on web that
+                silently broke tapping into the search box altogether: a
+                Touchable ancestor's own pointerdown handling can
+                preventDefault before the browser's native click-to-focus
+                reaches a nested <input>, which is exactly what happened.
+                Scoping the wrapper to just this sibling (results are also
+                the dominant "outside" surface once search mode has hidden
+                the greeting/category row anyway) gets the same "tap
+                anywhere outside the search bar" behavior without ever
+                putting a TouchableWithoutFeedback between a tap and the
+                input that needs to receive it. */}
+            <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
+              <View style={styles.resultsTouchArea}>{showCarousels ? carousels : grid}</View>
+            </TouchableWithoutFeedback>
+
+            {/* Floats ABOVE the scrollable content (position: absolute)
+                instead of sitting in normal flow next to it. It used to be
+                a normal sibling that grew/shrank the space above the list
+                on every auto-hide toggle (see ScrollChromeContext) --
+                collapsing/expanding a view directly adjacent to an
+                actively-scrolling list, even smoothly animated, was still
+                enough to visibly disturb that list's own scroll position on
+                Android (reported repeatedly as "scrolling acts up"/
+                flickering, and survived both an animation-timing fix and a
+                nestedScrollEnabled fix, which ruled those out as the actual
+                cause). Floating it instead -- the same pattern TabBar
+                already uses successfully for the bottom pill -- means the
+                list's own box never resizes when this hides/shows; hiding
+                it just slides/fades the overlay itself, full stop.
+                carouselsContent/grid's paddingTop reserves space so content
+                doesn't start out from under it while visible.
+
+                Bundles the greeting+search row and the category slider into
+                ONE overlay (rather than two separately floating pieces) so
+                they hide and reappear as a single unit, and so there's one
+                height to measure/reserve rather than two. Height isn't
+                fixed in the stylesheet -- the greeting text's length varies
+                by name/locale -- so it's measured on layout and mirrored
+                into mobileChromeHeight, which carouselsContent/grid's
+                paddingTop then matches. mobileChromeHeight starts at a
+                reasonable estimate (MOBILE_CHROME_DEFAULT_HEIGHT) so the
+                very first frame, before onLayout has fired, doesn't reserve
+                zero space and let a card flash in from underneath. */}
+            <Animated.View
+              style={[styles.mobileChromeOverlay, mobileChromeOverlayAnimStyle]}
+              pointerEvents={chromeVisible ? 'auto' : 'none'}
+              onLayout={(e) => {
+                const h = Math.round(e.nativeEvent.layout.height);
+                if (h > 0 && h !== mobileChromeHeight) setMobileChromeHeight(h);
+              }}
+            >
+              {mobileGreetingSearchRow}
+
+              {/* Hidden (unmounted, not just hidden-but-present) for the
+                  same reason and alongside the same trigger as
+                  mobileGreetingText above -- a "clean" search mode means
+                  nothing but the search bar and whatever results/carousels
+                  are already rendering below it. Removing it also shrinks
+                  mobileChromeOverlay's own measured height (see the
+                  onLayout above), which is what actually pulls the results
+                  up into the freed space rather than leaving a gap where
+                  this used to be. */}
+              {!searchFocused && (
+                // RTL swipe direction here is done by reversing the chip
+                // ORDER and parking the viewport at the far end, not by
+                // mirroring the scroller with scaleX(-1) and counter-
+                // flipping every chip -- see CategoryCarouselSection for the
+                // full reasoning (transforms block Android view flattening
+                // and invert the list clipping math). Same result: "All"
+                // sits at the right edge and dragging rightward walks
+                // leftward through the categories.
+                <ScrollView
+                  ref={catSliderRef}
+                  horizontal
+                  showsHorizontalScrollIndicator={false}
+                  style={styles.catSlider}
+                  contentContainerStyle={styles.catSliderContent}
+                  onContentSizeChange={onCatSliderContentSizeChange}
+                >
+                  {orderedCatChips.map((c) =>
+                    c === 'all' ? (
+                      <Pressy key="all" onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
+                        <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
+                          <Icon name="grip" size={20} color={topCat === 'all' ? colors.primary : colors.bg} />
+                        </View>
+                        <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
+                          {t('common.all')}
+                        </Text>
+                      </Pressy>
+                    ) : (
+                      <CategoryCard key={c.id} category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
+                    )
+                  )}
+                </ScrollView>
+              )}
+            </Animated.View>
+          </View>
+
+          <Modal visible={mobileFiltersOpen} animationType="slide" onRequestClose={() => setMobileFiltersOpen(false)}>
+            <Screen>
+              <View style={styles.modalTopBar}>
+                <Text style={type.h3}>{t('home.filters.filters')}</Text>
+                <Pressy onPress={() => setMobileFiltersOpen(false)} style={styles.iconBtn}>
+                  <Icon name="close" size={18} />
                 </Pressy>
               </View>
-            )}
+              <ScrollView contentContainerStyle={styles.modalScroll}>{renderFilterSections()}</ScrollView>
+              <View style={styles.modalFooter}>
+                <Button label={t('home.filters.showResultsCount', { n: filtered.length })} onPress={() => setMobileFiltersOpen(false)} style={{ flex: 1 }} />
+              </View>
+            </Screen>
+          </Modal>
+        </>
+      )}
 
-            {/* carouselsAnchor is the positioning root for mobileChromeOverlay
-                below (position: absolute positions relative to the nearest
-                parent View regardless of whether it declares
-                position:'relative' -- that's just how RN works, unlike web
-                CSS -- so the overlay needs to share a parent with exactly the
-                content it overlays, not the whole screen, or `top: 0` would
-                land under the brand bar instead of at the top of the list). */}
-            <View style={styles.carouselsAnchor}>
-              {showCarousels ? carousels : grid}
-
-              {/* Floats ABOVE the scrollable content (position: absolute)
-                  instead of sitting in normal flow next to it. It used to be
-                  a normal sibling that grew/shrank the space above the list
-                  on every auto-hide toggle (see ScrollChromeContext) --
-                  collapsing/expanding a view directly adjacent to an
-                  actively-scrolling list, even smoothly animated, was still
-                  enough to visibly disturb that list's own scroll position on
-                  Android (reported repeatedly as "scrolling acts up"/
-                  flickering, and survived both an animation-timing fix and a
-                  nestedScrollEnabled fix, which ruled those out as the actual
-                  cause). Floating it instead -- the same pattern TabBar
-                  already uses successfully for the bottom pill -- means the
-                  list's own box never resizes when this hides/shows; hiding
-                  it just slides/fades the overlay itself, full stop.
-                  carouselsContent/grid's paddingTop reserves space so content
-                  doesn't start out from under it while visible.
-
-                  Bundles the greeting+search row and the category slider into
-                  ONE overlay (rather than two separately floating pieces) so
-                  they hide and reappear as a single unit, and so there's one
-                  height to measure/reserve rather than two. Height isn't
-                  fixed in the stylesheet -- the greeting text's length varies
-                  by name/locale -- so it's measured on layout and mirrored
-                  into mobileChromeHeight, which carouselsContent/grid's
-                  paddingTop then matches. mobileChromeHeight starts at a
-                  reasonable estimate (MOBILE_CHROME_DEFAULT_HEIGHT) so the
-                  very first frame, before onLayout has fired, doesn't reserve
-                  zero space and let a card flash in from underneath. */}
-              <Animated.View
-                style={[styles.mobileChromeOverlay, mobileChromeOverlayAnimStyle]}
-                pointerEvents={chromeVisible ? 'auto' : 'none'}
-                onLayout={(e) => {
-                  const h = Math.round(e.nativeEvent.layout.height);
-                  if (h > 0 && h !== mobileChromeHeight) setMobileChromeHeight(h);
-                }}
-              >
-                {mobileGreetingSearchRow}
-
-                {/* Hidden (unmounted, not just hidden-but-present) for the
-                    same reason and alongside the same trigger as
-                    mobileGreetingText above -- a "clean" search mode means
-                    nothing but the search bar and whatever results/carousels
-                    are already rendering below it. Removing it also shrinks
-                    mobileChromeOverlay's own measured height (see the
-                    onLayout above), which is what actually pulls the results
-                    up into the freed space rather than leaving a gap where
-                    this used to be. */}
-                {!searchFocused && (
-                  // RTL swipe direction here is done by reversing the chip
-                  // ORDER and parking the viewport at the far end, not by
-                  // mirroring the scroller with scaleX(-1) and counter-
-                  // flipping every chip -- see CategoryCarouselSection for the
-                  // full reasoning (transforms block Android view flattening
-                  // and invert the list clipping math). Same result: "All"
-                  // sits at the right edge and dragging rightward walks
-                  // leftward through the categories.
-                  <ScrollView
-                    ref={catSliderRef}
-                    horizontal
-                    showsHorizontalScrollIndicator={false}
-                    style={styles.catSlider}
-                    contentContainerStyle={styles.catSliderContent}
-                    onContentSizeChange={onCatSliderContentSizeChange}
-                  >
-                    {orderedCatChips.map((c) =>
-                      c === 'all' ? (
-                        <Pressy key="all" onPress={clearAllCategories} style={[styles.allChip, topCat === 'all' && styles.allChipActive]}>
-                          <View style={[styles.allChipIconWrap, topCat === 'all' && styles.allChipIconWrapActive]}>
-                            <Icon name="grip" size={20} color={topCat === 'all' ? colors.primary : colors.bg} />
-                          </View>
-                          <Text style={[styles.allChipText, topCat === 'all' && styles.allChipTextActive]} numberOfLines={1}>
-                            {t('common.all')}
-                          </Text>
-                        </Pressy>
-                      ) : (
-                        <CategoryCard key={c.id} category={c} width={72} selected={topCat === c.id} onPress={() => chooseTopCategory(c.id)} />
-                      )
-                    )}
-                  </ScrollView>
-                )}
-              </Animated.View>
-            </View>
-
-            <Modal visible={mobileFiltersOpen} animationType="slide" onRequestClose={() => setMobileFiltersOpen(false)}>
-              <Screen>
-                <View style={styles.modalTopBar}>
-                  <Text style={type.h3}>{t('home.filters.filters')}</Text>
-                  <Pressy onPress={() => setMobileFiltersOpen(false)} style={styles.iconBtn}>
-                    <Icon name="close" size={18} />
-                  </Pressy>
-                </View>
-                <ScrollView contentContainerStyle={styles.modalScroll}>{renderFilterSections()}</ScrollView>
-                <View style={styles.modalFooter}>
-                  <Button label={t('home.filters.showResultsCount', { n: filtered.length })} onPress={() => setMobileFiltersOpen(false)} style={{ flex: 1 }} />
-                </View>
-              </Screen>
-            </Modal>
-          </>
-        )}
-
-        <SaveSearchModal
-          visible={saveSearchModalOpen}
-          defaultLabel={categoryLabel}
-          loading={savingSearch}
-          onSave={handleSaveSearch}
-          onCancel={() => setSaveSearchModalOpen(false)}
-        />
-        </View>
-      </TouchableWithoutFeedback>
+      <SaveSearchModal
+        visible={saveSearchModalOpen}
+        defaultLabel={categoryLabel}
+        loading={savingSearch}
+        onSave={handleSaveSearch}
+        onCancel={() => setSaveSearchModalOpen(false)}
+      />
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
-  // The TouchableWithoutFeedback tap-outside-to-dismiss wrapper (see the
-  // render site) needs a single child, and that child needs to actually
-  // fill the screen for an "empty space" tap anywhere to register --
-  // without flex: 1 this would collapse to its content's own height,
-  // leaving anything below a short screen's worth of content untouchable.
-  rootTouchArea: { flex: 1 },
+  // The TouchableWithoutFeedback tap-outside-to-dismiss wrapper (see its
+  // render site inside carouselsAnchor) needs a single child, and that
+  // child needs to actually fill carouselsAnchor's own flex: 1 for an
+  // "empty space" tap below a short results list to still register --
+  // without flex: 1 here this would collapse to its content's own height.
+  resultsTouchArea: { flex: 1 },
   header: {
     flexDirection: 'row',
     justifyContent: 'space-between',
