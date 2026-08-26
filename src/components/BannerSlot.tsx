@@ -156,36 +156,48 @@ export function BannerSlotView({
   }
 
   return (
-    // Outer view carries the caller's own spacing (margins, horizontal
-    // insets) and is what actually gets measured -- its rendered width IS
-    // "100% of the real parent, minus that spacing", which onLayout
-    // reports honestly regardless of viewport size or browser zoom, unlike
-    // the CSS width:'100%'/aspectRatio combination this replaced.
-    // alignItems: 'center' centers the inner box on the rare occasion it
-    // ends up narrower than the full measured width (the maxHeight-capped
-    // branch above).
-    <View style={[styles.measure, style]} onLayout={onMeasure}>
-      {boxWidth != null && boxHeight != null && (
-        <Pressy
-          onPress={() => {
-            logClick(banner.id);
-            openBannerLink(banner, navigation);
-          }}
-          style={[styles.wrap, { width: boxWidth, height: boxHeight }]}
-        >
-          {/* contain, not cover -- belt-and-suspenders alongside the exact
-              sizing above: the box is already computed to the creative's
-              own aspect ratio, so this never actually has to shrink
-              anything, but it guarantees no crop even if a stale
-              measurement briefly makes the box's ratio not match. */}
-          <Image source={{ uri: imageUrl }} style={styles.img} resizeMode="contain" />
-        </Pressy>
-      )}
+    // Two nested views doing two different jobs -- collapsing them into
+    // one (an earlier version of this component did) is exactly what
+    // caused the homepage banners to render full-bleed, ignoring their
+    // own paddingHorizontal: a view's own padding narrows the space its
+    // CHILDREN get, but onLayout on that same view reports the view's
+    // own outer width, unaffected by its own padding. So a caller-supplied
+    // padding was silently getting measured right past.
+    //
+    // outer carries the caller's own spacing (style -- margins, and any
+    // padding like HomeScreen's homeBanner uses for its edge inset) and
+    // is NOT measured. inner is a plain 100%-width child of that padded
+    // box, so ITS rendered width is correctly "the padded content area",
+    // and that's the node onLayout measures. alignItems: 'center' on
+    // inner centers the box on the rare occasion it ends up narrower than
+    // the full measured width (the maxHeight-capped branch above).
+    <View style={[styles.outer, style]}>
+      <View style={styles.measure} onLayout={onMeasure}>
+        {boxWidth != null && boxHeight != null && (
+          <Pressy
+            onPress={() => {
+              logClick(banner.id);
+              openBannerLink(banner, navigation);
+            }}
+            style={[styles.wrap, { width: boxWidth, height: boxHeight }]}
+          >
+            {/* contain, not cover -- belt-and-suspenders alongside the
+                exact sizing above: the box is already computed to the
+                creative's own aspect ratio, so this never actually has to
+                shrink anything, but it guarantees no crop even if a stale
+                measurement briefly makes the box's ratio not match. */}
+            <Image source={{ uri: imageUrl }} style={styles.img} resizeMode="contain" />
+          </Pressy>
+        )}
+      </View>
     </View>
   );
 }
 
 const styles = StyleSheet.create({
+  outer: {
+    width: '100%',
+  },
   measure: {
     width: '100%',
     alignItems: 'center',
