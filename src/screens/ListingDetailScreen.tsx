@@ -11,7 +11,7 @@ import HomeMarkButton from '../components/HomeMarkButton';
 import ConfirmDialog from '../components/ConfirmDialog';
 import ActionSheet from '../components/ActionSheet';
 import PhotoGallery, { PhotoGalleryHandle } from '../components/PhotoGallery';
-import CarouselArrows, { ARROW_GUTTER } from '../components/CarouselArrows';
+import CarouselArrows from '../components/CarouselArrows';
 import { useGoBack } from '../hooks/useGoBack';
 import SpinViewer from '../components/SpinViewer';
 import VideoPlayer from '../components/VideoPlayer';
@@ -1374,16 +1374,18 @@ const styles = StyleSheet.create({
   // this screen's desktop layout never renders anyway (isDesktop is
   // never true on the phone-sized native app).
   //
-  // marginLeft: ARROW_GUTTER -- the photo above sits inside
-  // CarouselArrows, which reserves a 34px gutter on each side for its
-  // hover arrows (see that component's own comment); the photo box
-  // itself is centered in the remaining space, so its actual left edge
-  // sits 34px right of desktopMediaCol's own edge. This banner isn't
-  // CarouselArrows-wrapped (nothing to carousel -- one banner), so
-  // without this margin it renders flush with the column edge instead,
-  // 34px left of where the photo starts. Matching the margin here is
-  // what keeps the two visually aligned.
-  desktopRailBanner: { position: 'sticky', top: 20, marginTop: 10, marginLeft: ARROW_GUTTER } as any,
+  // No marginLeft here (there used to be one, pinned at ARROW_GUTTER, from
+  // when this box rendered flush against desktopMediaCol's edge and had to
+  // be shoved right by hand to line up with the photo). BannerSlot now
+  // centers its own box in whatever width it measures itself into -- see
+  // that component's `measure`/`alignItems: 'center'` -- so it centers
+  // itself in the full CarouselArrows-wide column (gutter + 440px photo +
+  // gutter) on its own. Because those two gutters are equal, that center
+  // point is also exactly the photo's own center: this box needs no
+  // horizontal offset at all to land flush with the photo's left edge AND
+  // centered on the column -- both at once, for free. A hardcoded margin
+  // here would just fight that centering and shift it off to one side.
+  desktopRailBanner: { position: 'sticky', top: 20, marginTop: 10 } as any,
   // Sits inside styles.card now (see the render site), so BannerSlot's
   // own onLayout measurement resolves to the card's inset content width
   // rather than the full screen. marginTop echoes sectionLabel/
