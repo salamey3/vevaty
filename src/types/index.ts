@@ -523,13 +523,25 @@ export interface CollectionItem {
   position: number;
 }
 
-// A managed banner (announcement or ad) in one of three placements -- see
+// A managed banner (announcement or ad) in one of five placements -- see
 // myazar.banners and the "Vevaty — Managed Banner Placements" design spec
 // for the full behavior. Multiple banners can be active in the same slot
 // at once; BannerStore picks which one to actually show (a "shuffle bag",
 // never the same one twice in a row, equal exposure over time -- see
 // BannerStore.tsx).
-export type BannerSlot = 'sidebar_nav' | 'listing_detail_desktop_rail' | 'listing_detail_mobile';
+//
+// home_after_editors_picks / home_after_just_listed: the two mobile-home
+// placements (mobile site and app only -- desktop's "all categories" grid
+// never renders these two, see HomeScreen.tsx's renderCollectionRows).
+// Named after the collection they trail rather than a fixed position,
+// since the three home collection rows sort by their own admin-editable
+// sort_order -- see HomeScreen.tsx for exactly how each anchors itself.
+export type BannerSlot =
+  | 'sidebar_nav'
+  | 'listing_detail_desktop_rail'
+  | 'listing_detail_mobile'
+  | 'home_after_editors_picks'
+  | 'home_after_just_listed';
 
 // Where the banner links to. 'external' is a plain URL; the other three
 // are resolved client-side against this app's own navigation -- see

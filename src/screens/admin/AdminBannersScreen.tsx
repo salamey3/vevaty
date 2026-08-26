@@ -28,6 +28,8 @@ const SLOT_LABEL: Record<BannerSlot, string> = {
   sidebar_nav: 'Sidebar',
   listing_detail_desktop_rail: 'Listing (Desktop)',
   listing_detail_mobile: 'Listing (Mobile)',
+  home_after_editors_picks: "Home: Editor's Picks → Hot Deals",
+  home_after_just_listed: 'Home: Just Listed → Vehicles',
 };
 
 const SLOT_DIMENSIONS: Record<BannerSlot, string> = {
@@ -45,6 +47,8 @@ const SLOT_DIMENSIONS: Record<BannerSlot, string> = {
   sidebar_nav: '200px wide · height fills the sidebar down to the footer (varies by screen, often 500-700px+ tall) -- design tall, since it crops via cover',
   listing_detail_desktop_rail: '440px wide · up to 800px tall',
   listing_detail_mobile: 'Full page width · height follows the creative',
+  home_after_editors_picks: 'Full page width · height follows the creative -- mobile site and app only, never shown on desktop',
+  home_after_just_listed: 'Full page width · height follows the creative -- mobile site and app only, never shown on desktop',
 };
 
 const LINK_TYPE_LABEL: Record<BannerLinkType, string> = {

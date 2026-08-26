@@ -13,11 +13,16 @@ import { RootStackParamList } from '../navigation/types';
 // fixed per slot, height is auto to the creative's own aspect ratio, and
 // the two that need one get a hard cap so a tall image can never collide
 // with what's below it (the sidebar footer; the bottom of a short
-// listing page). 'listing_detail_mobile' deliberately has no cap.
+// listing page). 'listing_detail_mobile' deliberately has no cap, and the
+// two home_* slots follow that same no-cap precedent -- they sit between
+// two carousels rather than above a footer or a page bottom, so there's
+// nothing below them a tall creative could collide with either.
 const SLOT_SIZE: Record<BannerSlotKind, { width: number | string; maxHeight?: number }> = {
   sidebar_nav: { width: 200, maxHeight: 320 },
   listing_detail_desktop_rail: { width: 440, maxHeight: 800 },
   listing_detail_mobile: { width: '100%' },
+  home_after_editors_picks: { width: '100%' },
+  home_after_just_listed: { width: '100%' },
 };
 
 // Reads the creative's own natural size once, so the container can be

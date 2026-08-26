@@ -11,6 +11,7 @@ import CategoryCard from '../components/CategoryCard';
 import CarouselArrows from '../components/CarouselArrows';
 import CategoryCarouselSection from '../components/CategoryCarouselSection';
 import CollectionCarouselSection from '../components/CollectionCarouselSection';
+import BannerSlot from '../components/BannerSlot';
 import LanguageSwitch from '../components/LanguageSwitch';
 import FilterSection, { FilterOption } from '../components/FilterSection';
 import RangeSlider from '../components/RangeSlider';
@@ -708,19 +709,46 @@ export default function HomeScreen() {
   // there are at most 3 of them (one per collection kind), so they don't
   // need windowing of their own, and putting them in the header keeps them
   // pinned above every category row regardless of how many of those exist.
-  const collectionRowsHeader = collectionCarousels.length > 0 ? (
-    <>
-      {collectionCarousels.map(({ collection, items }) => (
-        <CollectionCarouselSection
-          key={collection.id}
-          collection={collection}
-          items={items}
-          onSeeAll={() => navigation.navigate('Collection', { slug: collection.slug })}
-          onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
-        />
-      ))}
-    </>
-  ) : null;
+  //
+  // Two managed ad banners are interleaved into this same header, but on
+  // MOBILE ONLY (includeBanners=true, used below for the FlatList's own
+  // header -- desktop's prepend site further down passes false, since
+  // this same JSX is also reused there, see that site's own comment): one
+  // right after Editor's Picks (kind 'curated'), one after the whole
+  // collection block. That second one lands directly above the first
+  // category row -- Vehicles is seeded at sort_order 0, so in practice
+  // that reads as "between Just Listed and Vehicles" the way it was
+  // asked for, without hard-coding a position that would silently stop
+  // matching if either row ever got reordered from an admin screen.
+  // Anchored on `kind`, not `slug` or title -- kind is the fixed
+  // curated/price_drop/recent enum (AdminCollectionsScreen's KIND_LABEL),
+  // while slug and title are both admin-editable free text.
+  const renderCollectionRows = (includeBanners: boolean) =>
+    collectionCarousels.length > 0 ? (
+      <>
+        {collectionCarousels.map(({ collection, items }) => (
+          <React.Fragment key={collection.id}>
+            <CollectionCarouselSection
+              collection={collection}
+              items={items}
+              onSeeAll={() => navigation.navigate('Collection', { slug: collection.slug })}
+              onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
+            />
+            {includeBanners && collection.kind === 'curated' && (
+              <BannerSlot slot="home_after_editors_picks" style={styles.homeBanner} />
+            )}
+          </React.Fragment>
+        ))}
+        {includeBanners && <BannerSlot slot="home_after_just_listed" style={styles.homeBanner} />}
+      </>
+    ) : null;
+  // No banners: this is the copy prepended into desktop's "all
+  // categories" header further down (see that site's comment on why it
+  // needs collection rows at all) -- desktop never gets these two ad
+  // slots, only the mobile site and app do, per how they were asked for.
+  const collectionRowsHeader = renderCollectionRows(false);
+  // With banners: mobile-only, feeds the FlatList header below.
+  const mobileCollectionRowsHeader = renderCollectionRows(true);
 
   const carousels = (
     <FlatList
@@ -728,7 +756,7 @@ export default function HomeScreen() {
       keyExtractor={({ category }) => category.id}
       style={styles.list}
       contentContainerStyle={[styles.carouselsContent, { paddingTop: mobileChromeHeight }]}
-      ListHeaderComponent={collectionRowsHeader}
+      ListHeaderComponent={mobileCollectionRowsHeader}
       onScroll={onChromeScroll}
       onScrollBeginDrag={beginChromeInteraction}
       onScrollEndDrag={endChromeInteraction}
@@ -1110,6 +1138,12 @@ const styles = StyleSheet.create({
     paddingBottom: 14,
   },
   headerDesktop: { paddingHorizontal: 0, paddingTop: 26 },
+  // Mobile-only homepage ad slots (renderCollectionRows' includeBanners
+  // branch) -- paddingHorizontal: 18 matches CollectionCarouselSection's
+  // own row inset so the banner lines up with the carousels above/below
+  // it instead of running edge-to-edge, and marginTop/marginBottom give
+  // it the same breathing room ListingDetailScreen's mobileBanner uses.
+  homeBanner: { marginTop: 22, marginBottom: 20, paddingHorizontal: 18 },
   // Mobile only -- see mobileGreetingSearchRow. Greeting text and search
   // bar share this one row instead of stacking on two, freeing the height
   // a separate search row used to take up for the category slider to move
