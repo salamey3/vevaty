@@ -98,19 +98,19 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
   }, [bannersLoaded, isDesktop, focusedIndex]);
   const sidebarBanner = currentForSlot('sidebar_nav');
 
-  // How tall the sidebar banner gets to be. navScroll (flex:1) already
-  // occupies exactly the space between brandRow and the footer -- see its
-  // own comment below -- so its measured height, minus the nav list's own
-  // height and the banner's marginTop/marginBottom (18 + 6, see
-  // sidebarBanner style), is precisely how much room is left for the
-  // banner to stretch into before it would reach the footer. Passed to
-  // BannerSlotView as an explicit height budget rather than just another
-  // ceiling (see that component's own comment on the difference) so the
-  // banner actually fills the gap instead of stopping at its creative's
-  // natural aspect-ratio height and leaving dead space below it. Falls
-  // back to SLOT_SIZE's own 320px default until both measurements land
-  // (first render, before onLayout fires), so there's no flash of an
-  // unbounded or zero-height box.
+  // How tall the sidebar banner is allowed to get. navScroll (flex:1)
+  // already occupies exactly the space between brandRow and the footer --
+  // see its own comment below -- so its measured height, minus the nav
+  // list's own height and the banner's marginTop/marginBottom (18 + 6, see
+  // sidebarBanner style), is precisely how much room is left before the
+  // footer. Passed to BannerSlotView as an override on its own maxHeight
+  // ceiling (see that component's sizing math) rather than a fixed 320px --
+  // it's still just a ceiling, not a fill target: a creative that doesn't
+  // need all of it is shown at its own full, uncropped size and leaves
+  // whatever's left of the gap empty, rather than being stretched or
+  // cropped to fill it. Falls back to SLOT_SIZE's own 320px default until
+  // both measurements land (first render, before onLayout fires), so
+  // there's no flash of an unbounded or zero-height box.
   const [navScrollH, setNavScrollH] = useState<number | null>(null);
   const [navListH, setNavListH] = useState<number | null>(null);
   const SIDEBAR_BANNER_VMARGIN = 18 + 6;

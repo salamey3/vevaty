@@ -9,14 +9,21 @@ import { Banner, BannerSlot as BannerSlotKind } from '../types';
 import { openBannerLink } from '../lib/bannerLink';
 import { RootStackParamList } from '../navigation/types';
 
-// Per-slot sizing, straight from the design spec's Section 2 -- width is
-// fixed per slot, height is auto to the creative's own aspect ratio, and
-// the two that need one get a hard cap so a tall image can never collide
-// with what's below it (the sidebar footer; the bottom of a short
-// listing page). 'listing_detail_mobile' deliberately has no cap, and the
-// two home_* slots follow that same no-cap precedent -- they sit between
-// two carousels rather than above a footer or a page bottom, so there's
-// nothing below them a tall creative could collide with either.
+// Per-slot sizing, straight from the design spec's Section 2. `width` is a
+// CEILING, not a forced size: the box scales up to it but never beyond, and
+// never crops. `maxHeight`, where present, is the same kind of ceiling on
+// the other axis (keeps a tall image from colliding with what's below it --
+// the sidebar footer; the bottom of a short listing page). Whenever a
+// creative's own aspect ratio would need more of one axis than its ceiling
+// allows, BOTH ceilings shrink together (preserving the aspect ratio) until
+// the whole image fits -- see the sizing math in BannerSlotView below. The
+// container is always exactly the size of the image it ends up showing;
+// there's never a cropped edge and never a background-colored gap around a
+// letterboxed creative. 'listing_detail_mobile' and the two home_* slots
+// have no maxHeight, so they're unconstrained on that axis by design --
+// they sit between two carousels (or above nothing at all), not above a
+// footer or a page bottom, so there's nothing below them a tall creative
+// could collide with.
 const SLOT_SIZE: Record<BannerSlotKind, { width: number | string; maxHeight?: number }> = {
   sidebar_nav: { width: 200, maxHeight: 320 },
   listing_detail_desktop_rail: { width: 440, maxHeight: 800 },
@@ -76,11 +83,14 @@ export function BannerSlotView({
   banner: Banner | null;
   slot: BannerSlotKind;
   style?: ViewStyle;
-  // Overrides SLOT_SIZE's own cap for this one instance. TabBar's sidebar
-  // passes the actual space measured between the nav list and the footer,
-  // so the banner grows to fill it instead of stopping at the fixed 320px
-  // every other sidebar_nav placement falls back to -- see TabBar.tsx's
-  // own comment on why a static cap was leaving dead space there.
+  // Overrides SLOT_SIZE's own maxHeight ceiling for this one instance.
+  // TabBar's sidebar passes the actual space measured between the nav list
+  // and the footer, so the banner can grow up to that much instead of
+  // stopping at the fixed 320px every other sidebar_nav placement falls
+  // back to. It's still a ceiling, not a fill target -- see the sizing
+  // math below -- so a creative that doesn't need all of it just leaves
+  // the rest of that space empty rather than being stretched or cropped
+  // into it.
   maxHeight?: number;
 }) {
   const { language } = useLanguage();
@@ -98,23 +108,50 @@ export function BannerSlotView({
   if (!banner || !imageUrl || !aspect) return null;
 
   const size = SLOT_SIZE[slot];
-  const widthPct = typeof size.width === 'string';
-  const naturalHeight = widthPct ? null : (size.width as number) / aspect;
-  // Two different jobs depending on whether a caller passed maxHeight:
-  // with no override (every slot except TabBar's sidebar), it's just a
-  // ceiling on the creative's own natural height, exactly as before this
-  // prop existed. With an override, it's an exact height budget the
-  // caller measured (how much room is actually left before it must stop)
-  // -- so the box FILLS it, letting resizeMode="cover" crop the image if
-  // its aspect ratio doesn't happen to match, rather than leaving
-  // whatever gap the creative's natural height falls short by.
+  const maxWidthIsFluid = typeof size.width === 'string'; // '100%' -- no known pixel ceiling
   const effectiveMaxHeight = maxHeight ?? size.maxHeight;
-  const height =
-    maxHeight != null
-      ? maxHeight
-      : naturalHeight != null && effectiveMaxHeight != null
-        ? Math.min(naturalHeight, effectiveMaxHeight)
-        : naturalHeight;
+
+  // Fit-inside-the-box math: scale the creative up to whichever ceiling it
+  // hits first, on either axis, preserving its own aspect ratio -- the
+  // opposite of resizeMode="cover" (which fills the box and crops
+  // whatever doesn't fit). The box then gets shrunk to exactly match, so
+  // there's no leftover gap around it either -- it just adjusts to the
+  // creative's own final size.
+  let boxWidth: number | string;
+  let boxHeight: number | undefined;
+
+  if (!maxWidthIsFluid && effectiveMaxHeight != null) {
+    // Both axes have a real pixel ceiling (sidebar_nav, listing_detail_desktop_rail,
+    // and TabBar's measured sidebar override) -- pick whichever ceiling the
+    // creative's own aspect ratio would overflow first, then scale to fit
+    // wholly inside it.
+    const maxW = size.width as number;
+    const heightAtMaxWidth = maxW / aspect;
+    if (heightAtMaxWidth <= effectiveMaxHeight) {
+      boxWidth = maxW;
+      boxHeight = heightAtMaxWidth;
+    } else {
+      boxHeight = effectiveMaxHeight;
+      boxWidth = effectiveMaxHeight * aspect;
+    }
+  } else if (maxWidthIsFluid) {
+    // No pixel width to do fixed math against -- let the box take up to
+    // 100% of its parent and derive height from aspectRatio, which sizes
+    // itself off however much width CSS actually grants it, so it can
+    // never crop and (with no maxHeight on any of these slots -- see
+    // SLOT_SIZE above) never gets capped either. If a future slot ever
+    // combines a fluid width with a maxHeight, the cap below still holds
+    // as a last-resort ceiling with resizeMode="contain" doing the actual
+    // no-crop guarantee, at the cost of a possible empty margin instead of
+    // the exact-fit box the fixed-width branch achieves.
+    boxWidth = size.width;
+    boxHeight = undefined;
+  } else {
+    // Fixed pixel width, no height ceiling -- height is simply whatever
+    // the creative's own ratio implies at that width.
+    boxWidth = size.width as number;
+    boxHeight = (size.width as number) / aspect;
+  }
 
   return (
     <Pressy
@@ -124,11 +161,20 @@ export function BannerSlotView({
       }}
       style={[
         styles.wrap,
-        { width: size.width as any, maxHeight: effectiveMaxHeight, height: height ?? undefined, aspectRatio: widthPct ? aspect : undefined },
+        {
+          width: boxWidth as any,
+          height: boxHeight,
+          aspectRatio: boxHeight == null ? aspect : undefined,
+          maxHeight: maxWidthIsFluid ? effectiveMaxHeight : undefined,
+        },
         style,
       ]}
     >
-      <Image source={{ uri: imageUrl }} style={styles.img} resizeMode="cover" />
+      {/* contain, not cover -- the box above is already sized to the
+          creative's own aspect ratio in every normal case, so this is a
+          no-op then; it only does real work as the last-resort guard in
+          the fluid-width + maxHeight edge case noted above. */}
+      <Image source={{ uri: imageUrl }} style={styles.img} resizeMode="contain" />
     </Pressy>
   );
 }
@@ -138,6 +184,12 @@ const styles = StyleSheet.create({
     borderRadius: radius.md,
     overflow: 'hidden',
     backgroundColor: colors.surface,
+    // Only visibly matters when a maxHeight ceiling forces the box
+    // narrower than its own width ceiling (see the sizing math above) --
+    // centers it in that column instead of leaving it pinned to the
+    // start edge. A no-op everywhere else, since those boxes already
+    // fill the full width they're given.
+    alignSelf: 'center',
   },
   img: { width: '100%', height: '100%' },
 });
