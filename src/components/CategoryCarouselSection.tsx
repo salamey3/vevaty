@@ -81,7 +81,7 @@ export default function CategoryCarouselSection({
         nestedScrollEnabled
       >
         {ordered.map((item) => (
-          <ListingCard key={item.id} listing={item} width={148} onPress={() => onPressListing(item)} />
+          <ListingCard key={item.id} listing={item} width={160} onPress={() => onPressListing(item)} />
         ))}
       </ScrollView>
     </View>
@@ -106,5 +106,6 @@ const styles = StyleSheet.create({
   // story), so it needs the same explicit override.
   titleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
-  row: { paddingHorizontal: 18, gap: 12 },
+  // Tightened from 12 -- minimal space between cards, per request.
+  row: { paddingHorizontal: 18, gap: 6 },
 });

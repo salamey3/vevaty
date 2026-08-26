@@ -83,7 +83,7 @@ export default function ListingCard({
   // Not floored: rounding each card down left the remainder to
   // space-between, which quietly widened the gutters again beyond whatever
   // was set here.
-  const gutterPct = columns > 4 ? 1.1 : columns > 2 ? 1.6 : 3;
+  const gutterPct = columns > 4 ? 0.5 : columns > 2 ? 0.7 : 1.2;
   const widthPct: `${number}%` = `${Number(((100 - (columns - 1) * gutterPct) / columns).toFixed(3))}%`;
   const favorited = isFavorite(listing.id);
   const [favBusy, setFavBusy] = useState(false);
@@ -328,8 +328,11 @@ export default function ListingCard({
 const styles = StyleSheet.create({
   card: {
     backgroundColor: colors.card,
-    borderRadius: radius.md,
-    marginBottom: 14,
+    borderTopLeftRadius: radius.md,
+    borderBottomRightRadius: radius.md,
+    borderTopRightRadius: 0,
+    borderBottomLeftRadius: 0,
+    marginBottom: 8,
     overflow: 'hidden',
     borderWidth: 1,
     borderColor: colors.line,

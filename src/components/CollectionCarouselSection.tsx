@@ -81,7 +81,7 @@ export default function CollectionCarouselSection({
           <ListingCard
             key={item.id}
             listing={item}
-            width={useHorizontalCards ? 300 : 148}
+            width={useHorizontalCards ? 300 : 160}
             layout={useHorizontalCards ? 'horizontal' : 'vertical'}
             onPress={() => onPressListing(item)}
             cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
@@ -102,5 +102,6 @@ const styles = StyleSheet.create({
   title: { ...type.h3, flex: 1 },
   titleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
-  row: { paddingHorizontal: 18, gap: 12 },
+  // Tightened from 12 -- minimal space between cards, per request.
+  row: { paddingHorizontal: 18, gap: 6 },
 });
