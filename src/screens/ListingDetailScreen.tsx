@@ -921,6 +921,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             photos={listing.photos}
             fallbackIconName={(cat?.icon as any) || 'bag'}
             onIndexChange={setPhotoIndex}
+            // Full-screen photo viewing (PhotoLightbox) stays desktop-only.
+            // On a phone -- native app or mobile web -- a buyer's photos
+            // stay inside the slider they're already swiping through; see
+            // PhotoGallery's own `allowFullscreen` comment for why.
+            allowFullscreen={isDesktop}
           />
         </View>
       </CarouselArrows>
