@@ -47,6 +47,16 @@ export default function ListingCard({
   // listing that's both a 360-spin AND in a collection, this one wins the
   // corner and spinBadge shifts down rather than the two overlapping.
   cornerBadge,
+  // 'vertical' (default): photo on top, details below -- the shape every
+  // grid and carousel on the app has always used. 'horizontal': photo on
+  // the left, details on the right, used by CollectionCarouselSection for
+  // Hot Deals (every platform) and Editor's Picks (desktop web only) --
+  // see that component's own comment for exactly which collection gets
+  // which, on which platform. The badges/ribbon inside the thumbnail
+  // (favorite, cornerBadge, spinBadge, out-of-stock) don't need their own
+  // layout branch: they're positioned absolute within `thumb`, so they
+  // just follow whatever size/shape it resolves to.
+  layout = 'vertical',
 }: {
   listing: Listing;
   onPress: () => void;
@@ -57,6 +67,7 @@ export default function ListingCard({
   width?: number;
   showFavorite?: boolean;
   cornerBadge?: CornerBadge;
+  layout?: 'vertical' | 'horizontal';
 }) {
   const { categoryById, resolveAttributesForCategory } = useSettings();
   const { isVerified, profile } = useAppStore();
@@ -79,6 +90,7 @@ export default function ListingCard({
   // Nothing to save about your own listing -- same reasoning as
   // ListingDetailScreen hiding its contact CTA from the owner.
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
+  const horizontal = layout === 'horizontal';
 
   // The hover/long-press preview (CardPreview) -- mounted only while
   // `previewing` is true, so its images never load for a card nobody's
@@ -157,7 +169,7 @@ export default function ListingCard({
   return (
     <Pressy
       onPress={onPress}
-      style={[styles.card, { width: width ?? widthPct }]}
+      style={[styles.card, horizontal && styles.cardHorizontal, { width: width ?? widthPct }]}
       // Desktop web only -- Pressable's hover events don't fire on
       // native touch, so this never competes with the long-press below.
       onHoverIn={startHoverTimer}
@@ -173,7 +185,7 @@ export default function ListingCard({
       onLongPress={() => setPreviewing(true)}
       onPressOut={() => setPreviewing(false)}
     >
-      <View style={styles.thumb}>
+      <View style={[styles.thumb, horizontal && styles.thumbHorizontal]}>
         {listing.photos[0] ? (
           // Requested at card size, not the seeded 900x1200 original -- see
           // photoSize.ts for why that mattered so much more than it looks
@@ -218,7 +230,7 @@ export default function ListingCard({
           </Pressy>
         )}
       </View>
-      <View style={styles.info}>
+      <View style={[styles.info, horizontal && styles.infoHorizontal]}>
         {/* New/used -- null for a listing posted before this field existed
             (or one of the pre-existing seed rows a migration collapsed
             from a more granular scale with no real "new" value among
@@ -325,6 +337,11 @@ const styles = StyleSheet.create({
     userSelect: 'none',
     WebkitTouchCallout: 'none',
   } as ViewStyle,
+  // Photo-left/details-right, see the `layout` prop's own comment. Row
+  // instead of the default column; everything else (background, radius,
+  // border, the overflow:hidden that clips the thumb's square corners to
+  // the card's rounded ones) is shared with the vertical card unchanged.
+  cardHorizontal: { flexDirection: 'row' },
   // Portrait 3:4, derived from the card's own width rather than a fixed
   // height. The old fixed 120/150px meant the shape changed with every
   // context the card appeared in -- roughly square in a 2-column grid,
@@ -342,6 +359,14 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   thumbImg: { width: '100%', height: '100%' },
+  // A fixed-width square instead of the vertical card's full-bleed 3:4 --
+  // this thumbnail now shares the row with a details column instead of
+  // owning the card's whole top edge, so it needs its own bounded size
+  // rather than stretching to `card`'s width. Square (not 3:4) reads as a
+  // compact "photo chip" beside text, the way a list-style card usually
+  // wants, rather than a second tall portrait competing with the copy for
+  // vertical space.
+  thumbHorizontal: { width: 112, aspectRatio: 1 },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
@@ -373,6 +398,12 @@ const styles = StyleSheet.create({
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
   info: { paddingHorizontal: 10, paddingVertical: 9 },
+  // Fills whatever's left beside the fixed-width thumbHorizontal, and
+  // centers its content vertically -- the info block's own height varies
+  // (a storefront listing runs two lines longer than one with no specs
+  // line), and centering keeps that variation from reading as "randomly
+  // pinned to the top" against the fixed-height photo beside it.
+  infoHorizontal: { flex: 1, justifyContent: 'center', paddingHorizontal: 12 },
   // New/used badge -- two distinct fills so the two states read apart at
   // a glance rather than needing the label text to do all the work. Green
   // (New) reuses the same family as `price`/`primary` so "new" reads as a

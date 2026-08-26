@@ -47,6 +47,18 @@ export default function CollectionCarouselSection({
   const isDesktop = useIsDesktop();
   const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
 
+  // Card shape, per the approved "Editor's Picks / Hot Deals go
+  // photo-left" mockup. Hot Deals (kind='price_drop') gets the wider
+  // side-by-side card everywhere -- mobile web, the app, and desktop.
+  // Editor's Picks (kind='curated') only gets it on desktop web; mobile
+  // and the app keep today's stacked card there, unchanged, per request.
+  // Just Listed (kind='recent') was never asked for a change, so it stays
+  // stacked everywhere regardless of platform. Anchored on `kind`, not
+  // `slug` or title, for the same reason HomeScreen's renderCollectionRows
+  // is: kind is the fixed curated/price_drop/recent enum, slug and title
+  // are both admin-editable free text.
+  const useHorizontalCards = collection.kind === 'price_drop' || (isDesktop && collection.kind === 'curated');
+
   return (
     <View style={styles.section}>
       <View style={[styles.headerRow, isRTL && styles.headerRowRTL]}>
@@ -69,7 +81,8 @@ export default function CollectionCarouselSection({
           <ListingCard
             key={item.id}
             listing={item}
-            width={148}
+            width={useHorizontalCards ? 300 : 148}
+            layout={useHorizontalCards ? 'horizontal' : 'vertical'}
             onPress={() => onPressListing(item)}
             cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
           />
