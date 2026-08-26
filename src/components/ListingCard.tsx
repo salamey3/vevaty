@@ -191,22 +191,20 @@ export default function ListingCard({
           // photoSize.ts for why that mattered so much more than it looks
           // (bitmap heap, not bandwidth).
           //
-          // resizeMode: the vertical card's thumb is deliberately 3:4 to
-          // match the common source photo (see that style's own comment),
-          // so "cover" rarely has to crop anything there and filling the
-          // frame is the whole point of a full-bleed top-of-card photo.
-          // thumbHorizontal is a fixed 112x112 SQUARE regardless of the
-          // photo's own shape, so "cover" would routinely crop a 3:4 photo
-          // to fit it -- "contain" instead scales the photo down to fit
-          // entirely inside that square (letterboxed on whichever axis is
-          // shorter, against thumb/thumbHorizontal's own neutral
-          // colors.surface fill, the same box that already centers the
-          // no-photo icon fallback below), so the horizontal card always
-          // shows the whole photo rather than a cropped slice of it.
+          // resizeMode="cover" (RN's own default, set explicitly here so
+          // it reads as deliberate) always fills the 3:4 frame edge to
+          // edge, on both layouts -- see thumb/thumbHorizontal's own
+          // comments for why they're both 3:4. A photo shot in a
+          // different ratio than the frame (portrait, landscape,
+          // whatever the seller's camera produced) gets the excess
+          // cropped off whichever axis runs long, rather than being
+          // letterboxed down to fit inside it -- that's the deliberate
+          // choice here: every card in a row stays a uniform, gap-free
+          // 3:4 rectangle regardless of what shape the source photo was.
           <Image
             source={{ uri: sizedPhotoUrl(listing.photos[0], PHOTO_WIDTHS.card)! }}
             style={styles.thumbImg}
-            resizeMode={horizontal ? 'contain' : 'cover'}
+            resizeMode="cover"
           />
         ) : (
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
@@ -376,14 +374,19 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
   },
   thumbImg: { width: '100%', height: '100%' },
-  // A fixed-width square instead of the vertical card's full-bleed 3:4 --
+  // A fixed-width column instead of the vertical card's full-bleed 3:4 --
   // this thumbnail now shares the row with a details column instead of
-  // owning the card's whole top edge, so it needs its own bounded size
-  // rather than stretching to `card`'s width. Square (not 3:4) reads as a
-  // compact "photo chip" beside text, the way a list-style card usually
-  // wants, rather than a second tall portrait competing with the copy for
-  // vertical space.
-  thumbHorizontal: { width: 112, aspectRatio: 1 },
+  // owning the card's whole top edge, so it needs its own bounded width
+  // rather than stretching to `card`'s width. Same 3:4 ratio as `thumb`
+  // above, though (not the square this used to be) -- same reasoning as
+  // that style's own comment: it's what the source photos actually are,
+  // so cover fills the frame instead of needing to crop a normal shot
+  // down to fit a shape the photo was never composed for. Height follows
+  // from the ratio, so it's taller than the old square (149 at this
+  // width) -- see infoHorizontal below for why that's fine: the text
+  // column already centers itself vertically against whatever height
+  // this resolves to.
+  thumbHorizontal: { width: 112, aspectRatio: 3 / 4 },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
