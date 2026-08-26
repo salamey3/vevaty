@@ -1106,10 +1106,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           {details}
           {/* Inside styles.card, ahead of Similar Listings/Editor's Picks/
               Hot Deals rather than trailing all three -- and inset to the
-              card's own 18px padding (SLOT_SIZE's width:'100%' just fills
-              whatever it's placed in) rather than edge-to-edge, so it reads
-              as part of the listing's own content column instead of a
-              full-bleed strip tacked onto the bottom of the page. */}
+              card's own 18px padding (this slot has no maxWidth ceiling, so
+              it just fills whatever width it measures itself into) rather
+              than edge-to-edge, so it reads as part of the listing's own
+              content column instead of a full-bleed strip tacked onto the
+              bottom of the page. */}
           <BannerSlot slot="listing_detail_mobile" style={styles.mobileBanner} />
           {relatedSection}
           {editorsPicksSection}
@@ -1383,8 +1384,8 @@ const styles = StyleSheet.create({
   // 34px left of where the photo starts. Matching the margin here is
   // what keeps the two visually aligned.
   desktopRailBanner: { position: 'sticky', top: 20, marginTop: 10, marginLeft: ARROW_GUTTER } as any,
-  // Sits inside styles.card now (see the render site), so its own
-  // width:'100%' (SLOT_SIZE) resolves to the card's inset content width
+  // Sits inside styles.card now (see the render site), so BannerSlot's
+  // own onLayout measurement resolves to the card's inset content width
   // rather than the full screen. marginTop echoes sectionLabel/
   // sectionLabelRow's own marginTop:22, so the gap above this banner and
   // the gap Similar Listings' own label adds below it stay the same size.
