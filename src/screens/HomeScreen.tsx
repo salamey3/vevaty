@@ -771,16 +771,30 @@ export default function HomeScreen() {
   // With banners: mobile-only, feeds the FlatList header below.
   const mobileCollectionRowsHeader = renderCollectionRows(true);
 
-  const carousels = (
+  // Shared by mobile's own "all categories" composite (see carouselsAnchor
+  // below) and desktop's topCat === 'all' branch (see the isDesktop block
+  // further down) -- the header differs (collection rows plus ad banners
+  // on mobile, collection rows plus the category tile strip on desktop),
+  // but the FlatList itself and its per-category rendering are identical
+  // on both, same relationship renderGrid above has to every desktop and
+  // mobile grid site. isDesktop-conditional exactly like renderGrid: on
+  // desktop this FlatList IS the page's own scroll container (see
+  // renderGrid's own comment on why that has to be true on web), so it
+  // needs gridDesktop-style padding there instead of mobile's floating-
+  // chrome scroll wiring.
+  const renderCarousels = (header?: React.ReactNode) => (
     <FlatList
       data={categoryCarousels}
       keyExtractor={({ category }) => category.id}
       style={styles.list}
-      contentContainerStyle={[styles.carouselsContent, { paddingTop: mobileChromeHeight }]}
-      ListHeaderComponent={mobileCollectionRowsHeader}
-      onScroll={onChromeScroll}
-      onScrollBeginDrag={beginChromeInteraction}
-      onScrollEndDrag={endChromeInteraction}
+      contentContainerStyle={[
+        styles.carouselsContent,
+        isDesktop ? styles.carouselsContentDesktop : { paddingTop: mobileChromeHeight },
+      ]}
+      ListHeaderComponent={header ? <>{header}</> : null}
+      onScroll={!isDesktop ? onChromeScroll : undefined}
+      onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
+      onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
       scrollEventThrottle={16}
       // Android's native ScrollView doesn't support nested scrolling by
       // default -- and every CategoryCarouselSection below nests its own
@@ -793,10 +807,21 @@ export default function HomeScreen() {
       // also real, fixed separately in ScrollChromeContext, but wasn't the
       // cause of this). No-op on iOS/web, safe to always set.
       nestedScrollEnabled
-      initialNumToRender={2}
-      maxToRenderPerBatch={2}
-      windowSize={3}
-      removeClippedSubviews
+      // Desktop skips the initialNumToRender/windowSize/removeClippedSubviews
+      // tuning below -- those were calibrated for mobile's bounded-height
+      // nested carousel view (see carouselsAnchor), and applying that same
+      // aggressive virtualization to desktop, where this FlatList is the
+      // page's own unbounded-height scroll container instead (same as
+      // renderGrid, which never sets these), was what made
+      // collectionRowsHeader (in ListHeaderComponent) silently fail to
+      // render on desktop -- an early, incomplete windowing pass was
+      // clipping it before real layout had a chance to measure it.
+      {...(!isDesktop && {
+        initialNumToRender: 2,
+        maxToRenderPerBatch: 2,
+        windowSize: 3,
+        removeClippedSubviews: true,
+      })}
       renderItem={({ item: { category, items } }) => (
         <CategoryCarouselSection
           category={category}
@@ -807,6 +832,8 @@ export default function HomeScreen() {
       )}
     />
   );
+
+  const carousels = renderCarousels(mobileCollectionRowsHeader);
 
   // The language toggle and the points pill. They live in the brand bar on
   // mobile and in the greeting row on desktop -- one place or the other,
@@ -955,24 +982,35 @@ export default function HomeScreen() {
       )}
 
       {isDesktop ? (
-        // Desktop is unchanged: a big tile grid at "all", a persistent
-        // left sidebar of facet filters once a category is picked. Plenty
-        // of vertical room there already -- this redesign is mobile-only.
+        // Desktop keeps its persistent left sidebar of facet filters once
+        // a category is picked (the branch below this one) -- that part
+        // really is unchanged. At "all", though, desktop now gets the
+        // same per-category carousels mobile has, on top of (not instead
+        // of) its own big category tile strip -- see the topCat === 'all'
+        // branch's own comment for the fallback-to-grid details.
         topCat === 'all' ? (
-          renderGrid(
-            /* One scrollable row, same as mobile, rather than a wrapping
-               grid. Thirteen categories over six columns spilled onto a
-               third row, which pushed the listings themselves below the
-               fold on a laptop -- the categories are navigation, not the
-               content, and they shouldn't cost half the first screen.
-
-               collectionRowsHeader (Editor's Picks / Hot Deals / Just
-               Listed) rides above this same header slot -- it was
-               originally wired only into the MOBILE carousels composite
-               below, which this desktop branch never touches at all (see
-               "Desktop is unchanged" above), so on desktop the collection
-               rows silently never rendered. Prepending it here is what
-               actually puts them above the category strip on desktop too. */
+          // One scrollable row, same as mobile, rather than a wrapping
+          // grid. Thirteen categories over six columns spilled onto a
+          // third row, which pushed the listings themselves below the
+          // fold on a laptop -- the categories are navigation, not the
+          // content, and they shouldn't cost half the first screen.
+          //
+          // collectionRowsHeader (Editor's Picks / Hot Deals / Just
+          // Listed) rides above this same header slot -- it was
+          // originally wired only into the MOBILE carousels composite
+          // below, which this desktop branch never touched at all (see
+          // "Desktop is unchanged" above), so on desktop the collection
+          // rows silently never rendered. Prepending it here is what
+          // actually puts them above the category strip on desktop too.
+          //
+          // Below the tile strip: the same per-category carousels mobile
+          // gets (see categoryCarousels/showCarousels above) instead of
+          // the flat combined grid -- desktop has room for the tile strip
+          // AND the carousels, so it keeps both rather than picking one
+          // like mobile has to. Falls back to the plain grid on the exact
+          // same terms as mobile: a search in progress, or nothing to
+          // show yet (see showCarousels above).
+          (showCarousels ? renderCarousels : renderGrid)(
             <>
               {collectionRowsHeader}
               <CarouselArrows
@@ -1498,6 +1536,12 @@ const styles = StyleSheet.create({
   // since the overlay's height now varies (greeting text length), so a
   // static stylesheet number can't track it.
   carouselsContent: { paddingBottom: 110 },
+  // Desktop counterpart to gridDesktop above -- same 60px bottom
+  // clearance (no tab bar to clear on desktop, unlike mobile's 110) and
+  // no horizontal override needed, since carouselsContent never sets
+  // paddingHorizontal to begin with (each CategoryCarouselSection already
+  // carries its own 18px row padding, same on both platforms).
+  carouselsContentDesktop: { paddingBottom: 60 },
 
   // Mobile filters modal.
   modalTopBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, height: 52 },

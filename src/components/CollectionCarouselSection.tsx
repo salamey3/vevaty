@@ -48,16 +48,26 @@ export default function CollectionCarouselSection({
   const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
 
   // Card shape, per the approved "Editor's Picks / Hot Deals go
-  // photo-left" mockup. Hot Deals (kind='price_drop') gets the wider
-  // side-by-side card everywhere -- mobile web, the app, and desktop.
-  // Editor's Picks (kind='curated') only gets it on desktop web; mobile
-  // and the app keep today's stacked card there, unchanged, per request.
-  // Just Listed (kind='recent') was never asked for a change, so it stays
-  // stacked everywhere regardless of platform. Anchored on `kind`, not
-  // `slug` or title, for the same reason HomeScreen's renderCollectionRows
-  // is: kind is the fixed curated/price_drop/recent enum, slug and title
-  // are both admin-editable free text.
-  const useHorizontalCards = collection.kind === 'price_drop' || (isDesktop && collection.kind === 'curated');
+  // photo-left" mockup, extended to Just Listed on request. Hot Deals
+  // (kind='price_drop') and Just Listed (kind='recent') both get the
+  // wider side-by-side card everywhere -- mobile web, the app, and
+  // desktop. Editor's Picks (kind='curated') only gets it on desktop
+  // web; mobile and the app keep today's stacked card there, unchanged,
+  // per an earlier, separate request. Anchored on `kind`, not `slug` or
+  // title, for the same reason HomeScreen's renderCollectionRows is:
+  // kind is the fixed curated/price_drop/recent enum, slug and title are
+  // both admin-editable free text.
+  const useHorizontalCards = collection.kind === 'price_drop' || collection.kind === 'recent' || (isDesktop && collection.kind === 'curated');
+  // Just Listed gets two rows instead of one -- unlike Editor's Picks and
+  // Hot Deals, which stay single-row everywhere. Columns of 2 (stacked
+  // vertically) rather than a true 2-row grid, so the whole thing still
+  // scrolls as one horizontal unit with the existing ScrollView/RTL
+  // machinery instead of needing two independently-scrolling rows kept
+  // in sync.
+  const useTwoRows = collection.kind === 'recent';
+  const twoRowColumns = useTwoRows
+    ? Array.from({ length: Math.ceil(ordered.length / 2) }, (_, i) => ordered.slice(i * 2, i * 2 + 2))
+    : null;
 
   return (
     <View style={styles.section}>
@@ -77,16 +87,31 @@ export default function CollectionCarouselSection({
         onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
         nestedScrollEnabled
       >
-        {ordered.map((item) => (
-          <ListingCard
-            key={item.id}
-            listing={item}
-            width={useHorizontalCards ? 300 : 160}
-            layout={useHorizontalCards ? 'horizontal' : 'vertical'}
-            onPress={() => onPressListing(item)}
-            cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
-          />
-        ))}
+        {twoRowColumns
+          ? twoRowColumns.map((pair) => (
+              <View key={pair[0].id} style={styles.twoRowColumn}>
+                {pair.map((item) => (
+                  <ListingCard
+                    key={item.id}
+                    listing={item}
+                    width={useHorizontalCards ? 300 : 160}
+                    layout={useHorizontalCards ? 'horizontal' : 'vertical'}
+                    onPress={() => onPressListing(item)}
+                    cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
+                  />
+                ))}
+              </View>
+            ))
+          : ordered.map((item) => (
+              <ListingCard
+                key={item.id}
+                listing={item}
+                width={useHorizontalCards ? 300 : 160}
+                layout={useHorizontalCards ? 'horizontal' : 'vertical'}
+                onPress={() => onPressListing(item)}
+                cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
+              />
+            ))}
       </ScrollView>
     </View>
   );
@@ -104,4 +129,8 @@ const styles = StyleSheet.create({
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   // Tightened from 12 -- minimal space between cards, per request.
   row: { paddingHorizontal: 18, gap: 6 },
+  // Just Listed's two-row layout -- one column per pair of cards, stacked
+  // vertically. Same 6px gap as `row` uses horizontally, for visual
+  // consistency between the two axes.
+  twoRowColumn: { gap: 6 },
 });
