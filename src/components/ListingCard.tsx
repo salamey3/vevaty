@@ -190,7 +190,24 @@ export default function ListingCard({
           // Requested at card size, not the seeded 900x1200 original -- see
           // photoSize.ts for why that mattered so much more than it looks
           // (bitmap heap, not bandwidth).
-          <Image source={{ uri: sizedPhotoUrl(listing.photos[0], PHOTO_WIDTHS.card)! }} style={styles.thumbImg} />
+          //
+          // resizeMode: the vertical card's thumb is deliberately 3:4 to
+          // match the common source photo (see that style's own comment),
+          // so "cover" rarely has to crop anything there and filling the
+          // frame is the whole point of a full-bleed top-of-card photo.
+          // thumbHorizontal is a fixed 112x112 SQUARE regardless of the
+          // photo's own shape, so "cover" would routinely crop a 3:4 photo
+          // to fit it -- "contain" instead scales the photo down to fit
+          // entirely inside that square (letterboxed on whichever axis is
+          // shorter, against thumb/thumbHorizontal's own neutral
+          // colors.surface fill, the same box that already centers the
+          // no-photo icon fallback below), so the horizontal card always
+          // shows the whole photo rather than a cropped slice of it.
+          <Image
+            source={{ uri: sizedPhotoUrl(listing.photos[0], PHOTO_WIDTHS.card)! }}
+            style={styles.thumbImg}
+            resizeMode={horizontal ? 'contain' : 'cover'}
+          />
         ) : (
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
         )}
