@@ -103,7 +103,14 @@ export default function CollectionCarouselSection({
                   <ListingCard
                     key={item.id}
                     listing={item}
-                    width={useHorizontalCards ? 300 : 160}
+                    // 240 = 160 * 1.5, same widening as
+                    // CategoryCarouselSection's cards -- only reachable
+                    // for a vertical-layout card (useHorizontalCards
+                    // false), which today is Editor's Picks on mobile;
+                    // 300 (Hot Deals, Just Listed, Editor's Picks on
+                    // desktop) is a separate photo-left card shape,
+                    // untouched by this change.
+                    width={useHorizontalCards ? 300 : 240}
                     layout={useHorizontalCards ? 'horizontal' : 'vertical'}
                     onPress={() => onPressListing(item)}
                     cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
@@ -115,7 +122,9 @@ export default function CollectionCarouselSection({
               <ListingCard
                 key={item.id}
                 listing={item}
-                width={useHorizontalCards ? 300 : 160}
+                // 240 = 160 * 1.5 -- see the twoRowColumns branch above
+                // for why, and why 300 is untouched.
+                width={useHorizontalCards ? 300 : 240}
                 layout={useHorizontalCards ? 'horizontal' : 'vertical'}
                 onPress={() => onPressListing(item)}
                 cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}

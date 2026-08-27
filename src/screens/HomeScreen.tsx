@@ -449,6 +449,23 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryScoped, selection, query, anchor, facets]);
 
+  // Per-row item caps for the mobile "all categories" carousels view.
+  // Lowered from an original flat 10 (categories) specifically to shrink
+  // how much work each row does when FlatList mounts/unmounts it during
+  // scroll -- see renderCarousels' own comment below for why that mount
+  // cost, not total network payload, is the actual scroll-performance
+  // lever here (photoSize.ts already handles payload). Fewer photos to
+  // decode and fewer ListingCards to lay out per row-mount is still a
+  // real, if partial, reduction either way -- and a smaller per-category
+  // cap is also what a shopper wants: one huge category shouldn't turn
+  // the home screen into an endless scroll before they see the rest.
+  // Just Listed gets its own higher cap because its two-row layout (see
+  // CollectionCarouselSection's useTwoRows) reads as 4 items per visual
+  // row at a cap of 8, not 3 per row at 6.
+  const CATEGORY_ROW_CAP = 6;
+  const COLLECTION_ROW_CAP = 6;
+  const JUST_LISTED_ROW_CAP = 8;
+
   // Mobile home ("all categories", nothing searched yet) groups listings
   // into one horizontal carousel per top-level category instead of a
   // single combined grid -- matches the OLX reference the user attached,
@@ -457,12 +474,10 @@ export default function HomeScreen() {
   // the shopper searches or drills into a specific category (search
   // results and a single category's listings both read better as one
   // flat list), or if there happen to be no listings anywhere yet.
-  // Capped at 10 per category so one huge category can't turn the home
-  // screen into an endless scroll before the shopper even sees the rest.
   const categoryCarousels = useMemo(() => {
     if (topCat !== 'all' || query.trim().length > 0) return [];
     return categories
-      .map((c) => ({ category: c, items: listings.filter((l) => categoryMatches(l.cat, c.id)).slice(0, 10) }))
+      .map((c) => ({ category: c, items: listings.filter((l) => categoryMatches(l.cat, c.id)).slice(0, CATEGORY_ROW_CAP) }))
       .filter((section) => section.items.length > 0);
   }, [topCat, query, categories, listings, categoryMatches]);
   const showCarousels = categoryCarousels.length > 0;
@@ -477,11 +492,23 @@ export default function HomeScreen() {
   // CollectionsStore's fetch), and always placed ABOVE the per-category
   // rows -- these are the "look at this" surface, the category rows below
   // are "browse everything".
+  //
+  // Capped here, in the display layer, deliberately separate from
+  // resolveCollection's own `.slice(0, collection.limitCount)` for
+  // recent/price_drop -- limitCount is an admin-set value in the
+  // database (see AdminCollectionsScreen), and this cap is a
+  // client-side display/performance ceiling on top of it, not a
+  // replacement for it. curated (Editor's Picks) has no limitCount at
+  // all -- resolveCollection returns everything an admin pinned -- so
+  // for that kind this is the only cap that exists.
   const collectionCarousels = useMemo(() => {
     if (topCat !== 'all' || query.trim().length > 0) return [];
     return collections
       .filter((c) => c.active)
-      .map((c) => ({ collection: c, items: resolveCollection(c) }))
+      .map((c) => ({
+        collection: c,
+        items: resolveCollection(c).slice(0, c.kind === 'recent' ? JUST_LISTED_ROW_CAP : COLLECTION_ROW_CAP),
+      }))
       .filter((section) => section.items.length > 0);
   }, [topCat, query, collections, resolveCollection]);
 
@@ -724,26 +751,24 @@ export default function HomeScreen() {
   // category carousels (see categoryCarousels above) instead of the
   // combined grid.
   //
-  // Windowed FlatList instead of a plain ScrollView+map, same as
-  // renderGrid above -- every section still only mounts (and starts
-  // fetching its photos) once it's actually about to scroll into view,
-  // using React Native's own default windowing rather than a hand-tuned
-  // override. This used to carry a much narrower override
-  // (initialNumToRender/maxToRenderPerBatch/windowSize/
-  // removeClippedSubviews, added in 1742505 "Catch-up: everything after
-  // the bitmap/blur fix") to stop ~100+ full-size photos all requesting
-  // at once on mount. Removed to test whether it's still needed now that
-  // every photo is requested pre-sized to the width it's actually drawn
-  // at (see photoSize.ts's sizedPhotoUrl/PHOTO_WIDTHS, added the same
-  // day, which cut each request from a 900x1200 original down to the
-  // ~200px this carousel actually draws) -- windowSize:3 in particular
-  // was aggressive enough (default is 21) to mount and unmount rows
-  // continuously during an ordinary scroll, each carrying its own
-  // gesture-handler-registered scroller and up to 10 images, which reads
-  // exactly like the "heavy scrolling, only on this screen" report this
-  // is addressing. If dropping this override brings back a real
-  // blank-flash or slow-photo problem on mount, the fix is a moderate
-  // windowSize (5-7, not 3) rather than restoring this exact override.
+  // Windowed FlatList instead of a plain ScrollView+map -- every section
+  // only mounts (and starts fetching its photos) once it's actually
+  // about to scroll into view, via the initialNumToRender/
+  // maxToRenderPerBatch/windowSize/removeClippedSubviews override below.
+  // Briefly removed to test whether it was still needed now that every
+  // photo is requested pre-sized (see photoSize.ts) rather than at its
+  // 900x1200 original -- scrolling got measurably WORSE with it gone, so
+  // it's back. That result narrowed down what's actually expensive here:
+  // each mounted CategoryCarouselSection/CollectionCarouselSection row
+  // registers its own gesture-handler scroller with Android's native
+  // bridge and decodes however many photos it holds, and FlatList's
+  // virtualization does that mount/unmount continuously as you scroll --
+  // MORE simultaneously-mounted rows made it worse, not better, so the
+  // cost scales with how much is mounted, not with how often it churns.
+  // categoryCarousels/collectionCarousels below cap each row at fewer
+  // items specifically to shrink that per-mount cost (less to lay out,
+  // fewer photos to decode per row), on top of this windowing rather
+  // than instead of it.
   // Collection rows (Editor's Picks / Hot Deals / Just Listed) render as a
   // plain header on the same FlatList, above the windowed category rows --
   // there are at most 3 of them (one per collection kind), so they don't
@@ -829,11 +854,21 @@ export default function HomeScreen() {
       // gesture recognizer instead, on every platform, so nestedScrollEnabled
       // is no longer needed once both this list and its nested rows are
       // gesture-handler components (they are -- see their own files).
-      // No mobile-only initialNumToRender/maxToRenderPerBatch/windowSize/
-      // removeClippedSubviews override here any more -- see this
-      // function's own comment above for why it was removed. Mobile and
-      // desktop now share React Native's default windowing, same as
-      // renderGrid above always has.
+      // Desktop skips the initialNumToRender/windowSize/removeClippedSubviews
+      // tuning below -- those were calibrated for mobile's bounded-height
+      // nested carousel view (see carouselsAnchor), and applying that same
+      // aggressive virtualization to desktop, where this FlatList is the
+      // page's own unbounded-height scroll container instead (same as
+      // renderGrid, which never sets these), was what made
+      // collectionRowsHeader (in ListHeaderComponent) silently fail to
+      // render on desktop -- an early, incomplete windowing pass was
+      // clipping it before real layout had a chance to measure it.
+      {...(!isDesktop && {
+        initialNumToRender: 2,
+        maxToRenderPerBatch: 2,
+        windowSize: 3,
+        removeClippedSubviews: true,
+      })}
       renderItem={({ item: { category, items } }) => (
         <CategoryCarouselSection
           category={category}

@@ -88,8 +88,13 @@ export default function CategoryCarouselSection({
         // native-negotiation fix for this same problem) is no longer
         // needed and is intentionally not set here.
       >
+        {/* 240 = 160 * 1.5. Widened (and, since ListingCard's photo box
+            keeps its 3:4 ratio, proportionally taller) alongside the drop
+            from 10 to 6 items per row (see HomeScreen's CATEGORY_ROW_CAP)
+            -- a row of 6 wider cards reads as intentional rather than
+            sparse, which a straight count cut on its own didn't. */}
         {ordered.map((item) => (
-          <ListingCard key={item.id} listing={item} width={160} onPress={() => onPressListing(item)} />
+          <ListingCard key={item.id} listing={item} width={240} onPress={() => onPressListing(item)} />
         ))}
       </ScrollView>
     </View>
