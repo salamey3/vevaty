@@ -2,16 +2,20 @@ import 'react-native-url-polyfill/auto';
 import { createClient } from '@supabase/supabase-js';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 
-// This project's tables live in their own "myazar" schema inside a shared
-// Supabase project (see project notes) — kept fully separate from that
-// project's other data. The key below is the public "publishable" key,
-// safe to ship inside the app; every table it can reach is protected by
-// Row Level Security policies, not by keeping this key secret.
+// Vevaty's own standalone Supabase project -- previously this app shared a
+// project with two unrelated apps (a household finance tracker and a task
+// tracker), each in their own schema. Now that Vevaty has its own paid
+// subscription, it has been split onto a dedicated project with nothing
+// else on it: no shared auth.users table, no risk of another app's admin
+// action ever touching Vevaty's data or vice versa. The key below is the
+// public "publishable" key, safe to ship inside the app; every table it
+// can reach is protected by Row Level Security policies, not by keeping
+// this key secret.
 // Exported because photoUpload.ts posts raw image bytes to an edge
 // function by hand: on native the file is streamed from a file:// URI by
 // expo-file-system's uploader, which supabase-js has no way to drive.
-export const SUPABASE_URL = 'https://ueqfkxvvfrhppdsnsfpx.supabase.co';
-export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_J3b1Uyp4ZvV5ItcAYBhPRg_EX3On8Ez';
+export const SUPABASE_URL = 'https://ajrrmropskvutjizulkb.supabase.co';
+export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_DK_WRVSv9ymAGCgL9o8k9g_9Lg2wB1l';
 
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   db: { schema: 'myazar' },

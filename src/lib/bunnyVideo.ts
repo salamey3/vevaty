@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import * as tus from 'tus-js-client';
-import { supabase } from './supabase';
+import { supabase, SUPABASE_URL } from './supabase';
 import type { ListingVideo } from '../types';
 
 // A listing's optional video, hosted on Bunny Stream.
@@ -246,7 +246,7 @@ export function uploadVideoToBunny(
 export async function nudgeVideoStatus(guid: string): Promise<void> {
   try {
     await fetch(
-      `https://ueqfkxvvfrhppdsnsfpx.supabase.co/functions/v1/bunny-video-webhook`,
+      `${SUPABASE_URL}/functions/v1/bunny-video-webhook`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
