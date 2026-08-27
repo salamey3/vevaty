@@ -183,13 +183,12 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.noDescription': 'No description provided yet.',
     'listingDetail.aiTag': 'AI-assisted listing — reviewed by seller',
     'listingDetail.seller': 'Seller',
-    // Storefronts -- listingCard.storefront is the plain, non-interactive
-    // label on a storefront-sourced listing's card (the clickable pill
-    // beside it shows the shop's own name, not this string). storefront.*
-    // is used by the storefront panel that replaces the "Seller" section
-    // on ListingDetailScreen for such a listing, and by StorefrontScreen
+    // Storefronts -- a listing card no longer carries any "Storefront"
+    // label text (its shop-name pill speaks for itself), so there's no
+    // listingCard.storefront key any more. storefront.* below is used by
+    // the storefront panel that replaces the "Seller" section on
+    // ListingDetailScreen for such a listing, and by StorefrontScreen
     // itself (mirrors sellerProfile.* one-for-one).
-    'listingCard.storefront': 'Storefront',
     'listingCard.outOfStock': 'Out of stock',
     'listingCard.conditionNew': 'New',
     'listingCard.conditionUsed': 'Used',
@@ -869,7 +868,6 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.noDescription': 'لم يُضف وصف بعد.',
     'listingDetail.aiTag': 'إعلان بمساعدة الذكاء الاصطناعي — تمت مراجعته من البائع',
     'listingDetail.seller': 'البائع',
-    'listingCard.storefront': 'متجر',
     'listingCard.outOfStock': 'نفدت الكمية',
     'listingCard.conditionNew': 'جديد',
     'listingCard.conditionUsed': 'مستعمل',

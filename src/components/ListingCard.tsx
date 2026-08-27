@@ -149,6 +149,37 @@ export default function ListingCard({
     return ordered.slice(0, 2).map(({ text }) => text);
   }, [listing, listing.cat, listing.attributes, resolveAttributesForCategory, language]);
 
+  // Shop attribution -- only present on listings posted through a shop
+  // (see the Listing type's shopId doc comment). No standalone
+  // "Storefront" label any more, on either layout -- the pill's own
+  // building icon carries that meaning by itself; the pill is its own
+  // tap target that jumps straight to the shop's page, so it needs the
+  // same stopPropagation treatment as the favorite badge above, or a
+  // tap on it would also fire the card's own onPress and open the
+  // listing instead. Rendered in two different spots depending on
+  // `layout` (see below), so it's built once here and placed either
+  // way.
+  const storefrontPill = listing.shopId && listing.shopSlug ? (
+    <Pressy
+      onPress={(e: any) => {
+        e?.stopPropagation?.();
+        navigation.push('Storefront', { shopSlug: listing.shopSlug! });
+      }}
+      style={[
+        styles.storefrontPill,
+        isRTL && styles.storefrontPillRTL,
+        horizontal && styles.storefrontPillInline,
+        horizontal && isRTL && styles.storefrontPillInlineRTL,
+      ]}
+      hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
+    >
+      <Icon name="building" size={11} color={colors.accentDeep} />
+      <Text style={styles.storefrontPillName} numberOfLines={1}>
+        {listingShopName(listing, language)}
+      </Text>
+    </Pressy>
+  ) : null;
+
   const handleFavoritePress = async () => {
     if (!isVerified) {
       navigation.navigate('Auth');
@@ -244,82 +275,60 @@ export default function ListingCard({
             <Icon name="heart" size={14} color={favorited ? colors.danger : colors.white} filled={favorited} />
           </Pressy>
         )}
+        {/* Shop pill, vertical layout only -- lives on the photo itself
+            (bottom-left, fixed regardless of RTL, same as every other
+            badge in this thumb) rather than in the white section below.
+            The horizontal layout keeps it in its original in-flow spot
+            instead -- see storefrontPillInline below. */}
+        {!horizontal && storefrontPill && (
+          <View style={styles.storefrontOverlay}>{storefrontPill}</View>
+        )}
       </View>
       <View style={[styles.info, horizontal && styles.infoHorizontal]}>
-        {/* New/used -- null for a listing posted before this field existed
-            (or one of the pre-existing seed rows a migration collapsed
-            from a more granular scale with no real "new" value among
-            them), so those simply show no badge rather than guessing.
-            Placed first, above the price, so it reads as the first thing
-            about the item rather than competing with the storefront pill
-            further down for attention. */}
-        {listing.condition && (
-          <View
-            style={[
-              styles.conditionPill,
-              listing.condition === 'new' ? styles.conditionPillNew : styles.conditionPillUsed,
-              isRTL && styles.conditionPillRTL,
-            ]}
-          >
-            <Text
-              style={[
-                styles.conditionPillText,
-                listing.condition === 'new' ? styles.conditionPillTextNew : styles.conditionPillTextUsed,
-              ]}
-            >
-              {listing.condition === 'new' ? t('listingCard.conditionNew') : t('listingCard.conditionUsed')}
+        {/* Forest green from the top of this block through the title
+            text, with a little extra padding underneath it, before the
+            card drops back to its normal white surface. Price and the
+            new/used tag share this top line; the tag is a plain gold
+            pill now rather than a separate colored line above the price
+            (New and Used no longer get different fills -- the pill's
+            text is the only thing that changes). */}
+        <View style={[styles.infoTop, horizontal && styles.infoTopHorizontal]}>
+          <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
+            <Text style={[styles.price, isRTL && styles.rtlText]}>${listing.price.toLocaleString()}</Text>
+            {/* null for a listing posted before this field existed (or
+                one of the pre-existing seed rows a migration collapsed
+                from a more granular scale with no real "new" value among
+                them) -- those simply show no tag rather than guessing. */}
+            {listing.condition && (
+              <View style={styles.tag}>
+                <Text style={styles.tagText}>
+                  {listing.condition === 'new' ? t('listingCard.conditionNew') : t('listingCard.conditionUsed')}
+                </Text>
+              </View>
+            )}
+          </View>
+          <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
+        </View>
+        <View style={[styles.infoBottom, horizontal && styles.infoBottomHorizontal]}>
+          {topSpecs.length > 0 && (
+            <Text style={[styles.specs, isRTL && styles.rtlText]} numberOfLines={1}>
+              {topSpecs.join(' · ')}
+            </Text>
+          )}
+          {/* District and relative post time ("3 days ago", not a date --
+              on a grid the question is "is this still going?") now share
+              one line instead of two. */}
+          <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+            <Icon name="location" size={12} color={colors.inkSoft} />
+            <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={1}>
+              {listingDistrict(listing, language)} · {relativeTimeFrom(listing.createdAt, language)}
             </Text>
           </View>
-        )}
-        <Text style={[styles.price, isRTL && styles.rtlText]}>${listing.price.toLocaleString()}</Text>
-        <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
-        {topSpecs.length > 0 && (
-          <Text style={[styles.specs, isRTL && styles.rtlText]} numberOfLines={1}>
-            {topSpecs.join(' · ')}
-          </Text>
-        )}
-        <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
-          <Icon name="location" size={12} color={colors.inkSoft} />
-          <Text style={styles.district} numberOfLines={1}>{listingDistrict(listing, language)}</Text>
+          {/* Shop pill, horizontal layout only -- see the comment by the
+              thumb above for why the vertical layout renders this one
+              differently. */}
+          {horizontal && storefrontPill}
         </View>
-        {/* Relative, not a date: on a grid the question is "is this still
-            going?", and "3 days ago" answers it without the reader first
-            working out what today is. */}
-        <Text style={[styles.posted, isRTL && styles.rtlText]} numberOfLines={1}>
-          {relativeTimeFrom(listing.createdAt, language)}
-        </Text>
-        {/* Storefront attribution -- only present on listings posted
-            through a shop (see the Listing type's shopId doc comment).
-            Two separate elements doing two separate jobs, per the
-            approved design: a plain, non-interactive "Storefront" label
-            says what kind of listing this is; the pill below it is its
-            own tap target that jumps straight to the shop's page, so it
-            needs the same stopPropagation treatment as the favorite
-            badge above -- otherwise a tap on the pill would also fire
-            the card's own onPress and open the listing instead. */}
-        {listing.shopId && listing.shopSlug && (
-          <>
-            <Text style={styles.storefrontLabel} numberOfLines={1}>
-              {t('listingCard.storefront')}
-            </Text>
-            <Pressy
-              onPress={(e: any) => {
-                e?.stopPropagation?.();
-                navigation.push('Storefront', { shopSlug: listing.shopSlug! });
-              }}
-              style={[styles.storefrontPill, isRTL && styles.storefrontPillRTL]}
-              hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
-            >
-              <Icon name="building" size={11} color={colors.accentDeep} />
-              <Text style={styles.storefrontPillName} numberOfLines={1}>
-                {listingShopName(listing, language)}
-              </Text>
-              <View style={isRTL ? styles.storefrontChevRTL : undefined}>
-                <Icon name="chevronRight" size={10} color={colors.accentRing} />
-              </View>
-            </Pressy>
-          </>
-        )}
       </View>
     </Pressy>
   );
@@ -386,9 +395,8 @@ const styles = StyleSheet.create({
   // so cover fills the frame instead of needing to crop a normal shot
   // down to fit a shape the photo was never composed for. Height follows
   // from the ratio, so it's taller than the old square (149 at this
-  // width) -- see infoHorizontal below for why that's fine: the text
-  // column already centers itself vertically against whatever height
-  // this resolves to.
+  // width) -- see infoHorizontal/infoBottomHorizontal below for how the
+  // text column beside it is kept close to this same height.
   thumbHorizontal: { width: 112, aspectRatio: 3 / 4 },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
@@ -420,36 +428,56 @@ const styles = StyleSheet.create({
     fontSize: 10.5, fontWeight: '700', color: colors.white,
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  info: { paddingHorizontal: 10, paddingVertical: 9 },
-  // Fills whatever's left beside the fixed-width thumbHorizontal, and
-  // centers its content vertically -- the info block's own height varies
-  // (a storefront listing runs two lines longer than one with no specs
-  // line), and centering keeps that variation from reading as "randomly
-  // pinned to the top" against the fixed-height photo beside it.
-  infoHorizontal: { flex: 1, justifyContent: 'center', paddingHorizontal: 12 },
-  // New/used badge -- two distinct fills so the two states read apart at
-  // a glance rather than needing the label text to do all the work. Green
-  // (New) reuses the same family as `price`/`primary` so "new" reads as a
-  // small positive signal; the used tint is a deliberately different hue
-  // (slate blue, not in the shared palette yet) so it never gets mistaken
-  // for the gold storefront pill immediately below it on shop listings.
-  // Both pairs clear 6:1 contrast, well past the storefront pill's own
-  // 5.37:1 precedent (accentDeep on warnBg).
-  conditionPill: {
-    alignSelf: 'flex-start', borderRadius: radius.pill,
-    paddingHorizontal: 8, height: 20, alignItems: 'center', justifyContent: 'center',
-    marginBottom: 4,
+  // Vertical layout: a plain column, no padding of its own -- infoTop
+  // and infoBottom below each carry their own. Horizontal layout: see
+  // infoHorizontal.
+  info: {},
+  // Fills whatever's left beside the fixed-width thumbHorizontal. Not
+  // vertically centered any more -- now that infoBottom's storefront
+  // row and merged meta line keep this column's height close to the
+  // photo's own height (see infoBottomHorizontal), centering would just
+  // as often nudge it a couple of pixels off top-alignment as fix
+  // anything.
+  infoHorizontal: { flex: 1 },
+  // Forest green from the top of the info block through the title text,
+  // with a little extra padding underneath before the card drops back
+  // to its normal white surface (see infoBottom). Horizontal layout
+  // uses the wider 12px horizontal padding infoHorizontal used to carry
+  // itself, and a touch less bottom padding to match the vertical
+  // card's proportions at its narrower thumb.
+  infoTop: {
+    backgroundColor: colors.primary,
+    paddingHorizontal: 10, paddingTop: 10, paddingBottom: 14,
   },
-  conditionPillRTL: { alignSelf: 'flex-end' },
-  conditionPillNew: { backgroundColor: colors.primaryTint },
-  conditionPillUsed: { backgroundColor: '#E7ECF2' },
-  conditionPillText: { fontSize: 10.5, fontWeight: '800', textTransform: 'uppercase', letterSpacing: 0.5 },
-  conditionPillTextNew: { color: colors.success },
-  conditionPillTextUsed: { color: '#3B5166' },
-  specs: { ...type.tiny, color: colors.ink, marginBottom: 3 },
-  posted: { ...type.tiny, color: colors.inkSoft, marginTop: 3 },
-  price: { ...type.h3, color: colors.primary, marginBottom: 2 },
-  title: { ...type.soft, marginBottom: 4 },
+  infoTopHorizontal: { paddingHorizontal: 12, paddingBottom: 13 },
+  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
+  priceRowRTL: { flexDirection: 'row-reverse' },
+  price: { fontSize: 16, fontWeight: '700', color: colors.white, letterSpacing: -0.2 },
+  // New/used, now a plain gold pill on the price line instead of its
+  // own colored line above it -- New and Used no longer get different
+  // fills, just different text, so this one style covers both.
+  tag: {
+    backgroundColor: colors.accent, borderRadius: radius.pill,
+    paddingHorizontal: 9, paddingVertical: 3,
+  },
+  // White on the brand gold measures under WCAG's 4.5:1 text minimum
+  // (see theme.ts's own note on this exact pair, which is why the
+  // corner badge above uses near-black instead) -- kept white here per
+  // the approved design; swap to colors.accentInk if legibility turns
+  // out to matter more than the look.
+  tagText: { fontSize: 10, fontWeight: '800', color: colors.white, textTransform: 'uppercase', letterSpacing: 0.5 },
+  title: { marginTop: 5, fontSize: 14, fontWeight: '500', color: colors.white },
+  // Fixed regardless of content on the vertical card -- the only thing
+  // that still varies once the storefront row moved onto the photo is
+  // whether a listing has specs, so this only needs to cover that one
+  // line; a card with none just leaves quiet space at the bottom
+  // instead of pulling its row of the grid shorter. Not applied on the
+  // horizontal layout (see infoBottomHorizontal) -- there the merged
+  // meta line and in-flow storefront pill already keep this section
+  // close to the photo's own height without needing a floor.
+  infoBottom: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 9, minHeight: 54 },
+  infoBottomHorizontal: { paddingHorizontal: 12, paddingBottom: 11, minHeight: undefined },
+  specs: { ...type.tiny, color: colors.ink, marginBottom: 5 },
   // theme.ts's `textAlign: 'auto'` doesn't actually right-align Arabic
   // text on native (it resolves via I18nManager.isRTL, which this app
   // never flips -- see ListingDetailScreen's rtlText comment for the full
@@ -462,25 +490,40 @@ const styles = StyleSheet.create({
   // district text stayed LTR-ordered here even once everything else on
   // the card (title) was fixed.
   metaRowRTL: { flexDirection: 'row-reverse' },
+  // Carries the relative post time too now ("West Hills · 3 days ago",
+  // was two separate lines) -- the other half of what keeps
+  // infoBottomHorizontal's height down near the photo's.
   district: { ...type.tiny },
-  // Plain uppercase text, not a pill -- deliberately inert, unlike the
-  // clickable name pill below it. Mirrors the aiTag pattern's text scale
-  // (ListingDetailScreen) but stays outside any background shape, since
-  // its only job is to say "this is a storefront listing", not to invite
-  // a tap.
-  storefrontLabel: {
-    fontSize: 10, fontWeight: '700', color: colors.inkSoft,
-    textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 6,
-  },
-  // Same pill shape as ListingDetailScreen's aiTag (warnBg fill,
-  // radius.pill) -- reused here as the visual basis per the approved
-  // design, at a smaller card-appropriate scale.
+  // Shop-name pill -- same pill shape as ListingDetailScreen's aiTag
+  // (warnBg fill, radius.pill) as the visual basis, at a smaller
+  // card-appropriate scale. No standalone "Storefront" label next to it
+  // any more on either layout -- the building icon carries that meaning
+  // on its own. Position on screen differs by layout (storefrontOverlay
+  // below for vertical, storefrontPillInline for horizontal); this base
+  // style is shared by both.
   storefrontPill: {
-    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', maxWidth: '100%',
     backgroundColor: colors.warnBg, borderRadius: radius.pill,
-    paddingHorizontal: 8, height: 22, marginTop: 4,
+    paddingHorizontal: 8, height: 20,
   },
-  storefrontPillRTL: { flexDirection: 'row-reverse', alignSelf: 'flex-end' },
-  storefrontPillName: { fontSize: 11, fontWeight: '800', color: colors.primary },
-  storefrontChevRTL: { transform: [{ scaleX: -1 }] },
+  // Flips icon-then-name to name-then-icon for Arabic on both layouts.
+  storefrontPillRTL: { flexDirection: 'row-reverse' },
+  storefrontPillName: { fontSize: 10.5, fontWeight: '800', color: colors.primary },
+  // Horizontal layout only: kept in its original in-flow spot below the
+  // meta row, rather than moved onto the photo.
+  storefrontPillInline: { marginTop: 6 },
+  // Right-aligns the pill within the horizontal layout's RTL column,
+  // same as every other right-aligned element there -- not used on the
+  // vertical layout, whose overlay position stays fixed regardless of
+  // language (see storefrontOverlay below, and favoriteBadge/cornerBadge
+  // above, which are fixed corners for the same reason).
+  storefrontPillInlineRTL: { alignSelf: 'flex-end' },
+  // Vertical layout only: the shop pill lives on the photo, bottom-left,
+  // fixed regardless of RTL -- same reasoning as favoriteBadge/
+  // cornerBadge/spinBadge above, none of which mirror for RTL either,
+  // since they're all fixed corners/edges of the photo itself rather
+  // than flowing text. Just the pill, no wrapping bar or gradient
+  // behind it: the pill is already an opaque cream chip, so it reads
+  // fine straight on top of any photo without extra scaffolding.
+  storefrontOverlay: { position: 'absolute', left: 8, right: 8, bottom: 8, alignItems: 'flex-start' },
 });
