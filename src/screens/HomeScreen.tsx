@@ -724,17 +724,26 @@ export default function HomeScreen() {
   // category carousels (see categoryCarousels above) instead of the
   // combined grid.
   //
-  // Windowed FlatList instead of a plain ScrollView+map -- every section
-  // used to mount (and start loading all ~10 of its full-size listing
-  // photos) the instant the home screen rendered, regardless of whether
-  // that section was anywhere near the visible viewport. With up to 13
-  // top-level categories that's well over a hundred concurrent image
-  // requests competing for the same handful of connections, which is what
-  // was actually behind photos taking tens of seconds (or longer) to show
-  // up and scrolling/swiping feeling heavy well after the screen first
-  // painted -- not a one-time load blip. A conservative initial render +
-  // one screen of look-ahead keeps far-off sections from mounting (and
-  // fetching) until they're actually about to be scrolled into view.
+  // Windowed FlatList instead of a plain ScrollView+map, same as
+  // renderGrid above -- every section still only mounts (and starts
+  // fetching its photos) once it's actually about to scroll into view,
+  // using React Native's own default windowing rather than a hand-tuned
+  // override. This used to carry a much narrower override
+  // (initialNumToRender/maxToRenderPerBatch/windowSize/
+  // removeClippedSubviews, added in 1742505 "Catch-up: everything after
+  // the bitmap/blur fix") to stop ~100+ full-size photos all requesting
+  // at once on mount. Removed to test whether it's still needed now that
+  // every photo is requested pre-sized to the width it's actually drawn
+  // at (see photoSize.ts's sizedPhotoUrl/PHOTO_WIDTHS, added the same
+  // day, which cut each request from a 900x1200 original down to the
+  // ~200px this carousel actually draws) -- windowSize:3 in particular
+  // was aggressive enough (default is 21) to mount and unmount rows
+  // continuously during an ordinary scroll, each carrying its own
+  // gesture-handler-registered scroller and up to 10 images, which reads
+  // exactly like the "heavy scrolling, only on this screen" report this
+  // is addressing. If dropping this override brings back a real
+  // blank-flash or slow-photo problem on mount, the fix is a moderate
+  // windowSize (5-7, not 3) rather than restoring this exact override.
   // Collection rows (Editor's Picks / Hot Deals / Just Listed) render as a
   // plain header on the same FlatList, above the windowed category rows --
   // there are at most 3 of them (one per collection kind), so they don't
@@ -820,21 +829,11 @@ export default function HomeScreen() {
       // gesture recognizer instead, on every platform, so nestedScrollEnabled
       // is no longer needed once both this list and its nested rows are
       // gesture-handler components (they are -- see their own files).
-      // Desktop skips the initialNumToRender/windowSize/removeClippedSubviews
-      // tuning below -- those were calibrated for mobile's bounded-height
-      // nested carousel view (see carouselsAnchor), and applying that same
-      // aggressive virtualization to desktop, where this FlatList is the
-      // page's own unbounded-height scroll container instead (same as
-      // renderGrid, which never sets these), was what made
-      // collectionRowsHeader (in ListHeaderComponent) silently fail to
-      // render on desktop -- an early, incomplete windowing pass was
-      // clipping it before real layout had a chance to measure it.
-      {...(!isDesktop && {
-        initialNumToRender: 2,
-        maxToRenderPerBatch: 2,
-        windowSize: 3,
-        removeClippedSubviews: true,
-      })}
+      // No mobile-only initialNumToRender/maxToRenderPerBatch/windowSize/
+      // removeClippedSubviews override here any more -- see this
+      // function's own comment above for why it was removed. Mobile and
+      // desktop now share React Native's default windowing, same as
+      // renderGrid above always has.
       renderItem={({ item: { category, items } }) => (
         <CategoryCarouselSection
           category={category}
