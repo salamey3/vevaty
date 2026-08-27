@@ -13,16 +13,20 @@ import {
   TouchableWithoutFeedback,
   ViewStyle,
 } from 'react-native';
-// Aliased, not a straight swap of the 'FlatList' import above: renderGrid
-// below uses core RN's FlatList (it's not nested inside anything, so it
-// doesn't need this), while renderCarousels uses GHFlatList because every
+// Aliased, not a straight swap of the 'ScrollView'/'FlatList' imports
+// above: renderGrid below uses core RN's FlatList (it's not nested inside
+// anything, so it doesn't need this) and the rest of this file's plain
+// ScrollViews (sidebar, modal, desktop category chip row) aren't nested
+// pairs either. renderCarousels uses GHScrollView because every
 // CategoryCarouselSection/CollectionCarouselSection it renders nests its
 // own horizontal ScrollView inside this one (both of those were migrated
-// to react-native-gesture-handler too -- see their own files' comments).
-// Gesture ownership between an outer FlatList and its nested horizontal
-// scrollers only negotiates correctly when both sides are
-// gesture-handler components.
-import { FlatList as GHFlatList } from 'react-native-gesture-handler';
+// to react-native-gesture-handler too -- see their own files' comments),
+// and gesture ownership between an outer scroller and its nested
+// horizontal ones only negotiates correctly when both sides are
+// gesture-handler components. renderCarousels used to also import
+// GHFlatList for the same reason, back when it was a windowed FlatList --
+// see that function's own comment for why it's a plain ScrollView now.
+import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -450,18 +454,22 @@ export default function HomeScreen() {
   }, [categoryScoped, selection, query, anchor, facets]);
 
   // Per-row item caps for the mobile "all categories" carousels view.
-  // Lowered from an original flat 10 (categories) specifically to shrink
-  // how much work each row does when FlatList mounts/unmounts it during
-  // scroll -- see renderCarousels' own comment below for why that mount
-  // cost, not total network payload, is the actual scroll-performance
-  // lever here (photoSize.ts already handles payload). Fewer photos to
-  // decode and fewer ListingCards to lay out per row-mount is still a
-  // real, if partial, reduction either way -- and a smaller per-category
-  // cap is also what a shopper wants: one huge category shouldn't turn
-  // the home screen into an endless scroll before they see the rest.
-  // Just Listed gets its own higher cap because its two-row layout (see
-  // CollectionCarouselSection's useTwoRows) reads as 4 items per visual
-  // row at a cap of 8, not 3 per row at 6.
+  // Lowered from an original flat 10 (categories) to shrink how much work
+  // each row did when it was still a FlatList cell being mounted and
+  // unmounted by virtualization as it crossed the visible window (see
+  // renderCarousels' own comment below for that whole story, and for why
+  // it's a plain, non-virtualized ScrollView now instead). Kept in place
+  // even after removing the FlatList itself: fewer photos to decode and
+  // fewer ListingCards to lay out per row is still real work saved on
+  // Android regardless of whether that row was mounted once or many times
+  // -- and it's what makes un-virtualizing safe at all, since every row
+  // now mounts once, on screen, rather than once per row crossing the
+  // window as a windowed FlatList would have. A smaller per-category cap
+  // is also what a shopper wants on its own terms: one huge category
+  // shouldn't turn the home screen into an endless scroll before they see
+  // the rest. Just Listed gets its own higher cap because its two-row
+  // layout (see CollectionCarouselSection's useTwoRows) reads as 4 items
+  // per visual row at a cap of 8, not 3 per row at 6.
   const CATEGORY_ROW_CAP = 6;
   const COLLECTION_ROW_CAP = 6;
   const JUST_LISTED_ROW_CAP = 8;
@@ -751,34 +759,45 @@ export default function HomeScreen() {
   // category carousels (see categoryCarousels above) instead of the
   // combined grid.
   //
-  // Windowed FlatList instead of a plain ScrollView+map -- every section
-  // only mounts (and starts fetching its photos) once it's actually
-  // about to scroll into view, via the initialNumToRender/
-  // maxToRenderPerBatch/windowSize/removeClippedSubviews override below.
-  // Briefly removed to test whether it was still needed now that every
-  // photo is requested pre-sized (see photoSize.ts) rather than at its
-  // 900x1200 original -- scrolling got measurably WORSE with it gone, so
-  // it's back. That result narrowed down what's actually expensive here:
-  // each mounted CategoryCarouselSection/CollectionCarouselSection row
-  // registers its own gesture-handler scroller with Android's native
-  // bridge and decodes however many photos it holds, and FlatList's
-  // virtualization does that mount/unmount continuously as you scroll --
-  // MORE simultaneously-mounted rows made it worse, not better, so the
-  // cost scales with how much is mounted, not with how often it churns.
-  // categoryCarousels/collectionCarousels below cap each row at fewer
-  // items specifically to shrink that per-mount cost (less to lay out,
-  // fewer photos to decode per row), on top of this windowing rather
-  // than instead of it.
+  // This used to be a windowed FlatList (initialNumToRender/
+  // maxToRenderPerBatch/windowSize/removeClippedSubviews), then briefly a
+  // plain, un-windowed FlatList to test whether the windowing was still
+  // needed now that every photo is requested pre-sized (see
+  // photoSize.ts) rather than at its 900x1200 original. Scrolling got
+  // measurably WORSE with the windowing gone, not better -- and that
+  // result, plus it getting BETTER once the windowing came back AND each
+  // row's item count was cut (see CATEGORY_ROW_CAP above), narrowed down
+  // what's actually expensive here: each row is a
+  // CategoryCarouselSection/CollectionCarouselSection with its own
+  // gesture-handler-registered horizontal scroller (see
+  // CategoryCarouselSection's own comment), and mounting one is real
+  // native-side work -- registering a gesture recognizer with Android's
+  // bridge, decoding however many photos the row holds -- not a cheap
+  // React-only mount. A windowed FlatList was doing that mount/unmount
+  // continuously as rows crossed the visible window, which is what read
+  // as heavy, laggy scrolling.
+  //
+  // Now a plain ScrollView + map instead of a FlatList at all: every row
+  // mounts once, on screen, and never again, the same way
+  // ListingDetailScreen's own nested carousels already do safely. This
+  // is only safe because of the item-count caps above -- at a cap of 6
+  // per category (down from the original 10) this is at most roughly
+  // categories.length x 6 photos requesting near-simultaneously on
+  // mount, all pre-sized to ~200px (photoSize.ts), not the "well over a
+  // hundred" concurrent full-size requests the original windowing was
+  // built to prevent. Un-virtualizing without that cap in place would
+  // likely reopen that problem.
+  //
   // Collection rows (Editor's Picks / Hot Deals / Just Listed) render as a
-  // plain header on the same FlatList, above the windowed category rows --
-  // there are at most 3 of them (one per collection kind), so they don't
-  // need windowing of their own, and putting them in the header keeps them
-  // pinned above every category row regardless of how many of those exist.
+  // plain header above the category rows, inside this same scroller --
+  // there are at most 3 of them (one per collection kind), so mounting
+  // them once here has never been a windowing concern.
   //
   // Two managed ad banners are interleaved into this same header, but on
-  // MOBILE ONLY (includeBanners=true, used below for the FlatList's own
-  // header -- desktop's prepend site further down passes false, since
-  // this same JSX is also reused there, see that site's own comment): one
+  // MOBILE ONLY (includeBanners=true, used below for the header passed
+  // into renderCarousels -- desktop's prepend site further down passes
+  // false, since this same JSX is also reused there, see that site's own
+  // comment): one
   // right after Editor's Picks (kind 'curated'), one after the whole
   // collection block. That second one lands directly above the first
   // category row -- Vehicles is seeded at sort_order 0, so in practice
@@ -812,36 +831,48 @@ export default function HomeScreen() {
   // needs collection rows at all) -- desktop never gets these two ad
   // slots, only the mobile site and app do, per how they were asked for.
   const collectionRowsHeader = renderCollectionRows(false);
-  // With banners: mobile-only, feeds the FlatList header below.
+  // With banners: mobile-only, feeds the header passed into renderCarousels below.
   const mobileCollectionRowsHeader = renderCollectionRows(true);
 
   // Shared by mobile's own "all categories" composite (see carouselsAnchor
   // below) and desktop's topCat === 'all' branch (see the isDesktop block
   // further down) -- the header differs (collection rows plus ad banners
   // on mobile, collection rows plus the category tile strip on desktop),
-  // but the FlatList itself and its per-category rendering are identical
+  // but the scroller itself and its per-category rendering are identical
   // on both, same relationship renderGrid above has to every desktop and
   // mobile grid site. isDesktop-conditional exactly like renderGrid: on
-  // desktop this FlatList IS the page's own scroll container (see
-  // renderGrid's own comment on why that has to be true on web), so it
-  // needs gridDesktop-style padding there instead of mobile's floating-
-  // chrome scroll wiring.
+  // desktop this IS the page's own scroll container (see renderGrid's own
+  // comment on why that has to be true on web), so it needs
+  // gridDesktop-style padding there instead of mobile's floating-chrome
+  // scroll wiring.
+  //
+  // A plain ScrollView + map, not a FlatList -- this used to be a windowed
+  // FlatList (see categoryCarousels' own CATEGORY_ROW_CAP comment for the
+  // full history of why, and why it isn't any more): mounting a row here
+  // means registering a gesture-handler-backed horizontal scroller with
+  // Android's native bridge and decoding however many photos that row
+  // holds, and a windowed FlatList was doing that mount/unmount
+  // continuously as rows crossed the visible window while scrolling,
+  // which is what actually read as heavy/laggy. A plain ScrollView mounts
+  // every row once, on screen, and never again -- the same shape
+  // ListingDetailScreen's own nested carousels already use safely. Only
+  // safe here because CATEGORY_ROW_CAP/COLLECTION_ROW_CAP/
+  // JUST_LISTED_ROW_CAP keep what mounts at once bounded; see that
+  // comment before reusing this pattern somewhere with a bigger or
+  // uncapped list.
   const renderCarousels = (header?: React.ReactNode) => (
-    <GHFlatList
-      data={categoryCarousels}
-      keyExtractor={({ category }) => category.id}
+    <GHScrollView
       style={styles.list}
       contentContainerStyle={[
         styles.carouselsContent,
         isDesktop ? styles.carouselsContentDesktop : { paddingTop: mobileChromeHeight },
       ]}
-      ListHeaderComponent={header ? <>{header}</> : null}
       onScroll={!isDesktop ? onChromeScroll : undefined}
       onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
       onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
       scrollEventThrottle={16}
-      // This is react-native-gesture-handler's FlatList (imported as
-      // GHFlatList above), not core RN's -- every CategoryCarouselSection
+      // This is react-native-gesture-handler's ScrollView (imported as
+      // GHScrollView above), not core RN's -- every CategoryCarouselSection
       // and CollectionCarouselSection rendered below nests its own
       // horizontal scroller inside this outer vertical one, and on
       // Android, core RN's ScrollView/FlatList only hand off gesture
@@ -853,31 +884,22 @@ export default function HomeScreen() {
       // react-native-gesture-handler resolves ownership through its own
       // gesture recognizer instead, on every platform, so nestedScrollEnabled
       // is no longer needed once both this list and its nested rows are
-      // gesture-handler components (they are -- see their own files).
-      // Desktop skips the initialNumToRender/windowSize/removeClippedSubviews
-      // tuning below -- those were calibrated for mobile's bounded-height
-      // nested carousel view (see carouselsAnchor), and applying that same
-      // aggressive virtualization to desktop, where this FlatList is the
-      // page's own unbounded-height scroll container instead (same as
-      // renderGrid, which never sets these), was what made
-      // collectionRowsHeader (in ListHeaderComponent) silently fail to
-      // render on desktop -- an early, incomplete windowing pass was
-      // clipping it before real layout had a chance to measure it.
-      {...(!isDesktop && {
-        initialNumToRender: 2,
-        maxToRenderPerBatch: 2,
-        windowSize: 3,
-        removeClippedSubviews: true,
-      })}
-      renderItem={({ item: { category, items } }) => (
+      // gesture-handler components (they are -- see their own files). Still
+      // true now that this is a plain ScrollView rather than a FlatList --
+      // the nesting this solves is the outer-vertical/inner-horizontal
+      // pair, which un-virtualizing this outer scroller doesn't change.
+    >
+      {header}
+      {categoryCarousels.map(({ category, items }) => (
         <CategoryCarouselSection
+          key={category.id}
           category={category}
           items={items}
           onSeeAll={() => chooseTopCategory(category.id)}
           onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
         />
-      )}
-    />
+      ))}
+    </GHScrollView>
   );
 
   const carousels = renderCarousels(mobileCollectionRowsHeader);
