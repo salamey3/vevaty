@@ -13,6 +13,16 @@ import {
   TouchableWithoutFeedback,
   ViewStyle,
 } from 'react-native';
+// Aliased, not a straight swap of the 'FlatList' import above: renderGrid
+// below uses core RN's FlatList (it's not nested inside anything, so it
+// doesn't need this), while renderCarousels uses GHFlatList because every
+// CategoryCarouselSection/CollectionCarouselSection it renders nests its
+// own horizontal ScrollView inside this one (both of those were migrated
+// to react-native-gesture-handler too -- see their own files' comments).
+// Gesture ownership between an outer FlatList and its nested horizontal
+// scrollers only negotiates correctly when both sides are
+// gesture-handler components.
+import { FlatList as GHFlatList } from 'react-native-gesture-handler';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -783,7 +793,7 @@ export default function HomeScreen() {
   // needs gridDesktop-style padding there instead of mobile's floating-
   // chrome scroll wiring.
   const renderCarousels = (header?: React.ReactNode) => (
-    <FlatList
+    <GHFlatList
       data={categoryCarousels}
       keyExtractor={({ category }) => category.id}
       style={styles.list}
@@ -796,17 +806,20 @@ export default function HomeScreen() {
       onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
       onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
       scrollEventThrottle={16}
-      // Android's native ScrollView doesn't support nested scrolling by
-      // default -- and every CategoryCarouselSection below nests its own
-      // horizontal list inside this outer vertical one. Without this, a
-      // vertical swipe that starts or passes over one of those horizontal
-      // rows (Vehicles/Properties/Mobiles/...) gets fought over between the
-      // two scrollables for gesture ownership, which is what was actually
-      // behind the "scrolling acts up" jumping/flicker on-device -- a
-      // platform-level Android gap, not a timing/animation issue (that's
-      // also real, fixed separately in ScrollChromeContext, but wasn't the
-      // cause of this). No-op on iOS/web, safe to always set.
-      nestedScrollEnabled
+      // This is react-native-gesture-handler's FlatList (imported as
+      // GHFlatList above), not core RN's -- every CategoryCarouselSection
+      // and CollectionCarouselSection rendered below nests its own
+      // horizontal scroller inside this outer vertical one, and on
+      // Android, core RN's ScrollView/FlatList only hand off gesture
+      // ownership for a nested pair through an opt-in, per-touch-move
+      // negotiation (nestedScrollEnabled) that was the actual cause of the
+      // "scrolling acts up" jumping/flicker on-device -- a platform-level
+      // Android gap, not a timing/animation issue (that's also real, fixed
+      // separately in ScrollChromeContext, but wasn't the cause of this).
+      // react-native-gesture-handler resolves ownership through its own
+      // gesture recognizer instead, on every platform, so nestedScrollEnabled
+      // is no longer needed once both this list and its nested rows are
+      // gesture-handler components (they are -- see their own files).
       // Desktop skips the initialNumToRender/windowSize/removeClippedSubviews
       // tuning below -- those were calibrated for mobile's bounded-height
       // nested carousel view (see carouselsAnchor), and applying that same

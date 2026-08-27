@@ -1,5 +1,15 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, ScrollView, Image, Modal, TextInput, Linking } from 'react-native';
+import { StyleSheet, Text, View, Image, Modal, TextInput, Linking } from 'react-native';
+// react-native-gesture-handler's ScrollView, not core RN's -- every
+// ScrollView in this file is one half of a nested pair: the outer
+// desktopScroll/scroll containers each hold relatedSection's,
+// editorsPicksSection's and hotDealsSection's own nested horizontal
+// scrollers. Both sides need to be gesture-handler components for gesture
+// ownership to negotiate through RNGH's own recognizer instead of
+// Android's nestedScrollEnabled protocol -- see HomeScreen's
+// renderCarousels comment for the full story on why that protocol was
+// the source of the on-device scroll jumping/flicker. Drop-in on iOS/web.
+import { ScrollView } from 'react-native-gesture-handler';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import SystemBottomStrip from '../components/SystemBottomStrip';
@@ -696,10 +706,9 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         style={styles.relatedScroll}
         contentContainerStyle={styles.relatedRow}
         onContentSizeChange={onRelatedContentSizeChange}
-        // Nests inside this screen's outer vertical ScrollView -- same
-        // Android nested-scroll gesture-ownership gap as the home
-        // screen's carousels (see that comment for the full story).
-        nestedScrollEnabled
+        // Nests inside this screen's outer vertical ScrollView, also a
+        // react-native-gesture-handler component (see this file's import
+        // comment) -- nestedScrollEnabled is no longer needed.
       >
         {orderedRelated.map((item) => (
           <ListingCard
@@ -735,7 +744,8 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         style={styles.relatedScroll}
         contentContainerStyle={styles.relatedRow}
         onContentSizeChange={onEditorsPicksContentSizeChange}
-        nestedScrollEnabled
+        // Nests inside this screen's outer vertical ScrollView -- see
+        // relatedSection's comment above.
       >
         {orderedEditorsPicks.map((item) => (
           <ListingCard
@@ -767,7 +777,8 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         style={styles.relatedScroll}
         contentContainerStyle={styles.relatedRow}
         onContentSizeChange={onHotDealsContentSizeChange}
-        nestedScrollEnabled
+        // Nests inside this screen's outer vertical ScrollView -- see
+        // relatedSection's comment above.
       >
         {orderedHotDeals.map((item) => (
           <ListingCard

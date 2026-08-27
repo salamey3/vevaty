@@ -1,5 +1,12 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+// react-native-gesture-handler's ScrollView, not core RN's -- this row
+// renders inside HomeScreen's outer vertical FlatList on both mobile and
+// desktop (also migrated, see that file's renderCarousels comment), and
+// both sides of a nested pair need to be gesture-handler components for
+// ownership to negotiate through RNGH's own recognizer instead of
+// Android's nestedScrollEnabled protocol. Drop-in on iOS/web too.
+import { ScrollView } from 'react-native-gesture-handler';
 import Pressy from './Pressy';
 import ListingCard from './ListingCard';
 import { colors, type } from '../theme/theme';
@@ -85,7 +92,9 @@ export default function CollectionCarouselSection({
         onContentSizeChange={onContentSizeChange}
         onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
         onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
-        nestedScrollEnabled
+        // Nests inside HomeScreen's outer vertical FlatList, which is also
+        // a react-native-gesture-handler component -- see this file's
+        // import comment. nestedScrollEnabled is no longer needed.
       >
         {twoRowColumns
           ? twoRowColumns.map((pair) => (

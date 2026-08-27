@@ -1,8 +1,6 @@
 import React, { useEffect } from 'react';
 import { Platform, StyleSheet, View } from 'react-native';
 import { StatusBar } from 'expo-status-bar';
-// eslint-disable-next-line @typescript-eslint/no-unused-vars -- kept from
-// the original App.tsx; not currently wired into the tree below.
 import { GestureHandlerRootView } from 'react-native-gesture-handler';
 import { SafeAreaProvider } from 'react-native-safe-area-context';
 import { AppStoreProvider } from './src/store/AppStore';
@@ -204,6 +202,16 @@ const styles = StyleSheet.create({
 
 export default function App() {
   return (
+    // Wraps the whole tree so react-native-gesture-handler's components
+    // (the ScrollView/FlatList swaps in HomeScreen, ListingDetailScreen,
+    // CategoryCarouselSection and CollectionCarouselSection -- see each
+    // file's own comment) have the root view they require to register
+    // their gesture handlers. Outermost, above SafeAreaProvider, per
+    // react-native-gesture-handler's own setup guidance -- without this
+    // wrapper those components silently fail to receive touches on
+    // Android. style is the same flex:1 the innermost View below already
+    // uses; this view is otherwise a transparent passthrough.
+    <GestureHandlerRootView style={styles.root}>
     <SafeAreaProvider>
       <LanguageProvider>
         <SettingsProvider>
@@ -250,5 +258,6 @@ export default function App() {
         </SettingsProvider>
       </LanguageProvider>
     </SafeAreaProvider>
+    </GestureHandlerRootView>
   );
 }

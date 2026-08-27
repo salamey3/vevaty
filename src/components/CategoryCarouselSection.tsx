@@ -1,5 +1,13 @@
 import React from 'react';
-import { ScrollView, StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View } from 'react-native';
+// react-native-gesture-handler's ScrollView, not core RN's -- this row
+// nests inside HomeScreen's outer vertical FlatList (also migrated, see
+// that file's renderCarousels comment), and both sides of a nested pair
+// need to be gesture-handler components so ownership is negotiated
+// through RNGH's own gesture recognizer instead of Android's
+// nestedScrollEnabled protocol, which is what was causing the swipe
+// jumping/flicker this migration fixes. Drop-in on iOS/web too.
+import { ScrollView } from 'react-native-gesture-handler';
 import Pressy from './Pressy';
 import ListingCard from './ListingCard';
 import { colors, type } from '../theme/theme';
@@ -73,12 +81,12 @@ export default function CategoryCarouselSection({
         // mounts the sections near the viewport, and photos are requested
         // at card size instead of 900x1200 (see lib/photoSize.ts).
         //
-        // This carousel nests inside HomeScreen's outer vertical list --
-        // Android needs nestedScrollEnabled on both sides of a nested pair
-        // to reliably hand off gesture ownership instead of the two
-        // scrollables fighting over a swipe that starts or crosses over
-        // this row. No-op on iOS/web.
-        nestedScrollEnabled
+        // This carousel nests inside HomeScreen's outer vertical list.
+        // Both are react-native-gesture-handler components (see this
+        // file's import comment), which negotiate gesture ownership
+        // themselves -- nestedScrollEnabled (the old, Android-only,
+        // native-negotiation fix for this same problem) is no longer
+        // needed and is intentionally not set here.
       >
         {ordered.map((item) => (
           <ListingCard key={item.id} listing={item} width={160} onPress={() => onPressListing(item)} />
