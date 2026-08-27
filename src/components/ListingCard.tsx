@@ -233,7 +233,15 @@ export default function ListingCard({
           // choice here: every card in a row stays a uniform, gap-free
           // 3:4 rectangle regardless of what shape the source photo was.
           <Image
-            source={{ uri: sizedPhotoUrl(listing.photos[0], PHOTO_WIDTHS.card)! }}
+            // The real, purpose-made small thumbnail when one exists (see
+            // Listing.coverThumbnailUrl's own comment for why only the
+            // cover photo gets one), falling back to today's behavior --
+            // sizing down the full photo -- for any listing posted before
+            // thumbnails existed. sizedPhotoUrl is still worth wrapping the
+            // thumbnail in too: it's a no-op for a Bunny URL today, but
+            // costs nothing and stays correct if picsum seed data is ever
+            // mixed back in.
+            source={{ uri: sizedPhotoUrl(listing.coverThumbnailUrl ?? listing.photos[0], PHOTO_WIDTHS.card)! }}
             style={styles.thumbImg}
             resizeMode="cover"
           />

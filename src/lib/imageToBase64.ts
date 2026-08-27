@@ -128,3 +128,34 @@ export async function resizePhotoForUpload(uri: string, maxDim = 1600, quality =
     return uri;
   }
 }
+
+// Same idea as resizePhotoForUpload, but for a genuinely small second copy
+// meant only for a listing card's thumbnail -- not a smaller crop of the
+// same 1600px "full" photo. The comment above already named the gap this
+// closes: sizedPhotoUrl (photoSize.ts) was built to request a smaller size
+// at fetch time, but that only works for the picsum.photos seed URLs it was
+// tested against. Every real photo goes to Bunny, which serves back exactly
+// the bytes it was given -- there is no fetch-time resizing to ask for, so
+// the only way to make a card actually decode a small image is to make a
+// genuinely small file exist. 400px covers every card/carousel thumbnail
+// slot at this app's max 2x pixel-density scale (PHOTO_WIDTHS.card=200,
+// MAX_SCALE=2 in photoSize.ts) with room to spare.
+export async function resizeThumbnailForUpload(uri: string, maxDim = 400, quality = 0.7): Promise<string> {
+  try {
+    const resizeAction = await computeResizeAction(uri, maxDim);
+    const result = await ImageManipulator.manipulateAsync(uri, resizeAction, {
+      compress: quality,
+      format: ImageManipulator.SaveFormat.JPEG,
+    });
+    return result.uri;
+  } catch (e) {
+    // Best-effort, same as resizePhotoForUpload -- fall back to the original
+    // rather than lose the photo. uploadPhotoWithThumbnail still uploads
+    // this as the "thumbnail", which only matters if BOTH this and the
+    // separate resizePhotoForUpload call for the full photo fail the same
+    // way for the same source image -- an already-unlikely coincidence, and
+    // even then it's no worse than today's behavior of the full photo being
+    // requested for the card.
+    return uri;
+  }
+}

@@ -212,6 +212,15 @@ export interface Listing {
   lat: number | null;
   lng: number | null;
   photos: string[]; // local file uris
+  // The first gallery photo's small (~400px) card-thumbnail variant, if one
+  // was generated at upload time -- null for any listing posted before this
+  // existed (see the listing_photos.thumbnail_url migration) or while a
+  // brand-new listing's photos are still uploading in the background. Cards
+  // fall back to sizing down the full photo when this is null, exactly like
+  // they always have -- see ListingCard's use of this. Only the cover photo
+  // gets one: it's the only photo a card ever shows, so a thumbnail per
+  // gallery photo would be uploaded and never read.
+  coverThumbnailUrl?: string | null;
   // One or more named 360° spins -- e.g. a car might have "Exterior" and
   // "Interior" spins, a property one spin per room. Empty array is the
   // common case (no spin at all). Replaces the old flat single-spin

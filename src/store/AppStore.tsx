@@ -4,7 +4,7 @@ import { Listing, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, 
 import { SEED_LISTINGS } from '../data/seed';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
-import { uploadPhotos } from '../lib/photoUpload';
+import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
 import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
 import { uriToCompressedBase64 } from '../lib/imageToBase64';
 import { triggerListingModeration } from '../lib/moderateListing';
@@ -184,6 +184,19 @@ function sortedByKind(rows: any[], kind: 'gallery' | 'spin'): string[] {
     .map((p: any) => p.url);
 }
 
+// The thumbnail_url of the cover ('gallery' kind, lowest sort_order) photo,
+// or null if that row predates thumbnail_url (see the listing_photos
+// migration) or has none for any other reason. ListingCard is the only
+// thing that ever needs this -- it's the only photo a card shows -- so this
+// stays one field on Listing rather than a thumbnail threaded through every
+// screen that reads .photos.
+function coverThumbnail(rows: any[]): string | null {
+  const gallery = rows
+    .filter((p: any) => (p.kind || 'gallery') === 'gallery')
+    .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0));
+  return gallery[0]?.thumbnail_url ?? null;
+}
+
 // Groups the kind='spin' rows of a listing_photos join by their
 // spin_set_id, ordered by each myazar.listing_spin_sets row's own
 // sort_order, then by sort_order within the set. A listing can have zero,
@@ -225,6 +238,9 @@ function normalizeListing(l: any): Listing {
   return {
     ...l,
     photos: Array.isArray(l?.photos) ? l.photos : [],
+    // Same defensive story as photos above: a listing cached by a build
+    // that predates thumbnail_url has no such field on it at all.
+    coverThumbnailUrl: l?.coverThumbnailUrl ?? null,
     // Same defensive story as photos above: a listing cached by an older
     // build (before spinSets replaced the flat spinPhotos field) won't
     // have this field, or will still have the old shape -- either way,
@@ -319,6 +335,7 @@ function videoFromRows(rows: any): ListingVideo | null {
 function dbListingToLocal(row: any): Listing {
   const rows = Array.isArray(row.photos) ? row.photos : [];
   const photos = sortedByKind(rows, 'gallery');
+  const coverThumbnailUrl = coverThumbnail(rows);
   const spinSets = spinSetsFromRows(rows, Array.isArray(row.spinSets) ? row.spinSets : []);
   return {
     id: row.id,
@@ -335,6 +352,7 @@ function dbListingToLocal(row: any): Listing {
     lat: row.lat != null ? Number(row.lat) : null,
     lng: row.lng != null ? Number(row.lng) : null,
     photos, // Bunny CDN URLs from upload-photo, not Supabase Storage
+    coverThumbnailUrl,
     spinSets,
     video: videoFromRows(row.video), // hosted on Bunny Stream, not either of those
 
@@ -521,7 +539,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         .from('listings')
         .select(
           '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at, avatar_url), ' +
-            'photos:listing_photos(url, sort_order, kind, spin_set_id), ' +
+            'photos:listing_photos(url, sort_order, kind, spin_set_id, thumbnail_url), ' +
             'spinSets:listing_spin_sets(id, label, sort_order), ' +
             'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions), ' +
             // Storefronts -- null for the ~all listings with no shop_id;
@@ -648,15 +666,36 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // not just more listing_photos rows, so it needs its own insert order
   // (set row first, then its frames referencing that id).
   const persistNewPhotos = useCallback(
-    async (listingId: string, uris: string[], kind: 'gallery' | 'spin'): Promise<string[]> => {
-      if (uris.length === 0) return [];
+    async (
+      listingId: string,
+      uris: string[],
+      kind: 'gallery' | 'spin'
+    ): Promise<{ urls: string[]; coverThumbnailUrl: string | null }> => {
+      if (uris.length === 0) return { urls: [], coverThumbnailUrl: null };
+      // Only gallery photos are ever a card's cover -- spin frames get the
+      // plain upload, same as before, with no thumbnail generated for them.
+      if (kind === 'gallery') {
+        const uploaded = await uploadPhotosWithThumbnails(uris);
+        if (uploaded.length > 0) {
+          await supabase.from('listing_photos').insert(
+            uploaded.map((u, i) => ({
+              listing_id: listingId,
+              url: u.url,
+              thumbnail_url: u.thumbnailUrl,
+              sort_order: i,
+              kind,
+            }))
+          );
+        }
+        return { urls: uploaded.map((u) => u.url), coverThumbnailUrl: uploaded[0]?.thumbnailUrl ?? null };
+      }
       const hostedUrls = await uploadPhotos(uris);
       if (hostedUrls.length > 0) {
         await supabase
           .from('listing_photos')
           .insert(hostedUrls.map((url, i) => ({ listing_id: listingId, url, sort_order: i, kind })));
       }
-      return hostedUrls;
+      return { urls: hostedUrls, coverThumbnailUrl: null };
     },
     []
   );
@@ -716,15 +755,30 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       if (localNew.length > 0) {
-        uploadPhotos(localNew)
-          .then(async (hostedUrls) => {
-            if (hostedUrls.length === 0) return;
+        uploadPhotosWithThumbnails(localNew)
+          .then(async (uploaded) => {
+            if (uploaded.length === 0) return;
             const startOrder = hostedKept.length;
-            await supabase
-              .from('listing_photos')
-              .insert(hostedUrls.map((url, i) => ({ listing_id: listingId, url, sort_order: startOrder + i, kind })));
+            await supabase.from('listing_photos').insert(
+              uploaded.map((u, i) => ({
+                listing_id: listingId,
+                url: u.url,
+                thumbnail_url: u.thumbnailUrl,
+                sort_order: startOrder + i,
+                kind,
+              }))
+            );
+            const newPhotoUrls = uploaded.map((u) => u.url);
             setListings((prev) =>
-              prev.map((it) => (it.id === listingId ? { ...it, photos: [...hostedKept, ...hostedUrls] } : it))
+              prev.map((it) => {
+                if (it.id !== listingId) return it;
+                // The cover is always index 0. If any kept photo remains,
+                // it's still the cover and its thumbnail is unchanged; only
+                // when EVERY existing photo was removed does the first
+                // newly-uploaded one become the new cover.
+                const coverThumbnailUrl = hostedKept.length > 0 ? it.coverThumbnailUrl : uploaded[0].thumbnailUrl;
+                return { ...it, photos: [...hostedKept, ...newPhotoUrls], coverThumbnailUrl };
+              })
             );
           })
           .catch(() => {});
@@ -882,9 +936,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           const listingId = data.id;
           if (l.photos.length > 0) {
             persistNewPhotos(listingId, l.photos, 'gallery')
-              .then((hostedUrls) => {
-                if (hostedUrls.length === 0) return;
-                setListings((prev) => prev.map((it) => (it.id === listingId ? { ...it, photos: hostedUrls } : it)));
+              .then(({ urls, coverThumbnailUrl }) => {
+                if (urls.length === 0) return;
+                setListings((prev) =>
+                  prev.map((it) => (it.id === listingId ? { ...it, photos: urls, coverThumbnailUrl } : it))
+                );
               })
               .catch(() => {});
           }

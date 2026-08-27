@@ -1,6 +1,6 @@
 import { Platform } from 'react-native';
 import { File, UploadType } from 'expo-file-system';
-import { resizePhotoForUpload } from './imageToBase64';
+import { resizePhotoForUpload, resizeThumbnailForUpload } from './imageToBase64';
 import { supabase, SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY } from './supabase';
 import { Alert } from './alertShim';
 
@@ -77,11 +77,11 @@ async function authHeaders(contentType: string): Promise<Record<string, string>>
 // never once worked from the app before this was understood. A raw body
 // sidesteps FormData on both platforms, and expo-file-system's uploader
 // streams the file from disk without loading it into JS memory.
-export async function uploadPhoto(localUri: string): Promise<string> {
-  // Cap the longest edge first -- the CDN serves back whatever it is
-  // given, and a 4000x3000 camera original is several MB to paint a
-  // 148px card. Falls back to the original URI if resizing fails.
-  const uri = await resizePhotoForUpload(localUri);
+// POSTs an already-resized local file to the upload-photo function and
+// returns its hosted CDN URL. Shared by uploadPhoto (one file) and
+// uploadPhotoWithThumbnail (two files -- the full photo and its thumbnail,
+// each just a differently-resized local URI by the time it reaches here).
+async function uploadResizedUri(uri: string): Promise<string> {
   const headers = await authHeaders('image/jpeg');
 
   if (Platform.OS === 'web') {
@@ -114,6 +114,30 @@ export async function uploadPhoto(localUri: string): Promise<string> {
     throw new Error(`Could not reach ${UPLOAD_URL}\n${e?.message || String(e)}\nfile: ${uri}`);
   }
   return urlFromResponse(result.status, result.body);
+}
+
+export async function uploadPhoto(localUri: string): Promise<string> {
+  // Cap the longest edge first -- the CDN serves back whatever it is
+  // given, and a 4000x3000 camera original is several MB to paint a
+  // 148px card. Falls back to the original URI if resizing fails.
+  const uri = await resizePhotoForUpload(localUri);
+  return uploadResizedUri(uri);
+}
+
+// Uploads a photo AND a separate, genuinely small thumbnail meant for
+// listing cards (see resizeThumbnailForUpload's own comment for why the
+// thumbnail has to be a real second file rather than a fetch-time resize).
+// Used only for a listing's gallery photos -- the ones a card can actually
+// show as its cover -- not for spin-viewer frames, which a card never
+// renders. Resizing both variants and uploading both happen in parallel:
+// two small independent requests, not one blocking the other.
+export async function uploadPhotoWithThumbnail(localUri: string): Promise<{ url: string; thumbnailUrl: string }> {
+  const [fullUri, thumbUri] = await Promise.all([
+    resizePhotoForUpload(localUri),
+    resizeThumbnailForUpload(localUri),
+  ]);
+  const [url, thumbnailUrl] = await Promise.all([uploadResizedUri(fullUri), uploadResizedUri(thumbUri)]);
+  return { url, thumbnailUrl };
 }
 
 const sleep = (ms: number) => new Promise((r) => setTimeout(r, ms));
@@ -206,4 +230,53 @@ export async function uploadPhotos(localUris: string[]): Promise<string[]> {
   }
 
   return urls;
+}
+
+// Same retry shape as uploadPhotoResilient, for uploadPhotoWithThumbnail.
+async function uploadPhotoWithThumbnailResilient(uri: string): Promise<{ url: string; thumbnailUrl: string }> {
+  let lastDetail = '';
+
+  for (let attempt = 1; attempt <= UPLOAD_ATTEMPTS; attempt++) {
+    try {
+      return await uploadPhotoWithThumbnail(uri);
+    } catch (e: any) {
+      lastDetail = e?.message || String(e);
+      if (attempt >= UPLOAD_ATTEMPTS || !isWorthRetrying(lastDetail)) break;
+      console.warn(`[photoUpload] attempt ${attempt} failed, retrying:`, lastDetail);
+      await sleep(RETRY_DELAYS_MS[attempt - 1] ?? RETRY_DELAYS_MS[RETRY_DELAYS_MS.length - 1]);
+    }
+  }
+
+  throw new Error(lastDetail);
+}
+
+// Same shape as uploadPhotos (partial failure doesn't block the rest, the
+// seller is told if anything failed, each photo gets several attempts) --
+// for a listing's gallery photos specifically, where each one also needs a
+// small thumbnail uploaded alongside it. See uploadPhotoWithThumbnail.
+export async function uploadPhotosWithThumbnails(
+  localUris: string[]
+): Promise<{ url: string; thumbnailUrl: string }[]> {
+  const uploaded: { url: string; thumbnailUrl: string }[] = [];
+  const failures: string[] = [];
+
+  for (const uri of localUris) {
+    try {
+      uploaded.push(await uploadPhotoWithThumbnailResilient(uri));
+    } catch (e: any) {
+      const detail = e?.message || String(e);
+      failures.push(detail);
+      console.warn('[photoUpload] gave up:', detail);
+    }
+  }
+
+  if (failures.length > 0) {
+    Alert.alert(
+      'Some photos didn’t upload',
+      `${failures.length} of ${localUris.length} photo(s) couldn’t be uploaded, so the listing was saved without them. ` +
+        `This is usually a patchy connection — open the listing, tap Edit and add them again.\n\n${failures[0]}`
+    );
+  }
+
+  return uploaded;
 }
