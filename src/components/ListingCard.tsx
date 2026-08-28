@@ -223,15 +223,20 @@ export default function ListingCard({
           // (bitmap heap, not bandwidth).
           //
           // resizeMode="cover" (RN's own default, set explicitly here so
-          // it reads as deliberate) always fills the 3:4 frame edge to
+          // it reads as deliberate) always fills the square frame edge to
           // edge, on both layouts -- see thumb/thumbHorizontal's own
-          // comments for why they're both 3:4. A photo shot in a
+          // comments for why they're both 1:1. A photo shot in a
           // different ratio than the frame (portrait, landscape,
           // whatever the seller's camera produced) gets the excess
           // cropped off whichever axis runs long, rather than being
           // letterboxed down to fit inside it -- that's the deliberate
           // choice here: every card in a row stays a uniform, gap-free
-          // 3:4 rectangle regardless of what shape the source photo was.
+          // square regardless of what shape the source photo was, and a
+          // square crop is close to equally forgiving of both a vertical
+          // phone-camera shot and a horizontal one, which is the whole
+          // reason this became the card thumbnail's ratio (see thumb
+          // below). The listing detail page's own photo display is
+          // unrelated to this and keeps its original 3:4 crop.
           <Image
             // The real, purpose-made small thumbnail when one exists (see
             // Listing.coverThumbnailUrl's own comment for why only the
@@ -377,35 +382,41 @@ const styles = StyleSheet.create({
   // border, the overflow:hidden that clips the thumb's square corners to
   // the card's rounded ones) is shared with the vertical card unchanged.
   cardHorizontal: { flexDirection: 'row' },
-  // Portrait 3:4, derived from the card's own width rather than a fixed
+  // Square 1:1, derived from the card's own width rather than a fixed
   // height. The old fixed 120/150px meant the shape changed with every
   // context the card appeared in -- roughly square in a 2-column grid,
   // letterboxed in a wide carousel, different again on desktop -- so the
   // same listing looked like a different product depending on where you
   // met it, and a grid of them had no consistent rhythm.
   //
-  // 3:4 also matches the source photos: the seeded catalogue is 900x1200,
-  // and phone cameras shoot 3:4 by default, so the common case now fills
-  // the frame instead of being cropped to a letterbox.
+  // This used to be 3:4, chosen to match the source photos (seeded
+  // catalogue at 900x1200, and phone cameras shoot 3:4 by default). But
+  // marketplace sellers -- unlike social media -- overwhelmingly still
+  // shoot horizontally, carried over from posting the same photos on
+  // Facebook Marketplace/OLX, where the common frame is landscape. A
+  // portrait 3:4 card cropped a lot off the sides of those shots. Square
+  // is the middle ground: it crops a vertical shot's top/bottom and a
+  // horizontal shot's left/right by roughly the same amount, so neither
+  // orientation is the "wrong" one to have shot in. Deliberately scoped
+  // to just the card thumbnail -- the listing detail page's own photo
+  // display (ListingDetailScreen.tsx) keeps its original 3:4 crop, where
+  // there's room for a taller frame and no grid rhythm to keep uniform.
   thumb: {
-    aspectRatio: 3 / 4,
+    aspectRatio: 1,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
   },
   thumbImg: { width: '100%', height: '100%' },
-  // A fixed-width column instead of the vertical card's full-bleed 3:4 --
-  // this thumbnail now shares the row with a details column instead of
-  // owning the card's whole top edge, so it needs its own bounded width
-  // rather than stretching to `card`'s width. Same 3:4 ratio as `thumb`
-  // above, though (not the square this used to be) -- same reasoning as
-  // that style's own comment: it's what the source photos actually are,
-  // so cover fills the frame instead of needing to crop a normal shot
-  // down to fit a shape the photo was never composed for. Height follows
-  // from the ratio, so it's taller than the old square (149 at this
-  // width) -- see infoHorizontal/infoBottomHorizontal below for how the
-  // text column beside it is kept close to this same height.
-  thumbHorizontal: { width: 112, aspectRatio: 3 / 4 },
+  // A fixed-width column instead of the vertical card's full-bleed
+  // square -- this thumbnail now shares the row with a details column
+  // instead of owning the card's whole top edge, so it needs its own
+  // bounded width rather than stretching to `card`'s width. Same 1:1
+  // ratio as `thumb` above, for the same reasoning as that style's own
+  // comment. Height follows from the ratio (112 at this width) -- see
+  // infoHorizontal/infoBottomHorizontal below for how the text column
+  // beside it is kept close to this same height.
+  thumbHorizontal: { width: 112, aspectRatio: 1 },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
