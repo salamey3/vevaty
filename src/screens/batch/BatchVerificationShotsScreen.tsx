@@ -142,23 +142,41 @@ export default function BatchVerificationShotsScreen({ navigation, route }: Prop
                 {!captured && <Text style={styles.requiredTag}>{t('batchVerification.required')}</Text>}
               </View>
               {captured ? <Image source={{ uri: verificationPhotos[i] }} style={styles.verifyThumb} /> : null}
-              {/* Deliberately larger and bolder than an ordinary secondary
-                  action -- filled with the brand primary color while unmet,
-                  same visual weight Button.tsx gives its own primary CTA, so
-                  this is the thing a seller's eye lands on rather than
-                  something they can scan past. Drops to a quieter outline
-                  once captured, so attention keeps moving to whatever prompt
-                  is still unmet. */}
-              <Pressy
-                onPress={() => setCameraIndex(i)}
-                style={[styles.takeBtn, captured && styles.takeBtnDone]}
-                accessibilityLabel={captured ? t('createListing.verifyRetake') : t('batchVerification.takePhoto')}
-              >
-                <Icon name={captured ? 'rotate' : 'camera'} size={22} color={captured ? colors.ink : colors.white} />
-                <Text style={[styles.takeBtnText, captured && styles.takeBtnTextDone]}>
-                  {captured ? t('createListing.verifyRetake') : t('batchVerification.takePhoto')}
-                </Text>
-              </Pressy>
+              <View style={styles.takeBtnRow}>
+                {/* Deliberately larger and bolder than an ordinary secondary
+                    action -- filled with the brand primary color while unmet,
+                    same visual weight Button.tsx gives its own primary CTA, so
+                    this is the thing a seller's eye lands on rather than
+                    something they can scan past. Drops to a quieter outline
+                    once captured, so attention keeps moving to whatever prompt
+                    is still unmet. */}
+                <Pressy
+                  onPress={() => setCameraIndex(i)}
+                  style={[styles.takeBtn, captured && styles.takeBtnDone]}
+                  accessibilityLabel={captured ? t('createListing.verifyRetake') : t('batchVerification.takePhoto')}
+                >
+                  <Icon name={captured ? 'rotate' : 'camera'} size={22} color={captured ? colors.ink : colors.white} />
+                  <Text style={[styles.takeBtnText, captured && styles.takeBtnTextDone]}>
+                    {captured ? t('createListing.verifyRetake') : t('batchVerification.takePhoto')}
+                  </Text>
+                </Pressy>
+                {/* Same pickFromLibrary already used as CameraCapture's
+                    permission-denied fallback (see below) -- surfaced here as
+                    a first-class, always-visible choice, matching the same
+                    change on the single-item wizard's own 'verify' step
+                    (CreateListingScreen.tsx). A seller re-doing a shot they
+                    already have (a merchant re-uploading a saved VIN photo
+                    across a whole batch) shouldn't have to re-take it through
+                    the camera every time just to move on. */}
+                <Pressy
+                  onPress={() => pickFromLibrary(i)}
+                  style={styles.galleryBtn}
+                  accessibilityLabel={t('createListing.addFromGallery')}
+                >
+                  <Icon name="image" size={20} color={colors.inkSoft} />
+                  <Text style={styles.galleryBtnText}>{t('createListing.addFromGallery')}</Text>
+                </Pressy>
+              </View>
             </View>
           );
         })}
@@ -211,6 +229,7 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: '700', color: colors.danger, textTransform: 'uppercase', letterSpacing: 0.4,
   },
   verifyThumb: { width: 52, height: 52, borderRadius: radius.sm },
+  takeBtnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   // Deliberately much larger than the old 36px-tall pill (this is the
   // control the seller reported nearly missing entirely) and filled with
   // the same brand-primary color Button.tsx's own primary CTA uses, so it
@@ -224,6 +243,15 @@ const styles = StyleSheet.create({
   },
   takeBtnText: { fontSize: 16, fontWeight: '700', color: colors.white },
   takeBtnTextDone: { color: colors.ink },
+  // Secondary, always-available alternative to takeBtn -- outlined rather
+  // than filled so the camera stays the visually primary path, matching the
+  // same treatment on CreateListingScreen's single-item 'verify' step.
+  galleryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.line,
+    borderRadius: radius.pill, paddingHorizontal: 16, height: 56,
+  },
+  galleryBtnText: { fontSize: 14, fontWeight: '600', color: colors.inkSoft },
   nextBtn: { marginTop: 24 },
   blockedHint: { ...type.tiny, color: colors.danger, textAlign: 'center', marginTop: 8 },
 });

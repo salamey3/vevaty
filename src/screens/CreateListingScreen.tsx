@@ -1727,22 +1727,43 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                   {captured ? (
                     <Image source={{ uri: verificationPhotos[i] }} style={styles.verifyThumb} />
                   ) : null}
-                  {/* Its own dedicated style, not a reuse of draftBtn -- this
-                      is the exact control the seller said they nearly missed,
-                      so it needs to look like a first-class demand (large,
-                      filled with the brand primary, a bold 22px icon) rather
-                      than the same quiet pill draftBtn gives lesser actions
-                      like the Classify confirm chip elsewhere on this screen. */}
-                  <Pressy
-                    onPress={() => setVerificationCameraIndex(i)}
-                    style={[styles.verifyShotBtn, captured && styles.verifyShotBtnDone]}
-                    accessibilityLabel={captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}
-                  >
-                    <Icon name={captured ? 'rotate' : 'camera'} size={22} color={captured ? colors.ink : colors.white} />
-                    <Text style={[styles.verifyShotBtnText, captured && styles.verifyShotBtnTextDone]}>
-                      {captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}
-                    </Text>
-                  </Pressy>
+                  <View style={styles.verifyShotBtnRow}>
+                    {/* Its own dedicated style, not a reuse of draftBtn -- this
+                        is the exact control the seller said they nearly missed,
+                        so it needs to look like a first-class demand (large,
+                        filled with the brand primary, a bold 22px icon) rather
+                        than the same quiet pill draftBtn gives lesser actions
+                        like the Classify confirm chip elsewhere on this screen. */}
+                    <Pressy
+                      onPress={() => setVerificationCameraIndex(i)}
+                      style={[styles.verifyShotBtn, captured && styles.verifyShotBtnDone]}
+                      accessibilityLabel={captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}
+                    >
+                      <Icon name={captured ? 'rotate' : 'camera'} size={22} color={captured ? colors.ink : colors.white} />
+                      <Text style={[styles.verifyShotBtnText, captured && styles.verifyShotBtnTextDone]}>
+                        {captured ? t('createListing.verifyRetake') : t('createListing.verifyTakePhoto')}
+                      </Text>
+                    </Pressy>
+                    {/* Same picker pickVerificationPhotoFromLibrary already
+                        used as CameraCapture's permission-denied fallback --
+                        just surfaced here as a first-class, always-visible
+                        choice instead of only appearing once the camera is
+                        unavailable. A seller who already has the right photo
+                        (an old screenshot of the About screen, a VIN shot
+                        taken for insurance) shouldn't have to re-take it
+                        through the camera just to move on. Always shown, even
+                        after a shot is captured, so switching from a
+                        camera-taken photo to a gallery one is one tap, not a
+                        retake-then-cancel. */}
+                    <Pressy
+                      onPress={() => pickVerificationPhotoFromLibrary(i)}
+                      style={styles.verifyGalleryBtn}
+                      accessibilityLabel={t('createListing.addFromGallery')}
+                    >
+                      <Icon name="image" size={20} color={colors.inkSoft} />
+                      <Text style={styles.verifyGalleryBtnText}>{t('createListing.addFromGallery')}</Text>
+                    </Pressy>
+                  </View>
                 </View>
               );
             })}
@@ -2639,6 +2660,7 @@ const styles = StyleSheet.create({
     fontSize: 11, fontWeight: '700', color: colors.danger, textTransform: 'uppercase', letterSpacing: 0.4,
   },
   verifyThumb: { width: 52, height: 52, borderRadius: radius.sm },
+  verifyShotBtnRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 10 },
   verifyShotBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
     backgroundColor: colors.primary, borderRadius: radius.pill, paddingHorizontal: 18, height: 56,
@@ -2646,6 +2668,17 @@ const styles = StyleSheet.create({
   verifyShotBtnDone: { backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.line },
   verifyShotBtnText: { fontSize: 16, fontWeight: '700', color: colors.white },
   verifyShotBtnTextDone: { color: colors.ink },
+  // Secondary, always-available alternative to the take/retake button above
+  // -- outlined rather than filled so the camera stays the visually primary
+  // path (it's the one that guarantees a fresh, on-topic shot), while the
+  // gallery option is still a real first-class tap, not buried in a
+  // permission-denied fallback screen.
+  verifyGalleryBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.line,
+    borderRadius: radius.pill, paddingHorizontal: 16, height: 56,
+  },
+  verifyGalleryBtnText: { fontSize: 14, fontWeight: '600', color: colors.inkSoft },
   verifyBlockedHint: { ...type.tiny, color: colors.danger, marginTop: 4 },
   // The Classify step's confirm pill reuses draftBtn's shape but flips to
   // the primary/filled treatment once tapped, matching the checkCircle
