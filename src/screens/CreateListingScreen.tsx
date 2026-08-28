@@ -10,6 +10,7 @@ import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import PhotoGallery from '../components/PhotoGallery';
+import DraggableList from '../components/DraggableList';
 import CameraCapture from '../components/CameraCapture';
 import SpinPreviewModal from '../components/SpinPreviewModal';
 import { colors, type, radius } from '../theme/theme';
@@ -2269,6 +2270,45 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 </Text>
               </View>
             )}
+
+            {/* Reordering happens here, at the end of the wizard, rather than
+                on the Photos step itself -- by the time a seller reaches
+                Review they've actually seen every photo they ended up with
+                (including any added later via Verify/AI), so this is the
+                first point where "which one should lead?" is a real question
+                rather than a guess. DraggableList (src/components/
+                DraggableList.tsx) is the same dependency-free drag-to-reorder
+                control the admin category-filters screen already uses -- no
+                new library, and already proven on native + web. Dragging
+                calls setPhotos directly, so the big preview above updates
+                live, and since every place that persists `photos` (AppStore's
+                addListing/updateListing) already writes sort_order from this
+                array's plain index order, reordering here is the entire
+                feature -- no separate save step, no backend change. Hidden
+                entirely for a single photo, where "order" is meaningless. */}
+            {photos.length > 1 && (
+              <View style={styles.reorderSection}>
+                <Text style={styles.sectionLabel}>{t('createListing.reorderPhotosTitle')}</Text>
+                <Text style={[type.tiny, styles.reorderHint]}>{t('createListing.reorderPhotosHint')}</Text>
+                <DraggableList
+                  data={photos}
+                  keyExtractor={(uri) => uri}
+                  rowHeight={64}
+                  onReorder={(orderedUris) => setPhotos(orderedUris)}
+                  renderItem={(uri, index) => (
+                    <View style={styles.reorderRow}>
+                      <Image source={{ uri }} style={styles.reorderThumb} />
+                      <Text style={type.body}>
+                        {index === 0
+                          ? t('createListing.reorderPhotosCover')
+                          : t('createListing.reorderPhotosLabel', { n: index + 1 })}
+                      </Text>
+                    </View>
+                  )}
+                />
+              </View>
+            )}
+
             <Text style={styles.price}>${price || '0'}</Text>
             <Text style={[styles.title, isRTL && styles.rtlText]}>{title || t('createListing.untitled')}</Text>
             <Text style={[type.soft, { marginBottom: 8 }]}>{district || 'Lebanon'}</Text>
@@ -2780,6 +2820,10 @@ const styles = StyleSheet.create({
     alignItems: 'center', justifyContent: 'center', overflow: 'hidden', marginBottom: 16,
   },
   photoImg: { width: '100%', height: '100%' },
+  reorderSection: { marginBottom: 18 },
+  reorderHint: { color: colors.inkSoft, marginBottom: 10 },
+  reorderRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
+  reorderThumb: { width: 44, height: 44, borderRadius: radius.sm },
   price: { fontSize: 24, fontWeight: '700', color: colors.ink },
   title: { ...type.h2, marginTop: 2, marginBottom: 2 },
   specsReview: { marginTop: 18, gap: 8 },
