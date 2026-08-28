@@ -92,13 +92,13 @@ export default function ListingCard({
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
   const horizontal = layout === 'horizontal';
 
-  // The hover/long-press preview (CardPreview) -- mounted only while
+  // The hover/touch preview (CardPreview) -- mounted only while
   // `previewing` is true, so its images never load for a card nobody's
-  // actually looking at. Desktop web gets it from a plain mouse hover;
-  // touch (native app or a phone browser) gets it from a long press,
-  // which is also how it stays distinct from the tap that opens the
-  // listing -- Pressable already suppresses onPress after onLongPress
-  // fires, so holding a card never double-fires a navigation on release.
+  // actually looking at. Desktop web gets it from a plain mouse hover
+  // (debounced below, HOVER_PREVIEW_DELAY_MS); touch (native app or a
+  // phone browser) gets it the instant a finger touches the card, no
+  // debounce -- see the Pressy props below for why that's fine even
+  // though touching a card is also how almost every scroll starts.
   const [previewing, setPreviewing] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startHoverTimer = () => {
@@ -202,18 +202,30 @@ export default function ListingCard({
       onPress={onPress}
       style={[styles.card, horizontal && styles.cardHorizontal, { width: width ?? widthPct }]}
       // Desktop web only -- Pressable's hover events don't fire on
-      // native touch, so this never competes with the long-press below.
+      // native touch, so this never competes with the touch handlers
+      // below.
       onHoverIn={startHoverTimer}
       onHoverOut={() => {
         clearHoverTimer();
         setPreviewing(false);
       }}
-      // Touch (native app or a phone browser) -- a genuine hold, not the
-      // tap that opens the listing. onPressOut covers both "let go after
-      // holding" and "let go after a normal quick tap that never became
-      // a long press"; the latter is a no-op since previewing is already
-      // false in that case.
-      onLongPress={() => setPreviewing(true)}
+      // Touch (native app or a phone browser): the preview starts the
+      // instant a finger touches the card -- no hold, no debounce --
+      // mirroring hover's role on desktop, where looking (hovering) and
+      // deciding whether to click through are already two separate
+      // moments. A touch that turns out to be the start of a scroll
+      // still touches down on some card first, so this does mean that
+      // card's preview flashes on for an instant before the scroll
+      // takes over -- an accepted, deliberately-chosen tradeoff for
+      // making the preview feel instant on a touch that IS a deliberate
+      // look, rather than debouncing every touch the way hover does.
+      // onPressOut ends it the same way regardless of how the touch
+      // ended -- released after a tap (the screen navigates away right
+      // after, so it's not visible), released after resting in place,
+      // or the gesture handed off to the list's own scroll -- Pressable
+      // reports all three the same way, which is also what already kept
+      // a card's own press-scale animation from getting stuck mid-scroll.
+      onPressIn={() => setPreviewing(true)}
       onPressOut={() => setPreviewing(false)}
     >
       <View style={[styles.thumb, horizontal && styles.thumbHorizontal]}>
