@@ -406,6 +406,20 @@ const styles = StyleSheet.create({
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
+    // CardPreview's hover/long-press slideshow (PhotoSlideshow in
+    // CardPreview.tsx) renders a row wider than this box -- one frame per
+    // photo, sitting side by side -- and slides it left so only one
+    // frame's worth shows at a time. Without clipping here, only `card`'s
+    // own overflow:hidden (see below) was ever stopping the rest of that
+    // row from painting, and `card`'s edge is the whole card, not just
+    // this thumbnail. On the vertical layout `thumb` already spans the
+    // card's full width, so there was nothing past its own edge for the
+    // extra frames to bleed into and this went unnoticed; on the
+    // horizontal layout (thumbHorizontal, a fixed narrower column with an
+    // `info` column beside it) the un-clipped frames were free to slide
+    // out past the thumbnail and paint straight across that info column's
+    // text, since nothing local to the thumbnail was stopping them.
+    overflow: 'hidden',
   },
   thumbImg: { width: '100%', height: '100%' },
   // A fixed-width column instead of the vertical card's full-bleed
