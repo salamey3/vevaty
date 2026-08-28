@@ -1057,22 +1057,50 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           ? [...catAncestors, cat].map((c) => (language === 'ar' ? c.nameAr : c.nameEn)).join(' · ')
           : t('listingDetail.fallbackTitle')}
       </Text>
+      {/* Favorite/Share/Report used to live here too -- moved into their
+          own row right below the media box (actionButtonsRow below) so
+          they read as actions on the listing's photos, not as page-level
+          navigation chrome squeezed in beside the back button. */}
       <View style={styles.topBarActions}>
-        {!isOwner && (
-          <Pressy onPress={handleToggleFavorite} disabled={favBusy} style={styles.iconBtn} accessibilityLabel="Save listing">
-            <Icon name="heart" size={17} color={favorited ? colors.danger : colors.inkSoft} filled={favorited} />
-          </Pressy>
-        )}
-        {!isOwner && (
-          <Pressy onPress={openReport} style={styles.iconBtn} accessibilityLabel="Report listing">
-            <Icon name="flag" size={16} color={colors.inkSoft} />
-          </Pressy>
-        )}
-        <Pressy onPress={handleShareListing} style={styles.iconBtn} accessibilityLabel={t('listingDetail.share')}>
-          <Icon name={shareState === 'copied' ? 'checkCircle' : 'share'} size={17} color={colors.inkSoft} />
-        </Pressy>
         <LanguageSwitch compact />
       </View>
+    </View>
+  );
+
+  // Favorite / Share / Report, as a labeled row directly under the media
+  // box (photo slider, spin viewer or video) on both layouts -- see each
+  // return statement below for where it's placed relative to mediaSection.
+  // Centered rather than edge-to-edge/bordered, so it reads as three
+  // buttons anchored to the photo above it rather than a full toolbar of
+  // its own; that also means it needs no platform-specific horizontal
+  // margin the way mediaSection's chromeStyle does, since centering a
+  // fixed-content row looks the same whether its container is the full
+  // mobile screen width or the 440px-wide desktop media column.
+  const actionButtonsRow = (
+    <View style={styles.actionButtonsRow}>
+      {!isOwner && (
+        <Pressy
+          onPress={handleToggleFavorite}
+          disabled={favBusy}
+          style={[styles.actionBtn, favorited && styles.actionBtnActive]}
+          accessibilityLabel={favorited ? t('listingDetail.saved') : t('listingDetail.save')}
+        >
+          <Icon name="heart" size={16} color={favorited ? colors.danger : colors.inkSoft} filled={favorited} />
+          <Text style={[styles.actionBtnText, favorited && styles.actionBtnTextActive]}>
+            {favorited ? t('listingDetail.saved') : t('listingDetail.save')}
+          </Text>
+        </Pressy>
+      )}
+      <Pressy onPress={handleShareListing} style={styles.actionBtn} accessibilityLabel={t('listingDetail.share')}>
+        <Icon name={shareState === 'copied' ? 'checkCircle' : 'share'} size={16} color={colors.inkSoft} />
+        <Text style={styles.actionBtnText}>{t('listingDetail.share')}</Text>
+      </Pressy>
+      {!isOwner && (
+        <Pressy onPress={openReport} style={styles.actionBtn} accessibilityLabel={t('listingDetail.report')}>
+          <Icon name="flag" size={15} color={colors.inkSoft} />
+          <Text style={styles.actionBtnText}>{t('listingDetail.report')}</Text>
+        </Pressy>
+      )}
     </View>
   );
 
@@ -1084,6 +1112,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <View style={styles.desktopRow}>
             <View style={styles.desktopMediaCol}>
               {mediaSection(styles.desktopPhoto)}
+              {actionButtonsRow}
               {/* Same width as the photo above it, filling the rest of
                   this column so the two sides of the page stay roughly
                   balanced -- sticky rather than trying to match the
@@ -1113,6 +1142,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
       <ScrollView contentContainerStyle={styles.scroll}>
         {mediaSection(styles.photo, styles.mediaChromeMobile)}
+        {actionButtonsRow}
         <View style={styles.card}>
           {details}
           {/* Inside styles.card, ahead of Similar Listings/Editor's Picks/
@@ -1148,6 +1178,23 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   topBarActions: { flexDirection: 'row', alignItems: 'center', gap: 2 },
   topBarTitle: { ...type.h3, flex: 1, textAlign: 'center' },
+  // Favorite/Share/Report row, directly below the media box on both
+  // layouts -- see actionButtonsRow's own comment for why this is
+  // centered rather than pinned to either platform's content width.
+  actionButtonsRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    marginTop: 14,
+  },
+  actionBtn: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 14, height: 38, borderRadius: radius.pill,
+    backgroundColor: colors.surface, borderWidth: 1.5, borderColor: colors.line,
+  },
+  // Favorited state only (report/share have no toggled state of their
+  // own) -- same danger-red the heart icon itself already turns.
+  actionBtnActive: { borderColor: colors.danger },
+  actionBtnText: { fontSize: 13, fontWeight: '700', color: colors.inkSoft },
+  actionBtnTextActive: { color: colors.danger },
   scroll: { paddingBottom: 20 },
   photo: {
     // 3:4 (width:height) instead of a fixed pixel height -- tall enough to
