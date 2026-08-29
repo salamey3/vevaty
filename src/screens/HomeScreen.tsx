@@ -346,14 +346,27 @@ export default function HomeScreen() {
     }));
   };
 
-  // Always New/Used, not gated by "does anything currently match" the way
-  // areaOptions/attributeOptions are -- there are only ever these two
-  // values, so hiding one because nothing in the current scope happens to
-  // have it would look like a bug, not a real absence of that condition.
-  const conditionOptions: FilterOption[] = [
-    { key: 'new', label: t('home.filters.conditionNew') },
-    { key: 'used', label: t('home.filters.conditionUsed') },
-  ];
+  // Always these two (or, browsing Properties, always Sale/Rent/Both --
+  // see isPropertiesScope below), not gated by "does anything currently
+  // match" the way areaOptions/attributeOptions are -- there are only ever
+  // a fixed few values, so hiding one because nothing in the current scope
+  // happens to have it would look like a bug, not a real absence of that
+  // condition.
+  const isPropertiesScope = effectiveCategoryId ? categoryMatches(effectiveCategoryId, 'properties') : false;
+  const conditionOptions: FilterOption[] = useMemo(
+    () =>
+      isPropertiesScope
+        ? [
+            { key: 'sale', label: t('home.filters.conditionSale') },
+            { key: 'rent', label: t('home.filters.conditionRent') },
+            { key: 'both', label: t('home.filters.conditionBoth') },
+          ]
+        : [
+            { key: 'new', label: t('home.filters.conditionNew') },
+            { key: 'used', label: t('home.filters.conditionUsed') },
+          ],
+    [isPropertiesScope, t]
+  );
 
   const subCategoryOptions: FilterOption[] = useMemo(() => {
     if (topCat === 'all') return [];
@@ -588,7 +601,7 @@ export default function HomeScreen() {
           same way price/distance are, and worth seeing before drilling
           into subcategory/area. */}
       <FilterSection
-        title={t('home.filters.condition')}
+        title={isPropertiesScope ? t('home.filters.saleRentTitle') : t('home.filters.condition')}
         options={conditionOptions}
         selected={selection.condition}
         onToggle={toggleCondition}

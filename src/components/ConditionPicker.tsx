@@ -11,18 +11,22 @@ import { colors, radius, type } from '../theme/theme';
 // original -- this mirrors it locally rather than importing it, since
 // fieldStyles there is a module-private StyleSheet shared by several other
 // steps this component has no business depending on.
+//
+// Genericized from a hardcoded New/Used pair to a plain options list so
+// the same control also serves Properties' Sale/Rent/Both pick (see
+// isPropertyCategory in CreateListingScreen.tsx and BatchReviewScreen.tsx,
+// which each pass a different options array depending on the resolved
+// category) -- the pill-row/required-red styling is identical either way.
 export default function ConditionPicker({
   value,
   onChange,
   label,
-  newLabel,
-  usedLabel,
+  options,
 }: {
-  value: 'new' | 'used' | null;
-  onChange: (v: 'new' | 'used') => void;
+  value: string | null;
+  onChange: (v: string) => void;
   label: string;
-  newLabel: string;
-  usedLabel: string;
+  options: { value: string; label: string }[];
 }) {
   return (
     <View>
@@ -31,14 +35,14 @@ export default function ConditionPicker({
         <Text style={localStyles.required}> *</Text>
       </Text>
       <View style={[localStyles.pillRow, !value && localStyles.pillRowRequired]}>
-        {(['new', 'used'] as const).map((c) => (
+        {options.map((o) => (
           <Pressy
-            key={c}
-            onPress={() => onChange(c)}
-            style={[localStyles.optPill, value === c && localStyles.optPillActive]}
+            key={o.value}
+            onPress={() => onChange(o.value)}
+            style={[localStyles.optPill, value === o.value && localStyles.optPillActive]}
           >
-            <Text style={[localStyles.optPillText, value === c && localStyles.optPillTextActive]}>
-              {c === 'new' ? newLabel : usedLabel}
+            <Text style={[localStyles.optPillText, value === o.value && localStyles.optPillTextActive]}>
+              {o.label}
             </Text>
           </Pressy>
         ))}

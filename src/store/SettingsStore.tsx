@@ -230,6 +230,8 @@ function dbToCategoryAttribute(row: any): CategoryAttribute {
     bound: row.bound === 'min' || row.bound === 'max' ? row.bound : null,
     cardPriority: row.card_priority ?? null,
     isVariant: !!row.is_variant,
+    dependsOnSlug: row.depends_on_slug || null,
+    dependsOnValues: Array.isArray(row.depends_on_values) ? row.depends_on_values : null,
   };
 }
 

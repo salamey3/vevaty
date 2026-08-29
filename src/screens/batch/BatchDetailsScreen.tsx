@@ -19,6 +19,7 @@ import { estimateListingPrice, AiSuggestAttributeSchema } from '../../lib/aiSugg
 import { useVerificationPhotosFor } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
 import { AttributeValue, ListingVariant } from '../../types';
+import { resolveVisibleAttrs } from '../../lib/attributeVisibility';
 
 // Same backstop as CreateListingScreen's own local copy (see its own doc
 // comment on buildAttributeSchemaForSuggestion) -- mirrors the edge
@@ -73,8 +74,6 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     [listing?.cat, resolveAttributesForCategory]
   );
   const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
-  const specAttrs = useMemo(() => resolvedAttrs.filter((a) => !a.isVariant), [resolvedAttrs]);
-  const hasSpecs = specAttrs.length > 0;
   const hasStockStep = cat?.stockMode === 'multiple';
   const isVehicleCategory = listing?.cat ? categoryMatches(listing.cat, 'vehicles') : false;
 
@@ -86,6 +85,15 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   const [plainStockQty, setPlainStockQty] = useState('');
   const [saving, setSaving] = useState(false);
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
+
+  // See CreateListingScreen's identical specAttrs wrap for what
+  // resolveVisibleAttrs does and why filtering here is the single choke
+  // point for every downstream consumer (spec form, validation, payload).
+  const specAttrs = useMemo(
+    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues),
+    [resolvedAttrs, attrValues]
+  );
+  const hasSpecs = specAttrs.length > 0;
 
   // Re-seed local form state every time the active item changes (new
   // index, or the same index now pointing at a different listing because

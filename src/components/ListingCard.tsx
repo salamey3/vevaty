@@ -32,6 +32,26 @@ const HOVER_PREVIEW_DELAY_MS = 180;
 // every row needs to shout, per the approved Collections mockup.
 export type CornerBadge = { icon: IconName; color: string } | { text: string; color: string };
 
+// listing.condition is either the universal New/Used pick or, for
+// Properties, the Sale/Rent/Both pick reusing the same column -- see
+// Listing.condition's own doc comment in src/types/index.ts. A lookup
+// covering all 5 values rather than the old binary ternary, so a
+// Properties listing never silently falls through to "Used".
+function conditionTagLabel(condition: NonNullable<Listing['condition']>, t: (key: string) => string): string {
+  switch (condition) {
+    case 'new':
+      return t('listingCard.conditionNew');
+    case 'used':
+      return t('listingCard.conditionUsed');
+    case 'sale':
+      return t('listingCard.conditionSale');
+    case 'rent':
+      return t('listingCard.conditionRent');
+    case 'both':
+      return t('listingCard.conditionBoth');
+  }
+}
+
 export default function ListingCard({
   listing,
   onPress,
@@ -323,12 +343,12 @@ export default function ListingCard({
             {/* null for a listing posted before this field existed (or
                 one of the pre-existing seed rows a migration collapsed
                 from a more granular scale with no real "new" value among
-                them) -- those simply show no tag rather than guessing. */}
+                them) -- those simply show no tag rather than guessing.
+                sale/rent/both are Properties' repurposing of this same
+                column -- see Listing.condition's own doc comment. */}
             {listing.condition && (
               <View style={styles.tag}>
-                <Text style={styles.tagText}>
-                  {listing.condition === 'new' ? t('listingCard.conditionNew') : t('listingCard.conditionUsed')}
-                </Text>
+                <Text style={styles.tagText}>{conditionTagLabel(listing.condition, t)}</Text>
               </View>
             )}
           </View>

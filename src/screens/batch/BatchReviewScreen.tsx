@@ -29,7 +29,7 @@ function ReviewRow({
   onRetry: (listingId: string, photos: string[]) => void;
 }) {
   const { updateListing } = useAppStore();
-  const { categoryById } = useSettings();
+  const { categoryById, categoryMatches } = useSettings();
   const { t, language } = useLanguage();
   const classifyState = useBatchItemClassifyState(listing.id);
   const [fixOpen, setFixOpen] = useState(false);
@@ -38,9 +38,39 @@ function ReviewRow({
 
   const cat = categoryById(listing.cat);
   const categoryConfirmed = !!listing.cat;
+  // Same Sale/Rent/Both-instead-of-New/Used swap as CreateListingScreen's
+  // Classify step -- see its conditionOptions/isPropertyCategory for the
+  // identical reasoning, mirrored here per-row.
+  const isPropertyCategory = listing.cat ? categoryMatches(listing.cat, 'properties') : false;
+  const conditionOptions = useMemo(
+    () =>
+      isPropertyCategory
+        ? [
+            { value: 'sale', label: t('createListing.condition.sale') },
+            { value: 'rent', label: t('createListing.condition.rent') },
+            { value: 'both', label: t('createListing.condition.both') },
+          ]
+        : [
+            { value: 'new', label: t('createListing.condition.new') },
+            { value: 'used', label: t('createListing.condition.used') },
+          ],
+    [isPropertyCategory, t]
+  );
 
   const setCategory = (id: CategoryId) => {
-    updateListing(listing.id, listingToInput(listing, { cat: id })).catch(() => {});
+    // Same cross-boundary clear as CreateListingScreen's own effect: a
+    // condition value picked under the old category's option set (e.g.
+    // 'used') doesn't belong to the new one once the category crosses the
+    // Properties boundary, so it's cleared rather than left stranded,
+    // matching none of the now-shown pills.
+    const newIsProperty = categoryMatches(id, 'properties');
+    const conditionStillValid = newIsProperty
+      ? listing.condition === 'sale' || listing.condition === 'rent' || listing.condition === 'both'
+      : listing.condition === 'new' || listing.condition === 'used';
+    updateListing(
+      listing.id,
+      listingToInput(listing, { cat: id, condition: conditionStillValid ? listing.condition : null })
+    ).catch(() => {});
     setFixOpen(false);
     setCategoryQuery('');
   };
@@ -130,10 +160,11 @@ function ReviewRow({
 
       <ConditionPicker
         value={listing.condition}
-        onChange={(c) => updateListing(listing.id, listingToInput(listing, { condition: c })).catch(() => {})}
-        label={t('createListing.conditionLabel')}
-        newLabel={t('createListing.condition.new')}
-        usedLabel={t('createListing.condition.used')}
+        onChange={(c) =>
+          updateListing(listing.id, listingToInput(listing, { condition: c as Listing['condition'] })).catch(() => {})
+        }
+        label={isPropertyCategory ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
+        options={conditionOptions}
       />
 
       <CategoryPickerModal

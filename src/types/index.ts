@@ -118,6 +118,14 @@ export interface CategoryAttribute {
   // every existing multiselect-based filter/spec-display path already
   // works for it with no special-casing.
   isVariant: boolean;
+  // Field-level conditional visibility: this attribute only applies (is
+  // rendered, required, and offered to/accepted from AI suggestion) when
+  // another attribute on the same category, identified by slug, currently
+  // holds one of these values. Both null together means always-visible --
+  // the overwhelmingly common case. See resolveVisibleAttrs in
+  // src/lib/attributeVisibility.ts for the one place this is interpreted.
+  dependsOnSlug: string | null;
+  dependsOnValues: string[] | null;
 }
 
 // One step in a category's Home-screen filter drill-down, in the order
@@ -183,14 +191,18 @@ export interface Listing {
   descriptionEn: string;
   descriptionAr: string;
   price: number;
-  // Whether the item is brand new or used, chosen by the seller as a
-  // required pick on the very first step of the create-listing wizard
-  // (see CreateListingScreen's category step). Nullable only for the sake
-  // of listings posted before this field existed -- see normalizeListing/
-  // dbListingToLocal's defensive-default story for the same reasoning
-  // applied elsewhere on this type. A null condition simply shows no
-  // New/Used badge on ListingCard rather than guessing.
-  condition: 'new' | 'used' | null;
+  // For most categories: whether the item is brand new or used, chosen by
+  // the seller as a required pick on the very first step of the
+  // create-listing wizard (see CreateListingScreen's category step). For
+  // the Properties category this same first-step field instead captures
+  // Sale/Rent/Both -- real estate has no meaningful New/Used distinction
+  // (see ConditionPicker's genericized options prop), so 'sale'/'rent'/
+  // 'both' reuse this one column and UI slot rather than adding a second.
+  // Nullable only for the sake of listings posted before this field
+  // existed -- see normalizeListing/dbListingToLocal's defensive-default
+  // story for the same reasoning applied elsewhere on this type. A null
+  // condition simply shows no badge on ListingCard rather than guessing.
+  condition: 'new' | 'used' | 'sale' | 'rent' | 'both' | null;
   district: string;
   // Lebanese governorate/caza (district), resolved via the map picker or
   // town-name autocomplete against the lebanonPlaces dataset (see

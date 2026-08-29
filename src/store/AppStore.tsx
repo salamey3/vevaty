@@ -306,11 +306,16 @@ function normalizeListing(l: any): Listing {
     // 'unique'-mode listing should read as anyway.
     stockQty: typeof l?.stockQty === 'number' ? l.stockQty : 1,
     variants: Array.isArray(l?.variants) ? l.variants : null,
-    // New/used -- same defensive story as everything above: a listing
-    // cached by a build that predates this field simply has no opinion,
-    // same as one where the seller's pick genuinely never made it to the
-    // DB (see dbListingToLocal's own condition mapping).
-    condition: l?.condition === 'new' || l?.condition === 'used' ? l.condition : null,
+    // New/used, or (Properties only) sale/rent/both -- same defensive
+    // story as everything above: a listing cached by a build that
+    // predates this field, or predates the Properties Sale/Rent/Both
+    // repurposing of it, simply has no opinion, same as one where the
+    // seller's pick genuinely never made it to the DB (see
+    // dbListingToLocal's own condition mapping).
+    condition:
+      l?.condition === 'new' || l?.condition === 'used' || l?.condition === 'sale' || l?.condition === 'rent' || l?.condition === 'both'
+        ? l.condition
+        : null,
     // Batch listings -- same defensive story once more: a listing cached
     // by a build that predates this feature won't have these fields, and
     // the overwhelming majority of listings (anything not posted through
@@ -394,11 +399,15 @@ function dbListingToLocal(row: any): Listing {
     // still guards the same way price/lat/lng above do.
     stockQty: row.stock_qty != null ? Number(row.stock_qty) : 1,
     variants: Array.isArray(row.variants) ? row.variants : null,
-    // New/used -- null for any listing posted before this field existed,
-    // or for the pre-existing seed rows this migration collapsed from a
-    // more granular (and never actually seller-facing) used-condition
-    // scale. See the Listing type's own doc comment.
-    condition: row.condition === 'new' || row.condition === 'used' ? row.condition : null,
+    // New/used, or (Properties only) sale/rent/both -- null for any
+    // listing posted before this field existed, or for the pre-existing
+    // seed rows this migration collapsed from a more granular (and never
+    // actually seller-facing) used-condition scale. See the Listing
+    // type's own doc comment.
+    condition:
+      row.condition === 'new' || row.condition === 'used' || row.condition === 'sale' || row.condition === 'rent' || row.condition === 'both'
+        ? row.condition
+        : null,
     batchId: row.batch_id ?? null,
     batchParked: !!row.batch_parked,
   };

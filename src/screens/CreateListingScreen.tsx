@@ -19,6 +19,7 @@ import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
 import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
+import { resolveVisibleAttrs } from '../lib/attributeVisibility';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
@@ -120,14 +121,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const [step, setStep] = useState(0);
   const [category, setCategory] = useState<CategoryId | null>(initialCategory);
-  // New vs used -- lives on the Classify step, alongside category
-  // confirmation (see canNextByKind.classify and the 'classify' step's
-  // JSX below), not its own step: it's a single yes/no-style pick, not
-  // enough of a decision to earn a whole step the way photos/details do,
-  // and keeping it off the step list means it needs no changes to
-  // stepKinds or the Android/web back-navigation logic those rounds
-  // already got right.
-  const [condition, setCondition] = useState<'new' | 'used' | null>(editingListing?.condition ?? null);
+  // New vs used (or, for Properties, Sale/Rent/Both -- see
+  // isPropertyCategory below and ConditionPicker's genericized options
+  // prop) -- lives on the Classify step, alongside category confirmation
+  // (see canNextByKind.classify and the 'classify' step's JSX below), not
+  // its own step: it's a single pick, not enough of a decision to earn a
+  // whole step the way photos/details do, and keeping it off the step
+  // list means it needs no changes to stepKinds or the Android/web
+  // back-navigation logic those rounds already got right.
+  const [condition, setCondition] = useState<'new' | 'used' | 'sale' | 'rent' | 'both' | null>(editingListing?.condition ?? null);
   const [photos, setPhotos] = useState<string[]>(editingListing?.photos || []);
   // A listing can have more than one named 360° spin (e.g. "Exterior"/
   // "Interior" for a car, one per room for a property) -- see the SpinSet
@@ -511,7 +513,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // specAttrs/hasSpecs below: it never shows as a normal spec field, only
   // in the dedicated Stock step.
   const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
-  const specAttrs = useMemo(() => resolvedAttrs.filter((a) => !a.isVariant), [resolvedAttrs]);
+  // resolveVisibleAttrs additionally drops any attribute whose
+  // dependsOnSlug/dependsOnValues isn't currently satisfied (e.g.
+  // Bedrooms once Property Type = Land) -- see its own doc comment. This
+  // is the single choke point: every downstream consumer of specAttrs
+  // (spec lines, AI-suggestion schema, payload, required-field
+  // validation, the review-step summary) already reads from this list.
+  const specAttrs = useMemo(
+    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues),
+    [resolvedAttrs, attrValues]
+  );
   const hasSpecs = specAttrs.length > 0;
   // Category.stockMode -- see its own doc comment. 'unique' (everything
   // until this feature existed, and still the vast majority of
@@ -539,6 +550,39 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // under it.
   const isPropertyCategory = category ? categoryMatches(category, 'properties') : false;
   const spinLabelSuggestions = spinLabelSuggestionsFor(isVehicleCategory, isPropertyCategory, language);
+  // The Classify step's condition picker doubles as Sale/Rent/Both for
+  // Properties (see condition state's own doc comment) -- same control,
+  // same required slot, a different option set and label depending on
+  // whether the resolved category is Properties.
+  const conditionOptions = useMemo(
+    () =>
+      isPropertyCategory
+        ? [
+            { value: 'sale', label: t('createListing.condition.sale') },
+            { value: 'rent', label: t('createListing.condition.rent') },
+            { value: 'both', label: t('createListing.condition.both') },
+          ]
+        : [
+            { value: 'new', label: t('createListing.condition.new') },
+            { value: 'used', label: t('createListing.condition.used') },
+          ],
+    [isPropertyCategory, t]
+  );
+  // If the seller sets a New/Used value and then changes category across
+  // the Properties boundary (or vice versa), the previous value no longer
+  // belongs to either option set above -- it would sit on `condition`
+  // matching none of the visible pills, yet still read as "set" to
+  // canNextByKind.classify below. Clearing it keeps the picker and the
+  // Continue gate in sync with whichever option set is currently shown.
+  useEffect(() => {
+    setCondition((prev) => {
+      if (prev === null) return prev;
+      const stillValid = isPropertyCategory
+        ? prev === 'sale' || prev === 'rent' || prev === 'both'
+        : prev === 'new' || prev === 'used';
+      return stillValid ? prev : null;
+    });
+  }, [isPropertyCategory]);
 
   // True once category has an actual, trustworthy value behind it -- either
   // the seller picked it by hand, or they tapped the confirm pill on the
@@ -1699,17 +1743,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               <Text style={styles.browseCategoriesBtnText}>{t('createListing.classifyBrowseButton')}</Text>
             </Pressy>
 
-            {/* New vs used -- lives on this same screen, below
+            {/* New vs used (or, for Properties, Sale/Rent/Both -- see
+                conditionOptions above) -- lives on this same screen, below
                 classification (see canNextByKind.classify and the
                 condition state's own doc comment above). ConditionPicker
                 (src/components/ConditionPicker.tsx) is the same control
                 the batch review screen's per-row fix path uses. */}
             <ConditionPicker
               value={condition}
-              onChange={setCondition}
-              label={t('createListing.conditionLabel')}
-              newLabel={t('createListing.condition.new')}
-              usedLabel={t('createListing.condition.used')}
+              onChange={(v) => setCondition(v as typeof condition)}
+              label={isPropertyCategory ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
+              options={conditionOptions}
             />
           </View>
         )}
