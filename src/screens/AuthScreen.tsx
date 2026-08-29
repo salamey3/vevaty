@@ -14,6 +14,7 @@ import {
   isPhoneRegistered,
   signInWithPhonePassword,
   setAccountPassword,
+  upsertOwnProfile,
 } from '../lib/supabase';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
@@ -295,13 +296,14 @@ export default function AuthScreen({ navigation, route }: Props) {
       const uid = session?.user?.id;
       if (!uid) throw new Error('No session after verification');
       // Persist the verified phone immediately, regardless of what happens
-      // next -- see this same upsert's original comment history: a user
+      // next -- see this same call's original comment history: a user
       // who verifies but never reaches the end of whichever step follows
       // (closes the tab, loses connection) should never be left with
-      // is_phone_verified: false and no way to be re-prompted.
-      await supabase
-        .from('profiles')
-        .upsert({ id: uid, phone: sentPhone, is_phone_verified: true }, { onConflict: 'id' });
+      // is_phone_verified: false and no way to be re-prompted. Goes through
+      // upsertOwnProfile, not a plain client-side upsert -- see that
+      // function's own comment for why a plain upsert here silently never
+      // actually wrote anything.
+      await upsertOwnProfile({ phone: sentPhone, isPhoneVerified: true });
       if (otpPurpose === 'signup') {
         // The password was already collected on 'signup', before this OTP
         // was even sent -- attach it now that the session is real.
@@ -355,13 +357,13 @@ export default function AuthScreen({ navigation, route }: Props) {
       const { data } = await supabase.auth.getSession();
       const uid = data.session?.user?.id;
       if (!uid) throw new Error('No session');
-      // upsert, not insert -- AppStore's own syncFromSupabase may have
-      // already inserted a bare profile row for this uid the moment the
-      // auth-state-change fired, racing this write. upsert makes either
-      // order land on the same final row instead of a unique-violation.
-      await supabase
-        .from('profiles')
-        .upsert({ id: uid, full_name: name.trim(), phone: sentPhone, is_phone_verified: true }, { onConflict: 'id' });
+      // upsertOwnProfile, not insert -- AppStore's own syncFromSupabase may
+      // have already inserted a bare profile row for this uid the moment
+      // the auth-state-change fired, racing this write. The upsert (done
+      // server-side inside upsertOwnProfile's RPC -- see its comment)
+      // makes either order land on the same final row instead of a
+      // unique-violation.
+      await upsertOwnProfile({ phone: sentPhone, fullName: name.trim(), isPhoneVerified: true });
       finishAndLeave();
     } catch (e: any) {
       setError(t('auth.verifyFailed'));

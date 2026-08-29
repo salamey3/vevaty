@@ -14,6 +14,8 @@ import BatchLocationContactScreen from '../screens/batch/BatchLocationContactScr
 import BatchFinalReviewScreen from '../screens/batch/BatchFinalReviewScreen';
 import AuthScreen from '../screens/AuthScreen';
 import ChangePhoneScreen from '../screens/ChangePhoneScreen';
+import EditNameScreen from '../screens/EditNameScreen';
+import EditLocationScreen from '../screens/EditLocationScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ChatThreadScreen from '../screens/ChatThreadScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
@@ -73,6 +75,8 @@ const linking: LinkingOptions<RootStackParamList> = {
       SellHub: 'sell/start',
       Auth: 'login',
       ChangePhone: 'change-phone',
+      EditName: 'edit-name',
+      EditLocation: 'edit-location',
       Payment: 'listing/:listingId/payment',
       ChatThread: 'messages/:threadId',
       Favorites: 'favorites',
@@ -121,6 +125,8 @@ export default function RootNavigator() {
         <Stack.Screen name="BatchFinalReview" component={BatchFinalReviewScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Auth" component={AuthScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ChangePhone" component={ChangePhoneScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="EditName" component={EditNameScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="EditLocation" component={EditLocationScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Payment" component={PaymentScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />

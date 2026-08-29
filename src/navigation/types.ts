@@ -39,6 +39,11 @@ export type RootStackParamList = {
   // history -- distinct from Auth above, which signs in/up. No params:
   // always operates on the current session, never someone else's.
   ChangePhone: undefined;
+  // ProfileScreen's "Edit your profile" menu -- same "always operates on
+  // the current session" shape as ChangePhone above, just for the two
+  // profile fields that don't need OTP re-verification.
+  EditName: undefined;
+  EditLocation: undefined;
   Payment: { listingId: string };
   ChatThread: { threadId: string };
   Favorites: undefined;

@@ -130,3 +130,31 @@ export async function setAccountPassword(password: string) {
   const { error } = await supabase.auth.updateUser({ password });
   if (error) throw error;
 }
+
+// Creates-or-updates the CALLER's own profiles row in one call -- a
+// first-time signup has no row yet, a returning user's password-reset
+// flow does, and AuthScreen needs both cases handled the same way. A
+// plain `.upsert(..., {onConflict:'id'})` from the client can't do this
+// on myazar.profiles: Postgres requires table-level SELECT privilege to
+// evaluate INSERT ... ON CONFLICT DO UPDATE, but `authenticated` only has
+// column-level SELECT grants here (phone is deliberately excluded -- see
+// ensureSession's comment above), never a table-level grant, so the
+// upsert's ON CONFLICT clause was always rejected outright with
+// "permission denied for table profiles" -- silently, since nothing
+// checked the error, which is why full_name/is_phone_verified never
+// actually persisted no matter how many times signup or recovery ran.
+// This RPC (SECURITY DEFINER, myazar.upsert_own_profile) runs as its
+// owner instead of the caller, sidestepping that grant, while always
+// writing to auth.uid() -- never a caller-supplied id -- so it can only
+// ever touch the signed-in user's own row. Omit a field (leave it
+// undefined) to leave that column exactly as it is rather than clearing
+// it -- e.g. verifyCode's call only ever touches phone/is_phone_verified,
+// never full_name.
+export async function upsertOwnProfile(fields: { phone?: string; fullName?: string; isPhoneVerified?: boolean }) {
+  const { error } = await supabase.rpc('upsert_own_profile', {
+    p_phone: fields.phone ?? null,
+    p_full_name: fields.fullName ?? null,
+    p_is_phone_verified: fields.isPhoneVerified ?? null,
+  });
+  if (error) throw error;
+}

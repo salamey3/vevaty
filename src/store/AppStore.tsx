@@ -152,6 +152,12 @@ interface AppStoreValue {
   // as shop logos -- see MyStorefrontScreen's pickLogo) to profiles.avatar_url
   // and local state; pass null to clear it back to the generic icon.
   updateAvatar: (url: string | null) => Promise<void>;
+  // ProfileScreen's "Edit your profile" menu -- same immediate-local-state,
+  // awaited-DB-write shape as updateAvatar above, so EditNameScreen/
+  // EditLocationScreen can show a save error rather than the change
+  // silently not sticking.
+  updateProfileName: (name: string) => Promise<void>;
+  updateProfileDistrict: (district: string) => Promise<void>;
   signOut: () => Promise<void>;
   // Calls the delete-account edge function (cleans up myazar-schema data
   // via a SECURITY DEFINER RPC, then removes the auth identity itself with
@@ -655,6 +661,28 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     const uid = userIdRef.current;
     if (!uid) return;
     const { error } = await supabase.from('profiles').update({ avatar_url: url }).eq('id', uid);
+    if (error) throw error;
+  }, []);
+
+  // Same shape as updateAvatar -- a plain `.update()`, not an upsert
+  // (see upsertOwnProfile's comment in lib/supabase.ts for why upsert
+  // doesn't work on this table): by the time a verified user reaches
+  // ProfileScreen's edit menu, syncFromSupabase has already guaranteed a
+  // profiles row exists for their uid, so there's never a conflict to
+  // resolve here.
+  const updateProfileName = useCallback(async (name: string) => {
+    setProfile((p) => ({ ...p, name }));
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const { error } = await supabase.from('profiles').update({ full_name: name }).eq('id', uid);
+    if (error) throw error;
+  }, []);
+
+  const updateProfileDistrict = useCallback(async (district: string) => {
+    setProfile((p) => ({ ...p, district }));
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const { error } = await supabase.from('profiles').update({ district }).eq('id', uid);
     if (error) throw error;
   }, []);
 
@@ -1428,6 +1456,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       markListingSold,
       awardPoints,
       updateAvatar,
+      updateProfileName,
+      updateProfileDistrict,
       signOut,
       deleteAccount,
     }),
@@ -1453,6 +1483,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       markListingSold,
       awardPoints,
       updateAvatar,
+      updateProfileName,
+      updateProfileDistrict,
       signOut,
       deleteAccount,
     ]

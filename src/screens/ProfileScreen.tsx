@@ -108,6 +108,12 @@ export default function ProfileScreen() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
+  // "Edit your profile" reveals the three things a verified user can
+  // change about themselves -- name and location update in place here,
+  // phone number still goes through ChangePhoneScreen's own OTP flow
+  // (kept as its own screen rather than folded in here, since it needs a
+  // send-code/verify step this menu has no room for).
+  const [editMenuOpen, setEditMenuOpen] = useState(false);
 
   // useFocusEffect rather than a plain mount-only effect: this screen stays
   // mounted underneath ChangePhoneScreen (a stack push, not a replace), so
@@ -188,6 +194,7 @@ export default function ProfileScreen() {
             </View>
           )}
           <Text style={styles.name}>{profile.name && profile.name !== 'You' ? profile.name : t('profile.yourProfile')}</Text>
+          {isVerified && <Text style={styles.profileHint}>{t('profile.yourProfileHint')}</Text>}
           {isVerified && !!myPhone && <Text style={styles.district}>{myPhone}</Text>}
           {!!profile.district && <Text style={styles.district}>{profile.district}</Text>}
           <View style={styles.pointsRow}>
@@ -201,6 +208,15 @@ export default function ProfileScreen() {
             </Text>
           )}
         </LinearGradient>
+
+        {isVerified && (
+          <View style={[styles.section, { marginTop: 14 }]}>
+            <Pressy onPress={() => setEditMenuOpen(true)} style={styles.adminBtn}>
+              <Icon name="edit" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('profile.editProfile')}</Text>
+            </Pressy>
+          </View>
+        )}
 
         <View style={[styles.section, { marginTop: 18 }]}>
           <Pressy onPress={() => navigation.navigate('Shops')} style={styles.adminBtn}>
@@ -240,15 +256,6 @@ export default function ProfileScreen() {
               {myShop && !myShop.verifiedAt && (
                 <View style={styles.pendingDot} />
               )}
-            </Pressy>
-          </View>
-        )}
-
-        {isVerified && (
-          <View style={styles.section}>
-            <Pressy onPress={() => navigation.navigate('ChangePhone')} style={styles.adminBtn}>
-              <Icon name="phone" size={15} color={colors.inkSoft} />
-              <Text style={styles.adminBtnText}>{t('changePhone.rowLabel')}</Text>
             </Pressy>
           </View>
         )}
@@ -361,6 +368,38 @@ export default function ProfileScreen() {
       />
 
       <ActionSheet
+        visible={editMenuOpen}
+        options={[
+          {
+            label: t('profile.editProfileChangeName'),
+            icon: 'user',
+            onPress: () => {
+              setEditMenuOpen(false);
+              navigation.navigate('EditName');
+            },
+          },
+          {
+            label: t('profile.editProfileChangePhone'),
+            icon: 'phone',
+            onPress: () => {
+              setEditMenuOpen(false);
+              navigation.navigate('ChangePhone');
+            },
+          },
+          {
+            label: t('profile.editProfileChangeLocation'),
+            icon: 'location',
+            onPress: () => {
+              setEditMenuOpen(false);
+              navigation.navigate('EditLocation');
+            },
+          },
+        ]}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setEditMenuOpen(false)}
+      />
+
+      <ActionSheet
         visible={avatarMenuOpen}
         options={[
           {
@@ -418,6 +457,7 @@ const styles = StyleSheet.create({
     borderWidth: 2, borderColor: colors.heroA,
   },
   name: { fontSize: 19, fontWeight: '700', color: colors.white },
+  profileHint: { fontSize: 11, color: 'rgba(255,255,255,0.55)', marginTop: 2 },
   district: { fontSize: 12.5, color: 'rgba(255,255,255,0.65)', marginTop: 2 },
   pointsRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 16 },
   pointsBig: { fontSize: 16, fontWeight: '700', color: colors.white },

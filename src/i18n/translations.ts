@@ -115,6 +115,21 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'changePhone.successBody': 'Your account is now linked to {phone}.',
     'changePhone.rowLabel': 'Change phone number',
 
+    // Edit name / location (ProfileScreen's "Edit your profile" menu --
+    // phone number still goes through changePhone.* above, unchanged)
+    'editName.title': 'Change your name',
+    'editName.subtitle': 'This is the name buyers and sellers see on your profile and listings.',
+    'editName.nameLabel': 'Name',
+    'editName.namePlaceholder': 'Your name',
+    'editName.nameRequired': 'Enter a name.',
+    'editName.saveFailed': 'Could not save your name. Please try again.',
+    'editLocation.title': 'Change your location',
+    'editLocation.subtitle': 'This is the town or area shown on your profile.',
+    'editLocation.locationLabel': 'Location',
+    'editLocation.locationPlaceholder': 'Town or area',
+    'editLocation.locationRequired': 'Enter a location.',
+    'editLocation.saveFailed': 'Could not save your location. Please try again.',
+
     'auth.nameTitle': 'What’s your name?',
     'auth.namePlaceholder': 'Your name',
     'auth.agreeToPrefix': 'I agree to the',
@@ -594,6 +609,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     // Profile
     'profile.yourProfile': 'Your profile',
+    'profile.yourProfileHint': '(Your profile)',
+    'profile.editProfile': 'Edit your profile',
+    'profile.editProfileChangeName': 'Change your name',
+    'profile.editProfileChangePhone': 'Change your phone number',
+    'profile.editProfileChangeLocation': 'Change your location',
     'profile.changePhoto': 'Change profile photo',
     'profile.avatarUploadFailedTitle': 'Upload failed',
     'profile.avatarUploadFailedMessage': 'Could not upload that photo. Try again.',
@@ -836,6 +856,19 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'changePhone.successTitle': 'تم تحديث الرقم',
     'changePhone.successBody': 'حسابك مرتبط الآن برقم {phone}.',
     'changePhone.rowLabel': 'تغيير رقم الهاتف',
+
+    'editName.title': 'تغيير اسمك',
+    'editName.subtitle': 'هذا هو الاسم الذي يراه المشترون والبائعون على ملفك الشخصي وإعلاناتك.',
+    'editName.nameLabel': 'الاسم',
+    'editName.namePlaceholder': 'اسمك',
+    'editName.nameRequired': 'أدخل اسمًا.',
+    'editName.saveFailed': 'تعذّر حفظ اسمك. حاول مرة أخرى.',
+    'editLocation.title': 'تغيير موقعك',
+    'editLocation.subtitle': 'هذه هي المنطقة أو البلدة الظاهرة على ملفك الشخصي.',
+    'editLocation.locationLabel': 'الموقع',
+    'editLocation.locationPlaceholder': 'البلدة أو المنطقة',
+    'editLocation.locationRequired': 'أدخل موقعًا.',
+    'editLocation.saveFailed': 'تعذّر حفظ موقعك. حاول مرة أخرى.',
 
     'auth.nameTitle': 'شو اسمك؟',
     'auth.namePlaceholder': 'اسمك',
@@ -1271,6 +1304,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'imageCrop.usePhoto': 'استخدام الصورة',
 
     'profile.yourProfile': 'صفحتك الشخصية',
+    'profile.yourProfileHint': '(صفحتك الشخصية)',
+    'profile.editProfile': 'تعديل ملفك الشخصي',
+    'profile.editProfileChangeName': 'تغيير اسمك',
+    'profile.editProfileChangePhone': 'تغيير رقم هاتفك',
+    'profile.editProfileChangeLocation': 'تغيير موقعك',
     'profile.changePhoto': 'تغيير صورة الملف الشخصي',
     'profile.avatarUploadFailedTitle': 'فشل الرفع',
     'profile.avatarUploadFailedMessage': 'تعذّر رفع هذه الصورة. حاول مرة أخرى.',
