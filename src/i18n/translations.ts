@@ -255,6 +255,16 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // after a number.
     'listingCard.rentPer.month': '${amount} / month',
     'listingCard.rentPer.year': '${amount} / year',
+    // Abbreviated period for the browse card, where the figure also
+    // carries a "Rent for" label and the long form would overrun.
+    'listingCard.rentPerShort.month': '${amount}/mo',
+    'listingCard.rentPerShort.year': '${amount}/yr',
+    // Rendered just before the figure, a few points smaller than it, so
+    // the number stays the biggest thing on the line. These say what the
+    // figure IS, and on a browse card they stand in for the condition
+    // pill entirely.
+    'listingCard.saleForLabel': 'Sale for',
+    'listingCard.rentForLabel': 'Rent for',
     'listingDetail.rentPaymentLabel': 'Rent paid in advance',
     'listingDetail.storefront': 'Storefront',
     'storefront.notFoundTitle': 'This storefront could not be found.',
@@ -1001,6 +1011,10 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingCard.conditionBoth': 'بيع أو إيجار',
     'listingCard.rentPer.month': '{amount}$ / شهرياً',
     'listingCard.rentPer.year': '{amount}$ / سنوياً',
+    'listingCard.rentPerShort.month': '{amount}$/شهر',
+    'listingCard.rentPerShort.year': '{amount}$/سنة',
+    'listingCard.saleForLabel': 'للبيع بـ',
+    'listingCard.rentForLabel': 'للإيجار بـ',
     'listingDetail.rentPaymentLabel': 'دفعة الإيجار المقدمة',
     'listingDetail.storefront': 'المتجر',
     'storefront.notFoundTitle': 'تعذّر العثور على هذا المتجر.',

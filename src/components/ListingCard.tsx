@@ -16,6 +16,7 @@ import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingPriceLines } from '../lib/priceDisplay';
+import { isPropertyCondition } from '../lib/rentTerms';
 import { RootStackParamList } from '../navigation/types';
 
 // How long the cursor has to sit still on a card before its preview
@@ -35,9 +36,14 @@ export type CornerBadge = { icon: IconName; color: string } | { text: string; co
 
 // listing.condition is either the universal New/Used pick or, for
 // Properties, the Sale/Rent/Both pick reusing the same column -- see
-// Listing.condition's own doc comment in src/types/index.ts. A lookup
-// covering all 5 values rather than the old binary ternary, so a
-// Properties listing never silently falls through to "Used".
+// Listing.condition's own doc comment in src/types/index.ts.
+//
+// In practice the card only reaches the New/Used arms now: properties
+// carry their offer in the price lines instead and render no pill at all
+// (see the call site). The sale/rent/both arms are kept so this stays a
+// total function over the union -- the pill is one styling decision away
+// from coming back, and a silent fall-through to "Used" is exactly the
+// bug this lookup replaced.
 function conditionTagLabel(condition: NonNullable<Listing['condition']>, t: (key: string) => string): string {
   switch (condition) {
     case 'new':
@@ -137,8 +143,11 @@ export default function ListingCard({
   useEffect(() => clearHoverTimer, []);
 
   // A sale price, or a rental's rent-and-period, or both lines for a
-  // property offered either way -- see listingPriceLines.
-  const priceLines = useMemo(() => listingPriceLines(listing, t), [listing, t]);
+  // property offered either way -- see listingPriceLines. The 'card'
+  // variant labels a property's figures ("Sale for $450,000") and
+  // abbreviates the period, which together replace the condition pill and
+  // stop it from squeezing the price into "$450,...".
+  const priceLines = useMemo(() => listingPriceLines(listing, t, { variant: 'card' }), [listing, t]);
 
   // The two specs most worth knowing before you open the listing -- screen
   // size on a TV, year and mileage on a car, storage on a phone. Required
@@ -344,17 +353,26 @@ export default function ListingCard({
             text is the only thing that changes). */}
         <View style={[styles.infoTop, horizontal && styles.infoTopHorizontal]}>
           <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
-            {/* A rental shows its rent and period here rather than a bare
-                number, so "$800" can never be mistaken for the asking
-                price of an apartment -- see listingPriceLines. */}
-            <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>{priceLines.primary}</Text>
-            {/* null for a listing posted before this field existed (or
-                one of the pre-existing seed rows a migration collapsed
-                from a more granular scale with no real "new" value among
-                them) -- those simply show no tag rather than guessing.
-                sale/rent/both are Properties' repurposing of this same
-                column -- see Listing.condition's own doc comment. */}
-            {listing.condition && (
+            {/* A property says what its number IS -- "Sale for $450,000",
+                "Rent for $12,000/yr" -- so the figure can never be
+                mistaken for the other kind of offer. See listingPriceLines. */}
+            <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>
+              {!!priceLines.primary.label && (
+                <Text style={styles.priceLabel}>{priceLines.primary.label} </Text>
+              )}
+              {priceLines.primary.amount}
+            </Text>
+            {/* New/Used only. A property's Sale/Rent/Both pick is already
+                spelled out by the price lines themselves, and repeating it
+                as a pill cost enough width to truncate the price it sat
+                next to ("$450,..." beside "SALE OR RENT"), so properties
+                deliberately show no pill at all.
+
+                Null for a listing posted before this field existed (or one
+                of the pre-existing seed rows a migration collapsed from a
+                more granular scale with no real "new" value among them) --
+                those simply show no tag rather than guessing. */}
+            {listing.condition && !isPropertyCondition(listing.condition) && (
               <View style={styles.tag}>
                 <Text style={styles.tagText}>{conditionTagLabel(listing.condition, t)}</Text>
               </View>
@@ -364,7 +382,10 @@ export default function ListingCard({
               sale price is the headline above, this is the rent under it. */}
           {!!priceLines.secondary && (
             <Text style={[styles.priceSecondary, isRTL && styles.rtlText]} numberOfLines={1}>
-              {priceLines.secondary}
+              {!!priceLines.secondary.label && (
+                <Text style={styles.priceLabel}>{priceLines.secondary.label} </Text>
+              )}
+              {priceLines.secondary.amount}
             </Text>
           )}
           <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
@@ -539,10 +560,17 @@ const styles = StyleSheet.create({
   // price line grew from "$1,500" to "$1,500 / month" beside a "For rent"
   // pill; the pill itself must not shrink, or it truncates instead.
   price: { fontSize: 16, fontWeight: '700', color: colors.white, letterSpacing: -0.2, flexShrink: 1 },
+  // "Sale for" / "Rent for", nested inline ahead of the figure. Smaller
+  // and slightly muted so the number stays the biggest thing on the line:
+  // the label is context, the price is what the buyer came for, and if
+  // anything has to give on a narrow card it must not be the digits.
+  priceLabel: { fontSize: 11.5, fontWeight: '600', opacity: 0.8 },
   // The rent line under the sale price on a property offered both ways --
   // same white-on-forest-green band, stepped down so it reads as the
-  // second of two numbers rather than competing with the headline.
-  priceSecondary: { fontSize: 12.5, fontWeight: '600', color: colors.white, opacity: 0.85, marginTop: 1 },
+  // second of two numbers rather than competing with the headline. It now
+  // carries its own "Rent for" label rather than a bare figure, so it
+  // sits closer to the headline in weight than it did as a bare number.
+  priceSecondary: { fontSize: 13.5, fontWeight: '600', color: colors.white, opacity: 0.9, marginTop: 2 },
   // New/used, now a plain gold pill on the price line instead of its
   // own colored line above it -- New and Used no longer get different
   // fills, just different text, so this one style covers both.

@@ -40,7 +40,7 @@ import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
-import { listingPriceLines } from '../lib/priceDisplay';
+import { listingPriceLines, priceLineText } from '../lib/priceDisplay';
 import { rentPaymentFrequencyLabelKey } from '../lib/rentTerms';
 import { listingTitle, listingDescription, listingDistrict, listingShopName, pickText } from '../lib/listingText';
 import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
@@ -535,9 +535,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {/* A rental leads with its rent and period rather than a bare
             number; a property offered both ways leads with the sale price
             and carries the rent on the line below. See listingPriceLines. */}
-        <Text style={styles.price}>{priceLines.primary}</Text>
+        <Text style={styles.price}>{priceLineText(priceLines.primary)}</Text>
       </View>
-      {!!priceLines.secondary && <Text style={styles.priceSecondary}>{priceLines.secondary}</Text>}
+      {!!priceLines.secondary && (
+        <Text style={styles.priceSecondary}>{priceLineText(priceLines.secondary)}</Text>
+      )}
       {/* How far ahead the tenant pays -- a real negotiating term, so it
           gets its own line here rather than being buried in the specs. */}
       {!!listing.rentPaymentFrequency && (

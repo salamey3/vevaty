@@ -35,6 +35,16 @@ export function offersRent(condition: Listing['condition']): boolean {
   return condition === 'rent' || condition === 'both';
 }
 
+// True for a Properties listing's Sale/Rent/Both pick, as opposed to a
+// New/Used condition or none at all. Used to suppress the listing card's
+// condition pill on properties: the price lines there say "Sale for
+// $450,000" / "Rent for $12,000 a year" outright, so a pill repeating
+// "Sale or rent" beside them is redundant -- and it was wide enough to
+// squeeze the price itself down to "$450,...".
+export function isPropertyCondition(condition: Listing['condition']): boolean {
+  return offersSale(condition) || offersRent(condition);
+}
+
 // Translation keys for the pill labels, kept next to the value lists so a
 // new option can't be added without an obvious place to name it.
 export function rentPeriodLabelKey(p: RentPeriod): string {
@@ -67,4 +77,13 @@ export function matchesConditionFilter(
 // its own grammar wants them.
 export function rentPerPeriodLabelKey(p: RentPeriod): string {
   return `listingCard.rentPer.${p}`;
+}
+
+// The same figure abbreviated for a browse card -- "$12,000/yr" rather
+// than "$12,000 / year". A two-column phone grid gives a card roughly
+// 145pt of text width, and once the figure also carries a "Rent for"
+// label the long form overruns it and ellipsises the number itself,
+// which is the whole problem the label was added to solve.
+export function rentPerPeriodShortLabelKey(p: RentPeriod): string {
+  return `listingCard.rentPerShort.${p}`;
 }

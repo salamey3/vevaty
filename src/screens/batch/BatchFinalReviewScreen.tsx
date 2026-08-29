@@ -12,7 +12,7 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { listingToInput } from '../../lib/batchListingInput';
 import { resetBatchClassifyState } from '../../store/BatchClassifyContext';
 import { pickText } from '../../lib/listingText';
-import { listingPriceLines } from '../../lib/priceDisplay';
+import { listingPriceLines, priceLineText } from '../../lib/priceDisplay';
 import { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BatchFinalReview'>;
@@ -100,7 +100,7 @@ export default function BatchFinalReviewScreen({ navigation, route }: Props) {
                   "$1,500" on a rental would look like an asking price.
                   Same formatter the card and detail hero use. */}
               <Text style={styles.cardPrice} numberOfLines={1}>
-                {listingPriceLines(listing, t).primary}
+                {priceLineText(listingPriceLines(listing, t, { variant: 'card' }).primary)}
               </Text>
             </Pressy>
           ))}
