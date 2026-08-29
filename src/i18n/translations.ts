@@ -57,14 +57,17 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'onboarding.getStarted': 'Get started',
     'onboarding.note': 'This is an early working prototype — everything you enter stays only on this phone for now.',
 
-    // Auth (phone + OTP) -- the only sign-in surface in the app. Typing an
-    // email address into the phone field here instead switches it to
-    // admin email+password sign-in (see auth.passwordLabel/auth.signIn) --
-    // there's no separate admin-login button anywhere else in the UI.
+    // Auth (phone + password, phone + OTP for new numbers and password
+    // recovery) -- the only sign-in surface in the app. Typing an email
+    // address into the phone field here instead switches it to admin
+    // email+password sign-in (also auth.passwordLabel/auth.signIn, shared
+    // with the regular phone+password sign-in step below) -- there's no
+    // separate admin-login button anywhere else in the UI.
     'auth.title': 'Log in',
-    'auth.subtitle': 'Enter your phone number to log in or create an account. We’ll text you a one-time code — no password needed.',
+    'auth.subtitle': 'Enter your phone number to log in or create an account.',
     'auth.phoneLabel': 'Phone number',
     'auth.phonePlaceholder': '+961 xx xxx xxx',
+    'auth.phoneCheckFailed': 'Could not check that number. Please try again.',
     'auth.sendWhatsapp': 'Send code via WhatsApp',
     'auth.sendSms': 'Send code via SMS',
     'auth.invalidPhone': 'Enter a valid phone number, starting with your country code (e.g. +961).',
@@ -76,6 +79,30 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'auth.verify': 'Verify',
     'auth.verifyFailed': 'That code didn’t work — check it and try again.',
     'auth.changeNumber': 'Use a different number',
+
+    // New-number branch: this phone isn't registered yet, so a password is
+    // created before the OTP is sent (still verified by code either way).
+    'auth.createPasswordTitle': 'Create a password',
+    'auth.createPasswordSubtitle': 'This number isn’t registered yet. Set a password so you can sign back in quickly next time — we’ll also text you a code to verify it’s really you.',
+    'auth.newPasswordLabel': 'New password',
+    'auth.confirmPasswordLabel': 'Confirm password',
+    'auth.passwordTooShort': 'Password must be at least 6 characters.',
+    'auth.passwordMismatch': 'Passwords don’t match.',
+
+    // Registered-number branch: sign in with the password, or recover it.
+    'auth.signinSubtitle': 'Enter your password to sign in.',
+    'auth.forgotPassword': 'Forgot password?',
+    'auth.wrongPassword': 'Incorrect password. Please try again.',
+    'auth.tooManyAttempts': 'Too many attempts. Try again in {n}s.',
+    'auth.forgotPasswordTitle': 'Verify it’s you',
+    'auth.forgotPasswordSubtitle': 'We’ll text you a one-time code, then you can set a new password.',
+    // Shown after that recovery code is verified -- also the screen a
+    // long-time member sees the very first time they try a password at
+    // all, since every account that verified its phone before this
+    // feature existed has never had one set.
+    'auth.setNewPasswordTitle': 'Set a password',
+    'auth.setNewPasswordSubtitle': 'You’re verified. Set a password so you can sign in faster next time.',
+    'auth.setPasswordCta': 'Set password',
 
     // Change phone number (already-verified accounts swapping to a new
     // number, keeping the same account and history)
@@ -768,9 +795,10 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'onboarding.note': 'هذه نسخة تجريبية أولية — كل ما تدخله يبقى محفوظًا على هذا الهاتف فقط حاليًا.',
 
     'auth.title': 'تسجيل الدخول',
-    'auth.subtitle': 'أدخل رقم هاتفك لتسجيل الدخول أو إنشاء حساب. سنرسل لك رمزًا لمرة واحدة — بدون كلمة مرور.',
+    'auth.subtitle': 'أدخل رقم هاتفك لتسجيل الدخول أو إنشاء حساب.',
     'auth.phoneLabel': 'رقم الهاتف',
     'auth.phonePlaceholder': '+961 xx xxx xxx',
+    'auth.phoneCheckFailed': 'تعذّر التحقق من هذا الرقم. يرجى المحاولة مرة أخرى.',
     'auth.sendWhatsapp': 'إرسال الرمز عبر واتساب',
     'auth.sendSms': 'إرسال الرمز عبر رسالة نصية',
     'auth.invalidPhone': 'أدخل رقم هاتف صحيح، يبدأ برمز الدولة (مثال: +961).',
@@ -782,6 +810,23 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'auth.verify': 'تحقق',
     'auth.verifyFailed': 'الرمز غير صحيح — تحقق منه وحاول مرة أخرى.',
     'auth.changeNumber': 'استخدام رقم آخر',
+
+    'auth.createPasswordTitle': 'إنشاء كلمة مرور',
+    'auth.createPasswordSubtitle': 'هذا الرقم غير مسجّل بعد. عيّن كلمة مرور لتتمكن من تسجيل الدخول بسرعة في المرة القادمة — سنرسل لك أيضًا رمزًا للتحقق من أن هذا رقمك فعلًا.',
+    'auth.newPasswordLabel': 'كلمة مرور جديدة',
+    'auth.confirmPasswordLabel': 'تأكيد كلمة المرور',
+    'auth.passwordTooShort': 'يجب أن تتكون كلمة المرور من 6 أحرف على الأقل.',
+    'auth.passwordMismatch': 'كلمتا المرور غير متطابقتين.',
+
+    'auth.signinSubtitle': 'أدخل كلمة المرور لتسجيل الدخول.',
+    'auth.forgotPassword': 'نسيت كلمة المرور؟',
+    'auth.wrongPassword': 'كلمة المرور غير صحيحة. يرجى المحاولة مرة أخرى.',
+    'auth.tooManyAttempts': 'محاولات كثيرة جدًا. حاول مرة أخرى بعد {n} ثانية.',
+    'auth.forgotPasswordTitle': 'تحقق من هويتك',
+    'auth.forgotPasswordSubtitle': 'سنرسل لك رمزًا لمرة واحدة، وبعدها يمكنك تعيين كلمة مرور جديدة.',
+    'auth.setNewPasswordTitle': 'تعيين كلمة مرور',
+    'auth.setNewPasswordSubtitle': 'تم التحقق من هويتك. عيّن كلمة مرور لتسجيل الدخول بشكل أسرع في المرة القادمة.',
+    'auth.setPasswordCta': 'تعيين كلمة المرور',
 
     'changePhone.title': 'تغيير رقم الهاتف',
     'changePhone.subtitle': 'أدخل رقمك الجديد. لازم تتحقق منه برمز قبل ما يصير التغيير فعلي.',

@@ -96,3 +96,37 @@ export async function verifyPhoneChangeOtp(newPhone: string, token: string) {
   if (error) throw error;
   return data.session;
 }
+
+// Phone + password sign-in (AuthScreen) -- added so a returning user isn't
+// spending a fresh OTP send just to get back in. "Does an account already
+// exist for this number?" can't be answered from a plain table query --
+// the client has no read access to auth.users, and it shouldn't (letting
+// anyone probe arbitrary numbers to learn who's registered is its own
+// privacy leak) -- so this goes through a narrow SECURITY DEFINER function
+// (see the is_phone_registered migration) that answers only true/false,
+// nothing else about the account.
+export async function isPhoneRegistered(phone: string): Promise<boolean> {
+  const { data, error } = await supabase.rpc('is_phone_registered', { p_phone: phone });
+  if (error) throw error;
+  return !!data;
+}
+
+export async function signInWithPhonePassword(phone: string, password: string) {
+  const { data, error } = await supabase.auth.signInWithPassword({ phone, password });
+  if (error) throw error;
+  return data.session;
+}
+
+// Attaches/replaces a password on the CURRENT session's own account.
+// Reused for two different moments in AuthScreen: right after a brand-new
+// signup's phone OTP verifies (setting a password for the first time), and
+// after a "forgot password" recovery OTP verifies (setting a new one).
+// Supabase doesn't distinguish those cases -- there's no separate "set
+// initial password" call -- which also means this same path quietly
+// handles every account that verified its phone before this feature
+// existed and has never had a password at all: their first "forgot
+// password" attempt sets one, no separate migration needed.
+export async function setAccountPassword(password: string) {
+  const { error } = await supabase.auth.updateUser({ password });
+  if (error) throw error;
+}

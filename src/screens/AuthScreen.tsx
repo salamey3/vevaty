@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Text, View, TextInput, Image, KeyboardAvoidingView } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -6,7 +6,15 @@ import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import { colors, type, radius } from '../theme/theme';
-import { supabase, sendPhoneOtp, verifyPhoneOtp, normalizePhone } from '../lib/supabase';
+import {
+  supabase,
+  sendPhoneOtp,
+  verifyPhoneOtp,
+  normalizePhone,
+  isPhoneRegistered,
+  signInWithPhonePassword,
+  setAccountPassword,
+} from '../lib/supabase';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -14,7 +22,23 @@ import { openLegalPage } from '../lib/legalLinks';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 
-type Step = 'phone' | 'otp' | 'name' | 'adminMfaEnroll' | 'adminMfaChallenge';
+// 'phone': collect a number and find out whether it's registered (no OTP
+// sent yet -- see checkPhone()). 'signup': not registered -- create a
+// password, then send the OTP. 'signin': registered -- enter the password,
+// or fall through to 'forgotPassword' from the link on that same step.
+// 'otp' is shared by both the signup and forgot-password sends (see
+// otpPurpose); 'setNewPassword' follows a forgot-password OTP (and is also
+// where a pre-password account sets one for the very first time -- see
+// setAccountPassword's own comment in lib/supabase.ts).
+type Step = 'phone' | 'signup' | 'signin' | 'otp' | 'setNewPassword' | 'name' | 'adminMfaEnroll' | 'adminMfaChallenge';
+
+// A few failed password attempts pause further tries for a short cooldown
+// -- a plain client-side speed bump, not a real brute-force defense (that
+// needs Supabase's own CAPTCHA integration, which isn't wired up here).
+// Good enough to stop someone mashing the button by hand; a scripted
+// attacker hitting Supabase's API directly would skip this entirely.
+const MAX_PASSWORD_ATTEMPTS = 5;
+const LOCKOUT_MS = 30_000;
 
 export default function AuthScreen({ navigation, route }: Props) {
   const { t, language } = useLanguage();
@@ -27,12 +51,54 @@ export default function AuthScreen({ navigation, route }: Props) {
   const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // The phone number the 'signup'/'signin'/'setNewPassword' steps act on --
+  // set once, right after checkPhone() resolves which branch to take.
+  // Kept separate from `sentPhone` below, which specifically tracks
+  // whichever number an OTP was actually sent to (the 'otp' step's own
+  // subtitle reads off that one, matching its pre-existing meaning).
+  const [checkedPhone, setCheckedPhone] = useState('');
   const [sentPhone, setSentPhone] = useState('');
+  // Which flow the 'otp' step is currently completing -- a brand-new
+  // signup (apply the password captured on 'signup', then go to 'name')
+  // or a forgot-password recovery (go to 'setNewPassword' instead, since
+  // no password was captured up front for that one).
+  const [otpPurpose, setOtpPurpose] = useState<'signup' | 'recovery' | null>(null);
+  // 'signup' step's password fields.
+  const [signupPassword, setSignupPassword] = useState('');
+  const [signupPasswordConfirm, setSignupPasswordConfirm] = useState('');
+  // 'signin' step's password field, and whether it's showing the password
+  // field or the forgot-password channel choice in its place.
+  const [signinPassword, setSigninPassword] = useState('');
+  const [forgotMode, setForgotMode] = useState(false);
+  // 'setNewPassword' step's fields (forgot-password recovery, or a
+  // long-time member's very first password).
+  const [newPassword, setNewPassword] = useState('');
+  const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
+  // Simple attempt-cooldown for 'signin' -- see MAX_PASSWORD_ATTEMPTS.
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [lockedUntil, setLockedUntil] = useState<number | null>(null);
+  // Only used to force a re-render once a second while locked out, so the
+  // countdown in the error message and the button's re-enabling actually
+  // update on their own instead of being frozen at whatever they read on
+  // the render that set lockedUntil.
+  const [, setLockoutTick] = useState(0);
+  useEffect(() => {
+    if (!lockedUntil) return;
+    const timer = setInterval(() => {
+      if (Date.now() >= lockedUntil) {
+        setLockedUntil(null);
+        setFailedAttempts(0);
+      } else {
+        setLockoutTick((n) => n + 1);
+      }
+    }, 1000);
+    return () => clearInterval(timer);
+  }, [lockedUntil]);
   // Hard gate on the 'name' step (the last step of NEW-user signup only --
-  // a returning user with an existing full_name skips straight to
-  // finishAndLeave() in verifyCode() below and never sees this). Required
-  // before finishSignup() is allowed to run; see legalLinks.ts for why
-  // these are absolute-URL static pages rather than in-app screens.
+  // a returning user skips straight to afterAuthenticated()'s
+  // finishAndLeave() branch below and never sees this). Required before
+  // finishSignup() is allowed to run; see legalLinks.ts for why these are
+  // absolute-URL static pages rather than in-app screens.
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   // Admin TOTP enroll/challenge step state -- see adminLogin()/submitAdminMfa() below.
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
@@ -55,6 +121,24 @@ export default function AuthScreen({ navigation, route }: Props) {
     const { returnTo, returnToParams } = route.params || {};
     if (returnTo) navigation.replace(returnTo as any, returnToParams);
     else navigation.goBack();
+  };
+
+  // Shared "what's next" decision after ANY of the three ways this screen
+  // can produce a freshly-authenticated session (signup OTP verified +
+  // password attached, password sign-in, or a recovered/first-time
+  // password just set): a genuinely new account has no full_name yet, so
+  // it goes to the 'name' step; anyone who already completed that once
+  // before is done. Re-checks the database rather than trusting local
+  // state, so a signup that got interrupted after verifying but before
+  // finishing 'name' (closed the tab, lost connection) correctly lands
+  // back on 'name' again next time instead of a silent skip.
+  const afterAuthenticated = async () => {
+    const { data } = await supabase.auth.getSession();
+    const uid = data.session?.user?.id;
+    if (!uid) throw new Error('No session');
+    const { data: existing } = await supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle();
+    if (existing?.full_name) finishAndLeave();
+    else setStep('name');
   };
 
   const adminLogin = async () => {
@@ -97,7 +181,12 @@ export default function AuthScreen({ navigation, route }: Props) {
     else finishAndLeave();
   };
 
-  const sendCode = async (channel: 'sms' | 'whatsapp') => {
+  // 'phone' step's Continue -- looks up whether this number already has an
+  // account (see isPhoneRegistered's own comment for why that's a narrow
+  // database function rather than a plain table read) and branches to
+  // 'signup' or 'signin'. No OTP is sent from this step any more -- that
+  // now only happens once we know which branch we're in.
+  const checkPhone = async () => {
     const normalized = normalizePhone(phone);
     if (!normalized) {
       setError(t('auth.invalidPhone'));
@@ -106,15 +195,91 @@ export default function AuthScreen({ navigation, route }: Props) {
     setLoading(true);
     setError(null);
     try {
-      await sendPhoneOtp(normalized, channel);
-      setSentPhone(normalized);
+      const registered = await isPhoneRegistered(normalized);
+      setCheckedPhone(normalized);
+      setSigninPassword('');
+      setSignupPassword('');
+      setSignupPasswordConfirm('');
+      setFailedAttempts(0);
+      setLockedUntil(null);
+      setForgotMode(false);
+      setStep(registered ? 'signin' : 'signup');
+    } catch (e: any) {
+      setError(t('auth.phoneCheckFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 'signup' step -- validates the new password, then sends the OTP via
+  // whichever channel was tapped. Same sendPhoneOtp/verifyPhoneOtp pair
+  // the app has always used for phone verification (proven live already,
+  // WhatsApp channel included) -- the password itself is only attached
+  // once that OTP verifies (see verifyCode's 'signup' branch), rather than
+  // risking an unproven signUp()-with-password-and-channel combination.
+  const sendSignupOtp = async (channel: 'sms' | 'whatsapp') => {
+    if (signupPassword.length < 6) {
+      setError(t('auth.passwordTooShort'));
+      return;
+    }
+    if (signupPassword !== signupPasswordConfirm) {
+      setError(t('auth.passwordMismatch'));
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await sendPhoneOtp(checkedPhone, channel);
+      setSentPhone(checkedPhone);
+      setOtpPurpose('signup');
+      setOtp('');
       setStep('otp');
     } catch (e: any) {
       const msg: string = e?.message || '';
-      // Supabase returns a distinct "provider not enabled"-style message
-      // when phone auth hasn't been configured in the dashboard yet --
-      // surface that as "not available yet" rather than a generic error,
-      // since it's an expected state until Twilio is set up.
+      setError(/not enabled|provider|unsupported/i.test(msg) ? t('auth.notConfiguredYet') : t('auth.sendFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 'signin' step -- direct password sign-in for an already-registered
+  // number. No OTP involved at all on this path, which is the entire
+  // point: a returning user isn't spending a fresh text message just to
+  // get back in.
+  const signIn = async () => {
+    if (lockedUntil && Date.now() < lockedUntil) return;
+    if (!signinPassword) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await signInWithPhonePassword(checkedPhone, signinPassword);
+      setFailedAttempts(0);
+      await afterAuthenticated();
+    } catch (e: any) {
+      const next = failedAttempts + 1;
+      setFailedAttempts(next);
+      if (next >= MAX_PASSWORD_ATTEMPTS) setLockedUntil(Date.now() + LOCKOUT_MS);
+      setError(t('auth.wrongPassword'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Forgot-password branch of 'signin' -- same OTP send as signup, just a
+  // different purpose so verifyCode() below knows to route to
+  // 'setNewPassword' instead of attaching a password that was never
+  // collected up front.
+  const sendRecoveryOtp = async (channel: 'sms' | 'whatsapp') => {
+    setLoading(true);
+    setError(null);
+    try {
+      await sendPhoneOtp(checkedPhone, channel);
+      setSentPhone(checkedPhone);
+      setOtpPurpose('recovery');
+      setOtp('');
+      setStep('otp');
+    } catch (e: any) {
+      const msg: string = e?.message || '';
       setError(/not enabled|provider|unsupported/i.test(msg) ? t('auth.notConfiguredYet') : t('auth.sendFailed'));
     } finally {
       setLoading(false);
@@ -129,25 +294,52 @@ export default function AuthScreen({ navigation, route }: Props) {
       const session = await verifyPhoneOtp(sentPhone, otp.trim());
       const uid = session?.user?.id;
       if (!uid) throw new Error('No session after verification');
-      // Persist the verified phone immediately, regardless of whether this
-      // user goes on to complete the 'name' step below. Previously this
-      // write only happened for returning users (the branch below with an
-      // existing full_name) -- a brand-new user who verified their phone
-      // but then closed the tab/navigated away before typing a name (e.g.
-      // via the browser's own back button, which this screen can't
-      // intercept) was left with is_phone_verified: false and phone: null
-      // forever, with no way to ever be re-prompted. Found live 2026-08-14
-      // testing the new Supabase Test OTP numbers: a real verified
-      // auth.users.phone with a completely untouched profiles row.
+      // Persist the verified phone immediately, regardless of what happens
+      // next -- see this same upsert's original comment history: a user
+      // who verifies but never reaches the end of whichever step follows
+      // (closes the tab, loses connection) should never be left with
+      // is_phone_verified: false and no way to be re-prompted.
       await supabase
         .from('profiles')
         .upsert({ id: uid, phone: sentPhone, is_phone_verified: true }, { onConflict: 'id' });
-      const { data: existing } = await supabase.from('profiles').select('full_name').eq('id', uid).maybeSingle();
-      if (existing?.full_name) {
-        finishAndLeave();
+      if (otpPurpose === 'signup') {
+        // The password was already collected on 'signup', before this OTP
+        // was even sent -- attach it now that the session is real.
+        await setAccountPassword(signupPassword);
+        setSignupPassword('');
+        setSignupPasswordConfirm('');
+        await afterAuthenticated();
       } else {
-        setStep('name');
+        // Recovery: no password was collected yet -- that's what
+        // 'setNewPassword' is for.
+        setStep('setNewPassword');
       }
+    } catch (e: any) {
+      setError(t('auth.verifyFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 'setNewPassword' -- reached after a forgot-password OTP verifies, or
+  // (functionally identical, see setAccountPassword's own comment) the
+  // first time a pre-password long-time member ever sets one at all.
+  const submitNewPassword = async () => {
+    if (newPassword.length < 6) {
+      setError(t('auth.passwordTooShort'));
+      return;
+    }
+    if (newPassword !== newPasswordConfirm) {
+      setError(t('auth.passwordMismatch'));
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    try {
+      await setAccountPassword(newPassword);
+      setNewPassword('');
+      setNewPasswordConfirm('');
+      await afterAuthenticated();
     } catch (e: any) {
       setError(t('auth.verifyFailed'));
     } finally {
@@ -178,6 +370,31 @@ export default function AuthScreen({ navigation, route }: Props) {
     }
   };
 
+  const lockoutSecondsLeft = lockedUntil ? Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000)) : 0;
+
+  const goBack = () => {
+    if (step === 'phone') {
+      if (isEmailInput) { setIsEmailInput(false); setPassword(''); setError(null); }
+      else navigation.goBack();
+    } else if (step === 'signup' || step === 'signin') {
+      setStep('phone');
+      setError(null);
+    } else if (step === 'otp') {
+      setStep(otpPurpose === 'signup' ? 'signup' : 'signin');
+      setError(null);
+    } else if (step === 'setNewPassword') {
+      setStep('phone');
+      setError(null);
+    } else if (step === 'name') {
+      setStep('otp');
+    } else if (step === 'adminMfaEnroll' || step === 'adminMfaChallenge') {
+      setStep('phone');
+      setMfaCode('');
+    } else {
+      setStep('phone');
+    }
+  };
+
   return (
     <Screen maxWidth={480}>
       {/* behavior='padding' on both platforms -- see the long note in
@@ -186,18 +403,7 @@ export default function AuthScreen({ navigation, route }: Props) {
           undefined makes KeyboardAvoidingView a no-op. */}
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
         <View style={styles.topBar}>
-          <Pressy
-            onPress={() => {
-              if (step === 'phone') {
-                if (isEmailInput) { setIsEmailInput(false); setPassword(''); setError(null); }
-                else navigation.goBack();
-              }
-              else if (step === 'name') setStep('otp');
-              else if (step === 'adminMfaEnroll' || step === 'adminMfaChallenge') { setStep('phone'); setMfaCode(''); }
-              else setStep('phone');
-            }}
-            style={styles.iconBtn}
-          >
+          <Pressy onPress={goBack} style={styles.iconBtn}>
             <Icon name="back" size={18} />
           </Pressy>
           <Text style={type.h3}>{t('auth.title')}</Text>
@@ -221,14 +427,7 @@ export default function AuthScreen({ navigation, route }: Props) {
                 style={styles.input}
               />
               {!!error && <Text style={styles.error}>{error}</Text>}
-              <Button label={t('auth.sendWhatsapp')} onPress={() => sendCode('whatsapp')} loading={loading} style={{ marginTop: 18 }} />
-              <Button
-                label={t('auth.sendSms')}
-                onPress={() => sendCode('sms')}
-                loading={loading}
-                variant="secondary"
-                style={{ marginTop: 10 }}
-              />
+              <Button label={t('common.continue')} onPress={checkPhone} loading={loading} style={{ marginTop: 18 }} />
               <Pressy onPress={() => { setIsEmailInput(true); setError(null); }} style={styles.linkBtn}>
                 <Text style={styles.linkText}>{t('auth.adminSignInLink')}</Text>
               </Pressy>
@@ -272,6 +471,93 @@ export default function AuthScreen({ navigation, route }: Props) {
             </>
           )}
 
+          {step === 'signup' && (
+            <>
+              <Text style={styles.subtitle}>{t('auth.createPasswordSubtitle')}</Text>
+              <Text style={styles.fieldLabel}>{t('auth.newPasswordLabel')}</Text>
+              <TextInput
+                value={signupPassword}
+                onChangeText={setSignupPassword}
+                placeholder="••••••••"
+                placeholderTextColor={colors.inkSoft}
+                secureTextEntry
+                style={styles.input}
+              />
+              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>{t('auth.confirmPasswordLabel')}</Text>
+              <TextInput
+                value={signupPasswordConfirm}
+                onChangeText={setSignupPasswordConfirm}
+                placeholder="••••••••"
+                placeholderTextColor={colors.inkSoft}
+                secureTextEntry
+                style={styles.input}
+              />
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Button
+                label={t('auth.sendWhatsapp')}
+                onPress={() => sendSignupOtp('whatsapp')}
+                loading={loading}
+                disabled={!signupPassword || !signupPasswordConfirm}
+                style={{ marginTop: 18 }}
+              />
+              <Button
+                label={t('auth.sendSms')}
+                onPress={() => sendSignupOtp('sms')}
+                loading={loading}
+                variant="secondary"
+                disabled={!signupPassword || !signupPasswordConfirm}
+                style={{ marginTop: 10 }}
+              />
+            </>
+          )}
+
+          {step === 'signin' && !forgotMode && (
+            <>
+              <Text style={styles.subtitle}>{t('auth.signinSubtitle')}</Text>
+              <Text style={styles.fieldLabel}>{t('auth.passwordLabel')}</Text>
+              <TextInput
+                value={signinPassword}
+                onChangeText={setSigninPassword}
+                placeholder="••••••••"
+                placeholderTextColor={colors.inkSoft}
+                secureTextEntry
+                style={styles.input}
+              />
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              {!!lockedUntil && lockoutSecondsLeft > 0 && (
+                <Text style={styles.error}>{t('auth.tooManyAttempts', { n: lockoutSecondsLeft })}</Text>
+              )}
+              <Button
+                label={t('auth.signIn')}
+                onPress={signIn}
+                loading={loading}
+                disabled={!signinPassword || (!!lockedUntil && lockoutSecondsLeft > 0)}
+                style={{ marginTop: 18 }}
+              />
+              <Pressy onPress={() => { setForgotMode(true); setError(null); }} style={styles.linkBtn}>
+                <Text style={styles.linkText}>{t('auth.forgotPassword')}</Text>
+              </Pressy>
+            </>
+          )}
+
+          {step === 'signin' && forgotMode && (
+            <>
+              <Text style={styles.subtitle}>{t('auth.forgotPasswordSubtitle')}</Text>
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Button label={t('auth.sendWhatsapp')} onPress={() => sendRecoveryOtp('whatsapp')} loading={loading} style={{ marginTop: 18 }} />
+              <Button
+                label={t('auth.sendSms')}
+                onPress={() => sendRecoveryOtp('sms')}
+                loading={loading}
+                variant="secondary"
+                style={{ marginTop: 10 }}
+              />
+              <Pressy onPress={() => { setForgotMode(false); setError(null); }} style={styles.linkBtn}>
+                <Text style={styles.linkText}>{t('common.back')}</Text>
+              </Pressy>
+            </>
+          )}
+
           {step === 'otp' && (
             <>
               <Text style={styles.subtitle}>{t('auth.otpSubtitle', { phone: sentPhone })}</Text>
@@ -287,9 +573,41 @@ export default function AuthScreen({ navigation, route }: Props) {
               />
               {!!error && <Text style={styles.error}>{error}</Text>}
               <Button label={t('auth.verify')} onPress={verifyCode} loading={loading} style={{ marginTop: 18 }} />
-              <Pressy onPress={() => setStep('phone')} style={styles.linkBtn}>
+              <Pressy onPress={() => { setStep('phone'); setError(null); }} style={styles.linkBtn}>
                 <Text style={styles.linkText}>{t('auth.changeNumber')}</Text>
               </Pressy>
+            </>
+          )}
+
+          {step === 'setNewPassword' && (
+            <>
+              <Text style={styles.subtitle}>{t('auth.setNewPasswordSubtitle')}</Text>
+              <Text style={styles.fieldLabel}>{t('auth.newPasswordLabel')}</Text>
+              <TextInput
+                value={newPassword}
+                onChangeText={setNewPassword}
+                placeholder="••••••••"
+                placeholderTextColor={colors.inkSoft}
+                secureTextEntry
+                style={styles.input}
+              />
+              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>{t('auth.confirmPasswordLabel')}</Text>
+              <TextInput
+                value={newPasswordConfirm}
+                onChangeText={setNewPasswordConfirm}
+                placeholder="••••••••"
+                placeholderTextColor={colors.inkSoft}
+                secureTextEntry
+                style={styles.input}
+              />
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Button
+                label={t('auth.setPasswordCta')}
+                onPress={submitNewPassword}
+                loading={loading}
+                disabled={!newPassword || !newPasswordConfirm}
+                style={{ marginTop: 18 }}
+              />
             </>
           )}
 
