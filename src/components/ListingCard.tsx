@@ -144,7 +144,7 @@ export default function ListingCard({
 
   // A sale price, or a rental's rent-and-period, or both lines for a
   // property offered either way -- see listingPriceLines. The 'card'
-  // variant labels a property's figures ("Sale for $450,000") and
+  // variant labels a property's figures ("Buy for $450,000") and
   // abbreviates the period, which together replace the condition pill and
   // stop it from squeezing the price into "$450,...".
   const priceLines = useMemo(() => listingPriceLines(listing, t, { variant: 'card' }), [listing, t]);
@@ -353,7 +353,7 @@ export default function ListingCard({
             text is the only thing that changes). */}
         <View style={[styles.infoTop, horizontal && styles.infoTopHorizontal]}>
           <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
-            {/* A property says what its number IS -- "Sale for $450,000",
+            {/* A property says what its number IS -- "Buy for $450,000",
                 "Rent for $12,000/yr" -- so the figure can never be
                 mistaken for the other kind of offer. See listingPriceLines. */}
             <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>
@@ -560,7 +560,7 @@ const styles = StyleSheet.create({
   // price line grew from "$1,500" to "$1,500 / month" beside a "For rent"
   // pill; the pill itself must not shrink, or it truncates instead.
   price: { fontSize: 16, fontWeight: '700', color: colors.white, letterSpacing: -0.2, flexShrink: 1 },
-  // "Sale for" / "Rent for", nested inline ahead of the figure. Smaller
+  // "Buy for" / "Rent for", nested inline ahead of the figure. Smaller
   // and slightly muted so the number stays the biggest thing on the line:
   // the label is context, the price is what the buyer came for, and if
   // anything has to give on a narrow card it must not be the digits.

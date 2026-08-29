@@ -5,7 +5,7 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 
 // One line of a listing's money, split so a caller can render the label
 // and the figure at different sizes. Keeping them apart is what lets the
-// browse card set "Sale for" a few points smaller than "$450,000" -- the
+// browse card set "Buy for" a few points smaller than "$450,000" -- the
 // number is the thing the buyer came for, and it must never be the half
 // that gets ellipsised.
 export interface PriceLine {
@@ -14,7 +14,7 @@ export interface PriceLine {
   amount: string;
 }
 
-// The flat "Sale for $450,000" form, for callers with room for one plain
+// The flat "Buy for $450,000" form, for callers with room for one plain
 // string and no need to size the halves differently.
 export function priceLineText(line: PriceLine): string {
   return line.label ? `${line.label} ${line.amount}` : line.amount;
@@ -35,7 +35,7 @@ export function priceLineText(line: PriceLine): string {
 // The two variants differ only for properties, and only in how much room
 // they assume:
 //
-//   'card'   Labels each figure ("Sale for", "Rent for") and abbreviates
+//   'card'   Labels each figure ("Buy for", "Rent for") and abbreviates
 //            the period ("$12,000/yr"). The label says what the figure
 //            IS, which lets a browse card drop the condition pill
 //            altogether -- clearer than a bare number beside a "SALE OR
@@ -46,8 +46,9 @@ export function priceLineText(line: PriceLine): string {
 //            The default: a full-width price line with its own rent-terms
 //            block underneath needs neither the label nor the shortening.
 //
-// A label is never applied to a non-property listing, where "Sale for
-// $500" on a used phone would read as nonsense.
+// A label is never applied to a non-property listing, where "Buy for
+// $500" on a used phone would be noise -- everything on the marketplace
+// that isn't a property is for sale, so saying so adds nothing.
 export function listingPriceLines(
   listing: Listing,
   t: Translate,

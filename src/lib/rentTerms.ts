@@ -37,8 +37,8 @@ export function offersRent(condition: Listing['condition']): boolean {
 
 // True for a Properties listing's Sale/Rent/Both pick, as opposed to a
 // New/Used condition or none at all. Used to suppress the listing card's
-// condition pill on properties: the price lines there say "Sale for
-// $450,000" / "Rent for $12,000 a year" outright, so a pill repeating
+// condition pill on properties: the price lines there say "Buy for
+// $450,000" / "Rent for $12,000/yr" outright, so a pill repeating
 // "Sale or rent" beside them is redundant -- and it was wide enough to
 // squeeze the price itself down to "$450,...".
 export function isPropertyCondition(condition: Listing['condition']): boolean {

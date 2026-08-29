@@ -263,7 +263,14 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // the number stays the biggest thing on the line. These say what the
     // figure IS, and on a browse card they stand in for the condition
     // pill entirely.
-    'listingCard.saleForLabel': 'Sale for',
+    //
+    // Both are verbs, and deliberately so: "Rent for $12,000" reads
+    // correctly because `rent` is a verb, which is exactly why the
+    // earlier "Sale for $450,000" did not -- `sale` is a noun, and the
+    // two lines sitting one above the other made the mismatch obvious.
+    // `buy` restores the parallel and is the shortest option that does,
+    // which on a card is worth real width.
+    'listingCard.saleForLabel': 'Buy for',
     'listingCard.rentForLabel': 'Rent for',
     'listingDetail.rentPaymentLabel': 'Rent paid in advance',
     'listingDetail.storefront': 'Storefront',
@@ -1013,6 +1020,10 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingCard.rentPer.year': '{amount}$ / سنوياً',
     'listingCard.rentPerShort.month': '{amount}$/شهر',
     'listingCard.rentPerShort.year': '{amount}$/سنة',
+    // Left as the adjectival "for sale at" / "for rent at" rather than
+    // following English to a verb: these are already idiomatic and
+    // already parallel in Arabic, which never had the noun/verb mismatch
+    // the English pair did.
     'listingCard.saleForLabel': 'للبيع بـ',
     'listingCard.rentForLabel': 'للإيجار بـ',
     'listingDetail.rentPaymentLabel': 'دفعة الإيجار المقدمة',
