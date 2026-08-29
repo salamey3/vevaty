@@ -33,3 +33,65 @@ undelivered.
 
 devDependencies themselves are fine — `esbuild` and `sharp` are not
 autolinked and do not move the fingerprint. It is the `scripts` block.
+
+# Grant every new column, or writes fail silently
+
+`myazar.listings` and `myazar.profiles` are granted **per column**, not per
+table. A column added by a migration is invisible to `anon`/`authenticated`
+until it is granted explicitly, and PostgREST rejects the *whole* statement
+over one ungranted column — so a single missed grant silently discards
+every field of every write while the UI reports success.
+
+```sql
+grant select (new_col) on myazar.listings to anon, authenticated;
+grant insert (new_col), update (new_col) on myazar.listings to authenticated;
+```
+
+Related, and subtler: **`INSERT ... ON CONFLICT DO UPDATE` requires
+table-level `SELECT`.** Column-level grants alone are not enough, whatever
+the columns. This is what broke profile writes for weeks — `.upsert()` from
+AuthScreen failed with `42501 permission denied for table profiles` on an
+account that could `UPDATE` those same columns perfectly well, so a
+verified user stayed unverified and could not post. The fix was a
+`SECURITY DEFINER` function (`myazar.upsert_own_profile`), which runs as the
+owner and sidesteps the caller's grants entirely. Reach for that pattern
+rather than widening grants.
+
+Both failures are silent by construction, so when a write "works" but the
+row does not change, suspect grants before logic. `updateListing` now
+`console.warn`s its Supabase error; it used to discard it.
+
+# Listing money and condition are not what their names suggest
+
+`listings.price` is the **headline number**, not always a sale price. Every
+consumer reads it — cards, the Home and storefront price filters,
+price-drop collections, the related-listings sort — so a rent-only property
+mirrors its rent value into it rather than leaving it null (the column is
+`NOT NULL`) and sorting as $0. `rent_price` carries the rent whenever
+renting is offered at all, including alongside a sale price.
+
+One consequence worth knowing: switching a property from sale to rent moves
+`price` by orders of magnitude, which the `listing_price_changes` trigger
+logs as a ~99% discount. Rentals are therefore excluded from price-drop
+collections — see `CollectionsStore`. Any future feature that reads a price
+delta needs the same guard.
+
+`listings.condition` does double duty: `new`/`used` for most categories,
+`sale`/`rent`/`both` for Properties, reusing the same column and the same
+first-step UI slot. If a third meaning ever appears (services priced hourly,
+say), stop adding branches and make it a per-category "offer type"
+definition instead.
+
+# Category structure
+
+Leaf-ness is **derived**, never stored: a category is postable when it has
+no children. Deleting or re-parenting rows is all it takes to change what
+the AI classifier offers and what sellers can post into — no flag, no code.
+
+`category_attributes.depends_on_slug` / `depends_on_values` give any
+category conditional fields: a spec appears only when another spec on the
+same category holds one of those values (Properties uses it so Land hides
+Bedrooms). `resolveVisibleAttrs` in `src/lib/attributeVisibility.ts` is the
+single place this is interpreted, and both listing flows filter their
+`specAttrs` through it — which is why validation, the AI-suggestion schema
+and the saved payload all respect visibility without knowing about it.
