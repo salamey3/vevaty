@@ -59,6 +59,7 @@ import { Category, CategoryAttribute, CategoryId, FilterFacet, Listing, SavedSea
 import { useIsDesktop, useGridColumns } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { haversineKm, LatLng } from '../lib/geo';
+import { matchesConditionFilter } from '../lib/rentTerms';
 import { findPlaceByFreeText } from '../data/lebanonPlaces';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 
@@ -450,11 +451,12 @@ export default function HomeScreen() {
     return categoryScoped.filter((l) => {
       if (!matchesFacets(l)) return false;
       // A listing with no condition on file (posted before this field
-      // existed) never matches a non-empty selection here -- '' is never
-      // one of the checked values, so `l.condition || ''` correctly falls
-      // through to "excluded" rather than accidentally matching either
-      // checkbox.
-      if (selection.condition.length > 0 && !selection.condition.includes(l.condition || '')) return false;
+      // existed) never matches a non-empty selection -- '' is never one
+      // of the checked values, so it falls through to "excluded" rather
+      // than accidentally matching either checkbox. A property offered
+      // both ways matches BOTH "For sale" and "For rent", which plain
+      // membership can't express -- see matchesConditionFilter.
+      if (!matchesConditionFilter(l.condition, selection.condition)) return false;
       if (selection.priceMin != null && l.price < selection.priceMin) return false;
       if (selection.priceMax != null && l.price > selection.priceMax) return false;
       if (selection.distanceKm != null) {

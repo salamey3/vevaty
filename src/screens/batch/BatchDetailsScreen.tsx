@@ -20,6 +20,8 @@ import { useVerificationPhotosFor } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
 import { AttributeValue, ListingVariant } from '../../types';
 import { resolveVisibleAttrs } from '../../lib/attributeVisibility';
+import { RentPaymentFrequency, RentPeriod } from '../../lib/rentTerms';
+import RentTermsFields from '../../components/RentTermsFields';
 
 // Same backstop as CreateListingScreen's own local copy (see its own doc
 // comment on buildAttributeSchemaForSuggestion) -- mirrors the edge
@@ -76,10 +78,16 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
   const hasStockStep = cat?.stockMode === 'multiple';
   const isVehicleCategory = listing?.cat ? categoryMatches(listing.cat, 'vehicles') : false;
+  const isPropertyCategory = listing?.cat ? categoryMatches(listing.cat, 'properties') : false;
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
+  // Rent terms -- Properties only, mirroring CreateListingScreen's own
+  // smart price block. See showRentFields below.
+  const [rentPrice, setRentPrice] = useState('');
+  const [rentPeriod, setRentPeriod] = useState<RentPeriod | null>(null);
+  const [rentPaymentFrequency, setRentPaymentFrequency] = useState<RentPaymentFrequency | null>(null);
   const [attrValues, setAttrValues] = useState<Record<string, AttributeValue>>({});
   const [variantStock, setVariantStock] = useState<Record<string, string>>({});
   const [plainStockQty, setPlainStockQty] = useState('');
@@ -95,6 +103,17 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   );
   const hasSpecs = specAttrs.length > 0;
 
+  // Same money-fields rule as CreateListingScreen's Details step: a
+  // property listed for rent has no sale price to give, one listed for
+  // sale has no rent terms, and one offered either way needs both. Every
+  // other category keeps the single universal Price field. See that
+  // screen's showRentFields/showSalePriceField for the full reasoning.
+  const showRentFields = isPropertyCategory && (listing?.condition === 'rent' || listing?.condition === 'both');
+  const showSalePriceField = !showRentFields || listing?.condition === 'both';
+  const pricingValid =
+    (!showSalePriceField || Number(price) > 0) &&
+    (!showRentFields || (Number(rentPrice) > 0 && !!rentPeriod && !!rentPaymentFrequency));
+
   // Re-seed local form state every time the active item changes (new
   // index, or the same index now pointing at a different listing because
   // the previous one was parked/discarded out from under it) -- same
@@ -105,7 +124,17 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     if (!listing) return;
     setTitle(language === 'ar' ? listing.titleAr : listing.titleEn);
     setDescription(language === 'ar' ? listing.descriptionAr : listing.descriptionEn);
-    setPrice(listing.price ? String(listing.price) : '');
+    // Same guard as CreateListingScreen's own rent-to-sale transition: a
+    // rent-only item mirrors its rent into `price`, so seeding the sale
+    // field from it would offer a monthly rent as an asking price the
+    // moment the seller switched this item to Sale on the review screen.
+    setPrice(showSalePriceField && listing.price ? String(listing.price) : '');
+    // != null, not a falsy check -- matches CreateListingScreen's own
+    // seeding, so a stored 0 comes back as "0" to be corrected rather
+    // than silently reading as "never filled in".
+    setRentPrice(listing.rentPrice != null ? String(listing.rentPrice) : '');
+    setRentPeriod(listing.rentPeriod);
+    setRentPaymentFrequency(listing.rentPaymentFrequency);
     setAttrValues(listing.attributes || {});
     const vs: Record<string, string> = {};
     (listing.variants || []).forEach((v) => {
@@ -147,6 +176,7 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     aiAttemptedRef.current.add(listing.id);
 
     const listingId = listing.id;
+    const listingCat = listing.cat;
     const attrsForCat = resolveAttributesForCategory(listing.cat).filter((a) => !a.isVariant);
     const categoryName = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : '';
     // Already-known specs (from classify or a prior edit) as confirmed
@@ -208,6 +238,14 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
 
       if (priceAttemptedRef.current.has(listingId)) return;
       priceAttemptedRef.current.add(listingId);
+      // Never price a property -- same reasoning as CreateListingScreen's
+      // own skip: a photo-driven comparables search cannot read location,
+      // floor, view or finishing, and cannot tell an asking sale price
+      // from a monthly rent. Read off listing.cat rather than the derived
+      // flag below so a category confirmed moments ago on the review
+      // screen is respected even though this effect keys only on the
+      // item's id.
+      if (categoryMatches(listingCat, 'properties')) return;
       // Not awaited, same "researched separately, seller may already be
       // typing" reasoning as CreateListingScreen's own price call.
       estimateListingPrice(result.title || seedTitle, categoryName, language, result.identification, specsLines)
@@ -261,7 +299,7 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   };
 
   const specsValid = !hasSpecs || specAttrs.every((a) => !a.required || attrHasValue(attrValues[a.slug]));
-  const canContinue = title.trim().length > 0 && Number(price) > 0 && specsValid;
+  const canContinue = title.trim().length > 0 && pricingValid && specsValid;
 
   const saveAndAdvance = async () => {
     if (!canContinue || saving) return;
@@ -283,7 +321,14 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
           titleAr: language === 'ar' ? title.trim() : listing.titleAr,
           descriptionEn: language === 'en' ? description.trim() : listing.descriptionEn,
           descriptionAr: language === 'ar' ? description.trim() : listing.descriptionAr,
-          price: Number(price) || 0,
+          // Same headline-number rule as CreateListingScreen's
+          // buildPayload: a rent-only property puts its rent value in
+          // `price` so it never sorts or filters as $0, while rentPrice
+          // carries the rent whenever renting is offered at all.
+          price: showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
+          rentPrice: showRentFields ? Number(rentPrice) || 0 : null,
+          rentPeriod: showRentFields ? rentPeriod : null,
+          rentPaymentFrequency: showRentFields ? rentPaymentFrequency : null,
           attributes,
           stockQty: stock.stockQty,
           variants: stock.variants,
@@ -374,17 +419,37 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
           style={[styles.input, styles.textarea]}
         />
 
-        <Text style={styles.fieldLabel}>
-          {t('createListing.price')}
-          <Text style={styles.requiredMark}> *</Text>
-        </Text>
-        <TextInput
-          value={price}
-          onChangeText={setPrice}
-          placeholder="0"
-          keyboardType="numeric"
-          style={[styles.input, !(Number(price) > 0) && styles.inputRequired]}
-        />
+        {/* Same smart money block as the single-item wizard: sale price
+            for a sale, rent terms for a rental, both when the property is
+            offered either way. See showRentFields above. */}
+        {showSalePriceField && (
+          <>
+            <Text style={styles.fieldLabel}>
+              {isPropertyCategory && (listing.condition === 'sale' || listing.condition === 'both')
+                ? t('createListing.salePriceLabel')
+                : t('createListing.price')}
+              <Text style={styles.requiredMark}> *</Text>
+            </Text>
+            <TextInput
+              value={price}
+              onChangeText={setPrice}
+              placeholder="0"
+              keyboardType="numeric"
+              style={[styles.input, !(Number(price) > 0) && styles.inputRequired]}
+            />
+          </>
+        )}
+
+        {showRentFields && (
+          <RentTermsFields
+            rentPrice={rentPrice}
+            onChangeRentPrice={setRentPrice}
+            rentPeriod={rentPeriod}
+            onChangeRentPeriod={setRentPeriod}
+            rentPaymentFrequency={rentPaymentFrequency}
+            onChangeRentPaymentFrequency={setRentPaymentFrequency}
+          />
+        )}
 
         <Button label={t('common.continue')} onPress={saveAndAdvance} disabled={!canContinue} loading={saving} style={styles.continueBtn} />
 

@@ -20,6 +20,8 @@ import { RootStackParamList } from '../navigation/types';
 import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { resolveVisibleAttrs } from '../lib/attributeVisibility';
+import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey } from '../lib/rentTerms';
+import RentTermsFields from '../components/RentTermsFields';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
@@ -217,6 +219,18 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [translateAttempted, setTranslateAttempted] = useState(!!(initialTargetTitle || initialTargetDescription));
   const [translateErrorMsg, setTranslateErrorMsg] = useState<string | null>(null);
   const [price, setPrice] = useState(editingListing ? String(editingListing.price) : '');
+  // Rent terms -- only ever shown, filled and saved for a Properties
+  // listing whose Sale/Rent/Both pick includes renting (see
+  // showRentFields below). Seeded from the listing being edited so a
+  // rental reopened for editing comes back with its own terms rather
+  // than blank.
+  const [rentPrice, setRentPrice] = useState(
+    editingListing?.rentPrice != null ? String(editingListing.rentPrice) : ''
+  );
+  const [rentPeriod, setRentPeriod] = useState<RentPeriod | null>(editingListing?.rentPeriod ?? null);
+  const [rentPaymentFrequency, setRentPaymentFrequency] = useState<RentPaymentFrequency | null>(
+    editingListing?.rentPaymentFrequency ?? null
+  );
   // Blank on a new listing. This used to prefill from the seller's saved
   // profile district, on the theory that most people sell from where they
   // live -- but a prefilled location is one nobody re-reads, so the wrong
@@ -549,6 +563,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // same idea as isVehicleCategory -- true for "Properties" and everything
   // under it.
   const isPropertyCategory = category ? categoryMatches(category, 'properties') : false;
+  // Mirrors isPropertyCategory for the in-flight AI price callback to
+  // read, so a category corrected to Properties mid-request still
+  // suppresses the estimate. Assigned during render for the same reason
+  // priceRef above is: it only ever needs to be as fresh as the last
+  // render, and the seller cannot change category between that render
+  // and the callback without causing another one.
+  const isPropertyCategoryRef = useRef(isPropertyCategory);
+  isPropertyCategoryRef.current = isPropertyCategory;
   const spinLabelSuggestions = spinLabelSuggestionsFor(isVehicleCategory, isPropertyCategory, language);
   // The Classify step's condition picker doubles as Sale/Rent/Both for
   // Properties (see condition state's own doc comment) -- same control,
@@ -568,6 +590,38 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           ],
     [isPropertyCategory, t]
   );
+  // What the Details step asks for money-wise. A property listed for rent
+  // has no sale price to give, and one listed for sale has no rent terms
+  // -- asking for both regardless is what made a rental read as though it
+  // were being sold. A property with no Sale/Rent/Both pick yet (an
+  // unfinished draft reopened here) falls back to the plain price field
+  // so the step is never blank, and every non-property category keeps the
+  // single universal Price field exactly as before.
+  const showRentFields = isPropertyCategory && (condition === 'rent' || condition === 'both');
+  const showSalePriceField = !showRentFields || condition === 'both';
+  // Only whatever is actually on screen is required. The period is not
+  // optional and is deliberately not defaulted: $800 a month and $800 a
+  // year are a twelvefold difference, and a wrong guess here misprices
+  // the listing by more than any other field on the form could.
+  const pricingValid =
+    (!showSalePriceField || price.trim().length > 0) &&
+    // Number(...) > 0, not just non-blank: a "0" or a pasted non-numeric
+    // rent would otherwise post a live rental reading "$0 / month", which
+    // every price filter then skips over. Matches the batch flow's own
+    // long-standing price gate.
+    (!showRentFields || (Number(rentPrice) > 0 && !!rentPeriod && !!rentPaymentFrequency));
+  // A rent-only property mirrors its rent value into `price` (see
+  // buildPayload), so a seller who switches from Rent to Sale or Both
+  // would otherwise find the sale field already filled in with the
+  // monthly rent -- an $800 asking price on an apartment, one tap away
+  // from being posted. Clearing on that transition makes them name the
+  // sale price deliberately; the field is required and shows empty-red,
+  // so nothing is lost silently.
+  const prevShowSalePriceRef = useRef(showSalePriceField);
+  useEffect(() => {
+    if (showSalePriceField && !prevShowSalePriceRef.current) setPrice('');
+    prevShowSalePriceRef.current = showSalePriceField;
+  }, [showSalePriceField]);
   // If the seller sets a New/Used value and then changes category across
   // the Properties boundary (or vice versa), the previous value no longer
   // belongs to either option set above -- it would sit on `condition`
@@ -1014,10 +1068,31 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // and description are on screen and editable by now, so the seller
       // reads and edits while this lands rather than watching a spinner
       // for a number they usually overwrite anyway.
+      //
+      // Skipped outright for Properties. Real estate is priced by
+      // location, floor, view, finishing and the state of the building --
+      // none of which a comparable-listings web search can read off a few
+      // photos -- and the number it comes back with is confidently wrong
+      // in a way that matters far more on a six-figure apartment than on
+      // a used phone. Worse, it cannot know whether the seller is asking
+      // a sale price or a monthly rent, which are three orders of
+      // magnitude apart. The seller names their own number here.
       const run = ++priceRunRef.current;
-      estimateListingPrice(result.title || seedTitle, categoryName, language, result.identification, specsLines)
+      const pricePromise = isPropertyCategory
+        ? Promise.resolve(null)
+        : estimateListingPrice(result.title || seedTitle, categoryName, language, result.identification, specsLines);
+      pricePromise
         .then((priced) => {
           if (!priced || run !== priceRunRef.current) return;
+          // Re-checked on arrival, not just at call time: pricing takes
+          // three web searches, and the seller can correct a wrong
+          // category guess to Properties while it is still in flight.
+          // The run counter alone doesn't catch that -- it only moves
+          // when applyAiSuggestion re-runs, which a plain category change
+          // doesn't trigger -- so without this an apartment could still
+          // be handed a comparables price for whatever the AI first
+          // thought it was.
+          if (isPropertyCategoryRef.current) return;
           if (priced.priceRangeLow == null || priced.priceRangeHigh == null) return;
           // Fill only if still empty -- anything the seller typed while
           // this was researching is theirs and wins.
@@ -1262,7 +1337,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
     // "coming soon"), same "optional, not a gate" treatment as photos/spin.
     stock: true,
-    details: title.trim().length > 0 && price.trim().length > 0 && hasLocation,
+    details: title.trim().length > 0 && pricingValid && hasLocation,
     // Was unconditionally true ("translation is a suggestion, never blocks
     // posting") -- but that let a seller tap through mid-translation and
     // post with the target-language fields still blank. Still non-blocking
@@ -1387,7 +1462,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       titleAr: language === 'ar' ? title.trim() : targetTitle.trim(),
       descriptionEn: language === 'en' ? description.trim() : targetDescription.trim(),
       descriptionAr: language === 'ar' ? description.trim() : targetDescription.trim(),
-      price: Number(price) || 0,
+      // `price` is the headline number every price consumer in the app
+      // reads (card, detail hero, filters, price-drop collections). For a
+      // rent-only property there is no sale price to put there, so the
+      // rent value stands in -- otherwise a rental would sort and filter
+      // as $0 and show up priceless on its own card. See Listing.price.
+      price: showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
+      // Written whenever renting is offered at all, including the 'both'
+      // case where a sale price occupies `price` -- so "what does it rent
+      // for" always has one unambiguous home. Cleared to null the moment
+      // the listing stops offering rent, so a seller who switches from
+      // Rent to Sale never leaves stale terms behind.
+      rentPrice: showRentFields ? Number(rentPrice) || 0 : null,
+      rentPeriod: showRentFields ? rentPeriod : null,
+      rentPaymentFrequency: showRentFields ? rentPaymentFrequency : null,
       district: trimmedDistrict,
       governorate: resolvedPlace?.governorate ?? null,
       caza: resolvedPlace?.caza ?? null,
@@ -1448,7 +1536,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       spinSets,
       video,
       attrValues,
+      // buildPayload reads this, and on a property it is what decides
+      // which price columns get written at all -- so a seller who only
+      // switches Both to Sale has made a real, saveable change and must
+      // not be allowed to walk away from it unwarned.
+      condition,
       price,
+      rentPrice,
+      rentPeriod,
+      rentPaymentFrequency,
       district,
       title,
       description,
@@ -1504,7 +1600,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const isResumableDraft = !isEditMode || editingListing?.status === 'draft';
   const guardSaveAndExit = async (): Promise<boolean> => {
     if (isResumableDraft) return saveAsDraftAndExit();
-    if (!category || !title.trim() || !price.trim()) {
+    if (!category || !title.trim() || !pricingValid) {
       Alert.alert(t('unsavedChanges.cannotSaveTitle'), t('unsavedChanges.cannotSaveMessage'));
       return false;
     }
@@ -2110,19 +2206,43 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 ))}
               </View>
             )}
-            <Text style={styles.fieldLabel}>
-              {t('createListing.price')}
-              <RequiredMark />
-            </Text>
-            <TextInput
-              onFocus={onInputFocus}
-              value={price}
-              onChangeText={(v) => { setPrice(v); setAiPriceFilled(false); }}
-              placeholder="0"
-              keyboardType="numeric"
-              style={[styles.input, !price.trim() && styles.inputRequired]}
-            />
-            {aiPriceFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiPriceFilledNotice')}</Text>}
+            {/* Sale price. Labelled "Sale price" rather than plain
+                "Price" once the seller is on a property that offers a
+                sale, so it reads unambiguously next to the rent value
+                below in the Both case. */}
+            {showSalePriceField && (
+              <>
+                <Text style={styles.fieldLabel}>
+                  {isPropertyCategory && (condition === 'sale' || condition === 'both')
+                    ? t('createListing.salePriceLabel')
+                    : t('createListing.price')}
+                  <RequiredMark />
+                </Text>
+                <TextInput
+                  onFocus={onInputFocus}
+                  value={price}
+                  onChangeText={(v) => { setPrice(v); setAiPriceFilled(false); }}
+                  placeholder="0"
+                  keyboardType="numeric"
+                  style={[styles.input, !price.trim() && styles.inputRequired]}
+                />
+                {aiPriceFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiPriceFilledNotice')}</Text>}
+              </>
+            )}
+
+            {/* Rent terms, Properties only -- shared with the batch
+                flow's own details screen, see RentTermsFields. */}
+            {showRentFields && (
+              <RentTermsFields
+                rentPrice={rentPrice}
+                onChangeRentPrice={setRentPrice}
+                rentPeriod={rentPeriod}
+                onChangeRentPeriod={setRentPeriod}
+                rentPaymentFrequency={rentPaymentFrequency}
+                onChangeRentPaymentFrequency={setRentPaymentFrequency}
+                onInputFocus={onInputFocus}
+              />
+            )}
             {aiAttributesFilled && <Text style={styles.aiSourcesLabel}>{t('createListing.aiAttributesFilledNotice')}</Text>}
             <Text style={styles.fieldLabel}>
               {t('createListing.location')}
@@ -2353,7 +2473,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </View>
             )}
 
-            <Text style={styles.price}>${price || '0'}</Text>
+            {/* Mirrors what the posted card will actually show: the sale
+                price for a sale, the rent with its period for a rental,
+                and both lines when the property is offered either way. */}
+            {showSalePriceField && <Text style={styles.price}>${price || '0'}</Text>}
+            {showRentFields && (
+              <Text style={showSalePriceField ? styles.reviewRentLine : styles.price}>
+                {rentPeriod
+                  ? t(rentPerPeriodLabelKey(rentPeriod), { amount: rentPrice || '0' })
+                  : `$${rentPrice || '0'}`}
+              </Text>
+            )}
             <Text style={[styles.title, isRTL && styles.rtlText]}>{title || t('createListing.untitled')}</Text>
             <Text style={[type.soft, { marginBottom: 8 }]}>{district || 'Lebanon'}</Text>
             <Text style={[type.body, isRTL && styles.rtlText]}>{description}</Text>
@@ -2803,6 +2933,9 @@ const styles = StyleSheet.create({
   aiCheckItem: { fontSize: 12.5, color: colors.accentInk, lineHeight: 18 },
   aiSourcesLabel: { ...type.tiny, textTransform: 'none', letterSpacing: 0, marginTop: 6 },
   aiSourceItem: { fontSize: 12, color: colors.ink, textDecorationLine: 'underline', marginTop: 2 },
+  // The rent line on the review preview when a sale price is already
+  // occupying the big number above it -- secondary, not competing.
+  reviewRentLine: { fontSize: 15, fontWeight: '600', color: colors.inkSoft, marginTop: 2 },
   // Deliberately styled like a real button (border, fill, centered) rather
   // than the old plain-text link -- it's an equally-valid alternative to
   // typing a town above, not an afterthought, so it needs to read as one.

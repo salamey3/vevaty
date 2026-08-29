@@ -190,7 +190,30 @@ export interface Listing {
   titleAr: string;
   descriptionEn: string;
   descriptionAr: string;
+  // The listing's headline number, and the one every price consumer in
+  // the app reads: the card, the detail hero, the Home/storefront price
+  // filters, the price-drop collections, the related-listings sort. For a
+  // listing that is for sale this is the sale price; for a rent-only
+  // listing it is the rent value (mirrored from rentPrice below), so that
+  // a rental never shows up priceless or sorts as $0. Never null -- the
+  // column is NOT NULL in the database.
   price: number;
+  // Rent pricing, Properties only (see condition below). Populated
+  // whenever renting is offered at all -- condition 'rent' OR 'both' --
+  // so "what does it rent for" always has one unambiguous home no matter
+  // whether a sale price sits alongside it. All three are null for a
+  // sale-only property and for every non-property listing.
+  //
+  // rentPeriod is what the rent value is quoted per, and it is not
+  // cosmetic: $800/month and $800/year are a twelvefold difference, so
+  // the create form requires an explicit pick rather than defaulting.
+  // rentPaymentFrequency is how far ahead the tenant pays (month to
+  // month, quarterly, every six months, or the full year up front) --
+  // a real negotiating term in the Lebanese rental market, which is why
+  // it sits with the rent value rather than among the category specs.
+  rentPrice: number | null;
+  rentPeriod: 'month' | 'year' | null;
+  rentPaymentFrequency: 'monthly' | 'quarterly' | 'semiannual' | 'annual' | null;
   // For most categories: whether the item is brand new or used, chosen by
   // the seller as a required pick on the very first step of the
   // create-listing wizard (see CreateListingScreen's category step). For

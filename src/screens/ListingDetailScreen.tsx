@@ -40,6 +40,8 @@ import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
+import { listingPriceLines } from '../lib/priceDisplay';
+import { rentPaymentFrequencyLabelKey } from '../lib/rentTerms';
 import { listingTitle, listingDescription, listingDistrict, listingShopName, pickText } from '../lib/listingText';
 import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
@@ -523,11 +525,26 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     </View>
   );
 
+  // Plain call, not a hook -- this sits after the `if (!listing)` early
+  // return above, where listing is narrowed to non-null.
+  const priceLines = listingPriceLines(listing, t);
+
   const details = (
     <>
       <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
-        <Text style={styles.price}>${listing.price.toLocaleString()}</Text>
+        {/* A rental leads with its rent and period rather than a bare
+            number; a property offered both ways leads with the sale price
+            and carries the rent on the line below. See listingPriceLines. */}
+        <Text style={styles.price}>{priceLines.primary}</Text>
       </View>
+      {!!priceLines.secondary && <Text style={styles.priceSecondary}>{priceLines.secondary}</Text>}
+      {/* How far ahead the tenant pays -- a real negotiating term, so it
+          gets its own line here rather than being buried in the specs. */}
+      {!!listing.rentPaymentFrequency && (
+        <Text style={styles.rentPaymentLine}>
+          {t('listingDetail.rentPaymentLabel')}: {t(rentPaymentFrequencyLabelKey(listing.rentPaymentFrequency))}
+        </Text>
+      )}
       {/* Only for a 'multiple' stock-mode category -- every 'unique'-mode
           listing (still the vast majority) is one specific item and this
           line would just be noise ("1 in stock" on an apartment). Which
@@ -1304,6 +1321,11 @@ const styles = StyleSheet.create({
   actionPillLabel: { fontSize: 10.5, fontWeight: '700', color: colors.ink },
   manageErrorText: { fontSize: 12, color: colors.danger, marginTop: 8 },
   price: { fontSize: 24, fontWeight: '700', color: colors.primary },
+  // The rent line under the sale price on a property offered both ways,
+  // and the advance-payment term under either -- both secondary to the
+  // headline number, both still readable as part of the same block.
+  priceSecondary: { fontSize: 16.5, fontWeight: '700', color: colors.ink, marginTop: 2 },
+  rentPaymentLine: { ...type.soft, marginTop: 4 },
   metaBlock: { gap: 5, marginTop: 2 },
   categoryLink: { textDecorationLine: 'underline' },
   title: { ...type.h2, marginTop: 4, marginBottom: 8 },

@@ -91,6 +91,13 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     descriptionEn: '',
     descriptionAr: '',
     price: 0,
+    // Rent terms are a Properties-only concern filled in later, on
+    // BatchDetailsScreen, once this row actually has a category and a
+    // sale/rent pick -- same "placeholder until the real screen fills it"
+    // story as cat/price above.
+    rentPrice: null,
+    rentPeriod: null,
+    rentPaymentFrequency: null,
     district: 'Lebanon',
     governorate: null,
     caza: null,

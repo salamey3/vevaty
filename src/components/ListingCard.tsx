@@ -15,6 +15,7 @@ import { listingTitle, listingDistrict, listingShopName } from '../lib/listingTe
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
+import { listingPriceLines } from '../lib/priceDisplay';
 import { RootStackParamList } from '../navigation/types';
 
 // How long the cursor has to sit still on a card before its preview
@@ -134,6 +135,10 @@ export default function ListingCard({
   // the pending timer is still ticking) -- without this the timeout would
   // fire setPreviewing on a component nobody can see anymore.
   useEffect(() => clearHoverTimer, []);
+
+  // A sale price, or a rental's rent-and-period, or both lines for a
+  // property offered either way -- see listingPriceLines.
+  const priceLines = useMemo(() => listingPriceLines(listing, t), [listing, t]);
 
   // The two specs most worth knowing before you open the listing -- screen
   // size on a TV, year and mileage on a car, storage on a phone. Required
@@ -339,7 +344,10 @@ export default function ListingCard({
             text is the only thing that changes). */}
         <View style={[styles.infoTop, horizontal && styles.infoTopHorizontal]}>
           <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
-            <Text style={[styles.price, isRTL && styles.rtlText]}>${listing.price.toLocaleString()}</Text>
+            {/* A rental shows its rent and period here rather than a bare
+                number, so "$800" can never be mistaken for the asking
+                price of an apartment -- see listingPriceLines. */}
+            <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>{priceLines.primary}</Text>
             {/* null for a listing posted before this field existed (or
                 one of the pre-existing seed rows a migration collapsed
                 from a more granular scale with no real "new" value among
@@ -352,6 +360,13 @@ export default function ListingCard({
               </View>
             )}
           </View>
+          {/* Only ever set for a property offered for sale AND rent: the
+              sale price is the headline above, this is the rent under it. */}
+          {!!priceLines.secondary && (
+            <Text style={[styles.priceSecondary, isRTL && styles.rtlText]} numberOfLines={1}>
+              {priceLines.secondary}
+            </Text>
+          )}
           <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
         </View>
         <View style={[styles.infoBottom, horizontal && styles.infoBottomHorizontal]}>
@@ -517,13 +532,24 @@ const styles = StyleSheet.create({
   infoTopHorizontal: { paddingHorizontal: 12, paddingBottom: 13 },
   priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
   priceRowRTL: { flexDirection: 'row-reverse' },
-  price: { fontSize: 16, fontWeight: '700', color: colors.white, letterSpacing: -0.2 },
+  // flexShrink is what keeps numberOfLines honest here: a flex child
+  // defaults to flexShrink 0, so the text would lay out at its full
+  // intrinsic width and shove the condition pill past the card's clipped
+  // edge instead of ellipsising. Only became reachable once a rental's
+  // price line grew from "$1,500" to "$1,500 / month" beside a "For rent"
+  // pill; the pill itself must not shrink, or it truncates instead.
+  price: { fontSize: 16, fontWeight: '700', color: colors.white, letterSpacing: -0.2, flexShrink: 1 },
+  // The rent line under the sale price on a property offered both ways --
+  // same white-on-forest-green band, stepped down so it reads as the
+  // second of two numbers rather than competing with the headline.
+  priceSecondary: { fontSize: 12.5, fontWeight: '600', color: colors.white, opacity: 0.85, marginTop: 1 },
   // New/used, now a plain gold pill on the price line instead of its
   // own colored line above it -- New and Used no longer get different
   // fills, just different text, so this one style covers both.
   tag: {
     backgroundColor: colors.accent, borderRadius: radius.pill,
     paddingHorizontal: 9, paddingVertical: 3,
+    flexShrink: 0,
   },
   // White on the brand gold measures under WCAG's 4.5:1 text minimum
   // (see theme.ts's own note on this exact pair, which is why the

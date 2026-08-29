@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useS
 import { supabase, ensureSession } from '../lib/supabase';
 import { useAppStore } from './AppStore';
 import { Collection, CollectionItem, Listing } from '../types';
+import { offersRent } from '../lib/rentTerms';
 
 // Home-screen collections (Editor's Picks, Hot Deals, Just Listed) -- see
 // myazar.collections/collection_items/listing_price_changes, and the
@@ -219,6 +220,17 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
           ? eligible.slice().sort((a, b) => b.createdAt - a.createdAt)
           : eligible
               .map((l) => {
+                // A property that rents holds its rent value in `price`
+                // when it isn't also being sold (see Listing.price), so
+                // switching an apartment from "for sale" to "for rent"
+                // moves that number from a six-figure asking price to a
+                // four-figure monthly rent. That is not a discount, but
+                // the price-change log can't tell the difference -- it
+                // would read as a ~99% drop and, since this list sorts by
+                // depth of discount, put the apartment at the very front
+                // of Hot Deals with a "-99%" badge. Rentals simply don't
+                // participate in price-drop collections.
+                if (offersRent(l.condition)) return null;
                 const earliest = earliestPriceByListing.get(l.id);
                 if (!earliest || earliest.oldPrice <= 0) return null;
                 const dropPercent = ((earliest.oldPrice - l.price) / earliest.oldPrice) * 100;
@@ -245,12 +257,19 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
 
   const priceDropPercent = useCallback(
     (listingId: string, currentPrice: number): number | null => {
+      // Same rental exclusion as the price_drop list above, applied here
+      // too because this is what actually renders the "-N%" corner badge
+      // (see collectionBadge.ts) -- and a rental can still reach that
+      // badge by being PINNED into a price-drop collection by an admin,
+      // which bypasses the algorithmic filter entirely.
+      const listing = listings.find((l) => l.id === listingId);
+      if (listing && offersRent(listing.condition)) return null;
       const earliest = earliestPriceByListing.get(listingId);
       if (!earliest || earliest.oldPrice <= 0) return null;
       const pct = ((earliest.oldPrice - currentPrice) / earliest.oldPrice) * 100;
       return pct >= MIN_PRICE_DROP_PERCENT ? pct : null;
     },
-    [earliestPriceByListing]
+    [earliestPriceByListing, listings]
   );
 
   const collectionBySlug = useCallback((slug: string) => collections.find((c) => c.slug === slug), [collections]);

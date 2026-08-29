@@ -316,6 +316,20 @@ function normalizeListing(l: any): Listing {
       l?.condition === 'new' || l?.condition === 'used' || l?.condition === 'sale' || l?.condition === 'rent' || l?.condition === 'both'
         ? l.condition
         : null,
+    // Rent pricing (Properties only) -- same defensive story once more: a
+    // listing cached by a build that predates these fields has none of
+    // them, which reads correctly as "no rent terms on file", exactly
+    // what every sale-only and non-property listing carries anyway. price
+    // itself rides the spread above and is NOT NULL in the DB.
+    rentPrice: typeof l?.rentPrice === 'number' ? l.rentPrice : null,
+    rentPeriod: l?.rentPeriod === 'month' || l?.rentPeriod === 'year' ? l.rentPeriod : null,
+    rentPaymentFrequency:
+      l?.rentPaymentFrequency === 'monthly' ||
+      l?.rentPaymentFrequency === 'quarterly' ||
+      l?.rentPaymentFrequency === 'semiannual' ||
+      l?.rentPaymentFrequency === 'annual'
+        ? l.rentPaymentFrequency
+        : null,
     // Batch listings -- same defensive story once more: a listing cached
     // by a build that predates this feature won't have these fields, and
     // the overwhelming majority of listings (anything not posted through
@@ -356,6 +370,21 @@ function dbListingToLocal(row: any): Listing {
     descriptionEn: row.description_en ?? '',
     descriptionAr: row.description_ar ?? '',
     price: Number(row.price) || 0,
+    // Rent pricing (Properties only) -- null for every sale-only and
+    // non-property listing, and for anything posted before these columns
+    // existed. Number() guards the numeric column the same way price/lat/
+    // lng above do; the two text columns are already constrained to their
+    // allowed values by CHECK constraints in the database, and are read
+    // back defensively here regardless.
+    rentPrice: row.rent_price != null ? Number(row.rent_price) : null,
+    rentPeriod: row.rent_period === 'month' || row.rent_period === 'year' ? row.rent_period : null,
+    rentPaymentFrequency:
+      row.rent_payment_frequency === 'monthly' ||
+      row.rent_payment_frequency === 'quarterly' ||
+      row.rent_payment_frequency === 'semiannual' ||
+      row.rent_payment_frequency === 'annual'
+        ? row.rent_payment_frequency
+        : null,
     district: row.district ?? '',
     governorate: row.governorate ?? null,
     caza: row.caza ?? null,
@@ -940,6 +969,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             description_ar: l.descriptionAr,
             price: l.price,
             currency: 'USD',
+            rent_price: l.rentPrice ?? null,
+            rent_period: l.rentPeriod ?? null,
+            rent_payment_frequency: l.rentPaymentFrequency ?? null,
             condition: l.condition ?? null,
             district: l.district,
             governorate: l.governorate,
@@ -1077,7 +1109,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const uid = userIdRef.current;
       if (!uid) return;
 
-      await supabase
+      const { error: updateError } = await supabase
         .from('listings')
         .update({
           category_id: l.cat,
@@ -1086,6 +1118,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           description_en: l.descriptionEn,
           description_ar: l.descriptionAr,
           price: l.price,
+          rent_price: l.rentPrice ?? null,
+          rent_period: l.rentPeriod ?? null,
+          rent_payment_frequency: l.rentPaymentFrequency ?? null,
           condition: l.condition ?? null,
           district: l.district,
           governorate: l.governorate,
@@ -1113,6 +1148,14 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             : {}),
         })
         .eq('id', id);
+
+      // Local state was already updated optimistically above, so a
+      // rejected UPDATE otherwise looks like a clean save while the edit
+      // is quietly lost -- and PostgREST rejects the WHOLE statement over
+      // a single unrecognised column, so one unapplied migration silently
+      // discards every field of every edit. Surfaced the same way the
+      // listings fetch surfaces its own failures.
+      if (updateError) console.warn('updateListing failed', updateError.message);
 
       if (wasRejected || submittingDraft) {
         Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
