@@ -47,6 +47,7 @@ import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { shareLink } from '../lib/share';
 import { Alert } from '../lib/alertShim';
+import { openCategoryFromOutside } from '../lib/browseNav';
 
 const REPORT_REASONS = ['spam', 'prohibited', 'scam', 'other'] as const;
 type ReportReason = (typeof REPORT_REASONS)[number];
@@ -88,6 +89,38 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const listing = useMemo(() => listings.find((l) => l.id === route.params.listingId), [listings, route.params.listingId]);
   const cat = listing ? categoryById(listing.cat) : undefined;
   const catAncestors = listing ? ancestorsOf(listing.cat) : [];
+
+  // "Show me this category", from the breadcrumb and from the back arrow's
+  // fallback. Goes to the TOP-LEVEL category, which is what HomeCategory
+  // takes, and hands it the subcategory this listing sits under so the
+  // page arrives narrowed the way the breadcrumb implies -- which the
+  // comment on that link has always promised and nothing ever did.
+  //
+  // The direct child of the top-level, specifically, not the leaf: the
+  // subcategory facet offers exactly those, so a deeper leaf would filter
+  // the page by a box the buyer cannot see, let alone uncheck. A listing
+  // filed straight into a top-level category has no subcategory and is
+  // handed none.
+  const openThisCategory = () => {
+    if (!listing) return;
+    const top = catAncestors[0]?.id ?? listing.cat;
+    const subCat = catAncestors.length === 0 ? null : catAncestors[1]?.id ?? listing.cat;
+    openCategoryFromOutside(
+      navigation,
+      top,
+      subCat
+        ? {
+            query: '',
+            subCatIds: [subCat],
+            facetValues: {},
+            priceMin: null,
+            priceMax: null,
+            distanceKm: null,
+            condition: [],
+          }
+        : undefined
+    );
+  };
   // Which section this listing belongs to. The banner placements below
   // use it: an advertiser who bought Properties wants the people reading
   // an apartment listing, not only the people on the Properties home.
@@ -315,15 +348,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // falls back to the category this listing sits in -- the screen it would
   // have come from, and more useful than dropping someone at the home feed
   // with their place lost.
-  const goBack = useGoBack(
-    listing
-      ? () =>
-          navigation.navigate('MainTabs', {
-            screen: 'HomeTab',
-            params: { screen: 'HomeCategory', params: { cat: ancestorsOf(listing.cat)[0]?.id ?? listing.cat } },
-          } as any)
-      : undefined
-  );
+  const goBack = useGoBack(listing ? openThisCategory : undefined);
   const galleryRef = useRef<PhotoGalleryHandle>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
   const [spinIndex, setSpinIndex] = useState(0);
@@ -591,16 +616,11 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         {cat && (
           // Tappable: seeing what section something is in immediately
           // raises "what else is in there?", and the answer was three
-          // navigations away. Goes to the top-level category page, which is
-          // what HomeCategory takes -- the leaf shows up as its
-          // subcategory filter once you're there.
+          // navigations away. Goes to the top-level category page with
+          // this listing's subcategory already checked -- see
+          // openThisCategory.
           <Pressy
-            onPress={() =>
-              navigation.navigate('MainTabs', {
-                screen: 'HomeTab',
-                params: { screen: 'HomeCategory', params: { cat: catAncestors[0]?.id ?? listing.cat } },
-              } as any)
-            }
+            onPress={openThisCategory}
             style={[styles.metaRow, isRTL && styles.metaRowRTL]}
           >
             <Icon name={(cat.icon as any) || 'bag'} size={13} color={colors.inkSoft} />

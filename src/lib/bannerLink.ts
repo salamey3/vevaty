@@ -2,6 +2,7 @@ import { Linking, Platform } from 'react-native';
 import { NavigationProp } from '@react-navigation/native';
 import { Banner } from '../types';
 import { RootStackParamList } from '../navigation/types';
+import { openCategoryFromOutside } from './browseNav';
 
 // What happens when someone taps a banner -- one function shared by every
 // BannerSlot, so the platform/tab-behavior logic (see the design spec's
@@ -49,11 +50,19 @@ export function openBannerLink(banner: Banner, navigation: NavigationProp<RootSt
     return;
   }
   if (banner.linkType === 'category') {
-    // HomeCategory lives inside the HomeTab's own nested stack (see
-    // navigation/types.ts) -- reached from outside that stack with the
-    // nested { screen, params } form, same as every other cross-stack
-    // jump to a category in this app.
-    (navigation as any).navigate('HomeTab', { screen: 'HomeCategory', params: { cat: banner.linkTarget } });
+    // Same cross-stack jump every other "show me this category" link in
+    // the app makes -- see browseNav.
+    //
+    // Addressed from 'MainTabs', not 'HomeTab' as this used to do. A
+    // navigate bubbles UP through parent navigators and is never handed
+    // down into a child, and 'HomeTab' is a child route of MainTabs from
+    // every host this helper is called from -- including the desktop
+    // sidebar, whose navigation object is the root stack's MainTabs
+    // screen (a custom tabBar renders outside any tab scene, so the
+    // nearest navigation context is the one above the tabs, not inside
+    // them). So this was an unhandled action in BOTH placements: a banner
+    // pointing at a category did nothing at all, anywhere.
+    openCategoryFromOutside(navigation, banner.linkTarget);
     return;
   }
 

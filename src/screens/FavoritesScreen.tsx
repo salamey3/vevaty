@@ -18,6 +18,7 @@ import { RootStackParamList } from '../navigation/types';
 import { SavedSearch } from '../types';
 import { useGoBack } from '../hooks/useGoBack';
 import { absoluteDate } from '../lib/relativeTime';
+import { openCategoryFromOutside } from '../lib/browseNav';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Favorites'>;
 
@@ -60,10 +61,7 @@ export default function FavoritesScreen({ navigation }: Props) {
     // (see its applyCriteria handling) and scrubs the param back out right
     // after, so this is a one-shot "restore this filter state" hand-off,
     // not a persistent link between the two screens.
-    navigation.navigate('MainTabs' as any, {
-      screen: 'HomeTab',
-      params: { screen: 'HomeCategory', params: { cat: search.cat, applyCriteria: search.criteria } },
-    } as any);
+    openCategoryFromOutside(navigation, search.cat, search.criteria);
   };
 
   const header = (

@@ -10,16 +10,8 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-Three smaller things left over, none blocking:
+Two smaller things left over, neither blocking:
 
-- **Three screens still push a duplicate tab navigator.**
-  `ListingDetailScreen` (the category link, twice), `FavoritesScreen` (run
-  a saved search) and `lib/bannerLink.ts` all call plain
-  `navigate('MainTabs', …)`. In React Navigation 7 that pushes a second
-  copy rather than returning to the one already there, so back has to be
-  pressed twice through identical screens. `useGoHome` shows the fix:
-  `pop: true` at each nesting level. Pre-existing, and older than the
-  domains work.
 - A storefront's saved category is not used at posting time at all — see
   the note in @DOMAINS.md on why the obvious uses were dropped. Filling
   the category in when the classifier says it cannot tell is the one safe

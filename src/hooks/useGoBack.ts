@@ -30,6 +30,13 @@ export function useGoBack(fallback?: () => void) {
     }
     // Nothing more specific offered: the home tab is the one screen that
     // always exists and never needs parameters.
+    //
+    // No `pop: true` here, unlike useGoHome and browseNav, and not an
+    // oversight: this line only runs when canGoBack() is false, which for
+    // a root-stack screen means the stack holds this screen alone. There
+    // is no tab navigator underneath to return to -- that is the whole
+    // reason this fallback exists -- so a pop has nothing to find and
+    // this is a genuine first push, not a duplicate.
     navigation.navigate('MainTabs', { screen: 'HomeTab' });
   }, [navigation, fallback]);
 }

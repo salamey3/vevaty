@@ -119,12 +119,16 @@ export default function BrowseGateScreen() {
   // after that -- typing here never touches the route.
   const [query, setQuery] = useState(() => route.params?.q ?? '');
 
-  // The initialiser above only runs on mount, and this screen is never
-  // unmounted while a section sits on top of it -- so a search handed back
-  // from inside a section would otherwise arrive as a param nobody reads,
-  // leaving the buyer on a gate showing tiles, or worse, still showing
-  // whatever they had searched here earlier. Consumed and scrubbed, so
-  // returning later does not re-apply a search they have since cleared.
+  // The initialiser above only runs on mount, and a section sitting on top
+  // of this screen does not unmount it -- so a search handed back from
+  // inside one would otherwise arrive as a param nobody reads, leaving the
+  // buyer on a gate showing tiles, or worse, still showing whatever they
+  // had searched here earlier. Consumed and scrubbed, so returning later
+  // does not re-apply a search they have since cleared.
+  //
+  // Both paths are live, and neither covers the other: a category link
+  // from outside browse rebuilds this stack (see browseNav), which DOES
+  // remount this screen, and then the initialiser is the one that runs.
   const handedQuery = route.params?.q;
   useEffect(() => {
     if (handedQuery === undefined) return;
