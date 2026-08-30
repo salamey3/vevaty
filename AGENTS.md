@@ -81,11 +81,28 @@ logs as a ~99% discount. Rentals are therefore excluded from price-drop
 collections — see `CollectionsStore`. Any future feature that reads a price
 delta needs the same guard.
 
-`listings.condition` does double duty: `new`/`used` for most categories,
-`sale`/`rent`/`both` for Properties, reusing the same column and the same
-first-step UI slot. If a third meaning ever appears (services priced hourly,
-say), stop adding branches and make it a per-category "offer type"
-definition instead.
+`listings.condition` carries three meanings in one column and one UI slot,
+and which one applies is `categories.condition_mode`:
+
+| mode | values | where |
+|---|---|---|
+| `new_used` | `new` / `used` | the default, most of the catalogue |
+| `offer_type` | `sale` / `rent` / `both` | Properties, Vehicles |
+| `rehome` | `sale` / `free` | live animals |
+
+The mode is resolved by walking UP from the category, nearest first
+(`conditionModeForCategory`) — so Pets can hold live animals on `rehome`
+beside pet supplies on the default, under one parent. `sale` is shared by
+two modes on purpose: "for sale" means the same thing whichever it is.
+
+That warning used to read "if a third meaning ever appears, stop adding
+branches and make it a per-category definition instead". A third one
+appeared; this is that definition. A fourth should extend the enum, not
+add a flag beside it — two booleans able to disagree about the same field
+is the thing this replaced.
+
+A `free` listing posts at `price: 0` and renders as the word "Free"
+(`listingPriceLines`), never as `$0`.
 
 # Category structure
 

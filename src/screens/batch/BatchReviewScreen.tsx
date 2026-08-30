@@ -32,7 +32,7 @@ function ReviewRow({
   onRetry: (listingId: string, photos: string[]) => void;
 }) {
   const { updateListing } = useAppStore();
-  const { categoryById, usesOfferTypeCategory } = useSettings();
+  const { categoryById, usesOfferTypeCategory, conditionModeForCategory, isServiceCategory } = useSettings();
   const { t, language } = useLanguage();
   const classifyState = useBatchItemClassifyState(listing.id);
   const [fixOpen, setFixOpen] = useState(false);
@@ -41,24 +41,30 @@ function ReviewRow({
 
   const cat = categoryById(listing.cat);
   const categoryConfirmed = !!listing.cat;
-  // Same Sale/Rent/Both-instead-of-New/Used swap as CreateListingScreen's
-  // Classify step -- see its conditionOptions/isPropertyCategory for the
-  // identical reasoning, mirrored here per-row.
+  // Same option set as CreateListingScreen's Classify step, mirrored here
+  // per row -- see its conditionOptions for the reasoning.
   const usesOfferType = listing.cat ? usesOfferTypeCategory(listing.cat) : false;
-  const conditionOptions = useMemo(
-    () =>
-      usesOfferType
-        ? [
-            { value: 'sale', label: t('createListing.condition.sale') },
-            { value: 'rent', label: t('createListing.condition.rent') },
-            { value: 'both', label: t('createListing.condition.both') },
-          ]
-        : [
-            { value: 'new', label: t('createListing.condition.new') },
-            { value: 'used', label: t('createListing.condition.used') },
-          ],
-    [usesOfferType, t]
-  );
+  const conditionMode = listing.cat ? conditionModeForCategory(listing.cat) : 'new_used';
+  const asksCondition = listing.cat ? !isServiceCategory(listing.cat) : true;
+  const conditionOptions = useMemo(() => {
+    if (conditionMode === 'offer_type') {
+      return [
+        { value: 'sale', label: t('createListing.condition.sale') },
+        { value: 'rent', label: t('createListing.condition.rent') },
+        { value: 'both', label: t('createListing.condition.both') },
+      ];
+    }
+    if (conditionMode === 'rehome') {
+      return [
+        { value: 'sale', label: t('createListing.condition.sale') },
+        { value: 'free', label: t('createListing.condition.free') },
+      ];
+    }
+    return [
+      { value: 'new', label: t('createListing.condition.new') },
+      { value: 'used', label: t('createListing.condition.used') },
+    ];
+  }, [conditionMode, t]);
 
   const setCategory = (id: CategoryId) => {
     // Same cross-boundary clear as CreateListingScreen's own effect: a
@@ -66,10 +72,18 @@ function ReviewRow({
     // 'used') doesn't belong to the new one once the category crosses the
     // Properties boundary, so it's cleared rather than left stranded,
     // matching none of the now-shown pills.
-    const newUsesOfferType = usesOfferTypeCategory(id);
-    const conditionStillValid = newUsesOfferType
-      ? listing.condition === 'sale' || listing.condition === 'rent' || listing.condition === 'both'
-      : listing.condition === 'new' || listing.condition === 'used';
+    // Checked against the option set the new category actually shows,
+    // rather than by re-listing the values: 'sale' belongs to two of the
+    // three modes, so a hand-written list would clear a pick that was
+    // still perfectly valid.
+    const nextMode = conditionModeForCategory(id);
+    const nextValues =
+      nextMode === 'offer_type'
+        ? ['sale', 'rent', 'both']
+        : nextMode === 'rehome'
+          ? ['sale', 'free']
+          : ['new', 'used'];
+    const conditionStillValid = !!listing.condition && nextValues.includes(listing.condition);
     updateListing(
       listing.id,
       listingToInput(listing, { cat: id, condition: conditionStillValid ? listing.condition : null })
@@ -164,14 +178,22 @@ function ReviewRow({
         </View>
       </View>
 
+      {asksCondition && (
       <ConditionPicker
         value={listing.condition}
         onChange={(c) =>
           updateListing(listing.id, listingToInput(listing, { condition: c as Listing['condition'] })).catch(() => {})
         }
-        label={usesOfferType ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
+        label={
+          conditionMode === 'offer_type'
+            ? t('createListing.saleRentLabel')
+            : conditionMode === 'rehome'
+              ? t('createListing.rehomeLabel')
+              : t('createListing.conditionLabel')
+        }
         options={conditionOptions}
       />
+      )}
 
       <CategoryPickerModal
         visible={browseOpen}
@@ -186,7 +208,7 @@ function ReviewRow({
 export default function BatchReviewScreen({ navigation, route }: Props) {
   const { batchId, domain: domainId, shopChoice } = route.params;
   const { listings } = useAppStore();
-  const { allCategories, childrenOf, categoryById, allDomains, domainOfCategory } = useSettings();
+  const { allCategories, childrenOf, categoryById, allDomains, domainOfCategory, isServiceCategory } = useSettings();
   const { t, language } = useLanguage();
 
   const items = useMemo(
@@ -234,7 +256,11 @@ export default function BatchReviewScreen({ navigation, route }: Props) {
   const statesMap = useBatchClassifyStates();
 
   const analyzingCount = items.filter((l) => statesMap[l.id]?.status === 'analyzing').length;
-  const allResolved = items.length > 0 && items.every((l) => !!l.cat && !!l.condition);
+  // A service item has no condition to give (see CreateListingScreen's
+  // asksCondition), so requiring one would strand a whole batch on a
+  // question its rows were never asked.
+  const allResolved =
+    items.length > 0 && items.every((l) => !!l.cat && (isServiceCategory(l.cat) || !!l.condition));
 
   return (
     <Screen maxWidth={640}>

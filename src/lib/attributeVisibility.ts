@@ -2,7 +2,7 @@ import { AttributeValue, CategoryAttribute, Listing } from '../types';
 
 // The one slug that doesn't name another attribute. An attribute whose
 // dependsOnSlug is this depends on the LISTING's own condition field --
-// New/Used for most categories, Sale/Rent/Both for Properties -- rather
+// New/Used for most categories, Sale/Rent/Both for Properties and Vehicles, For sale/Free for live animals -- rather
 // than on a sibling spec. Prefixed so it can never collide with a real
 // attribute slug, which are plain identifiers.
 //

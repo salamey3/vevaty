@@ -55,6 +55,13 @@ export function listingPriceLines(
   t: Translate,
   opts?: { variant?: 'card' | 'detail' }
 ): { primary: PriceLine; secondary: PriceLine | null } {
+  // Given away rather than sold. The figure IS the answer here, and "$0"
+  // reads as a placeholder or a mistake rather than as a gift -- so the
+  // word replaces the number outright, in both variants.
+  if (listing.condition === 'free') {
+    return { primary: { label: null, amount: t('listingCard.freeAmount') }, secondary: null };
+  }
+
   const isCard = opts?.variant === 'card';
   const isSale = offersSale(listing.condition);
   const isRent = offersRent(listing.condition);

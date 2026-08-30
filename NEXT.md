@@ -25,18 +25,21 @@ One thing worth fixing, found while clearing the last of those:
 
 Categories still short of specs, in the order they are worth doing.
 
-1. **Pets.** Six leaves, no attributes, and live animals currently get a
-   New/Used tag. Wants age, breed, sex, vaccinated, and a price field
-   that allows free-to-a-good-home.
+1. **Fashion & Beauty.** Nine categories, five attribute rows — and the
+   size-variant machinery (`Category.stockMode: 'multiple'` +
+   `CategoryAttribute.isVariant`) is built and entirely unused. Clothing
+   is its natural home, which is what puts it first: a feature already
+   paid for.
 
-2. **Fashion.** Eight leaves, no attributes — and the size-variant
-   machinery (`Category.stockMode: 'multiple'` +
-   `CategoryAttribute.isVariant`) is already built and entirely unused.
-   Clothing is its natural home.
+2. **Auto Parts & Accessories.** Four categories, zero attributes. Not on
+   this list before because it only became a top-level during the Vehicles
+   work — and it sits inside Vehicles, the section a buyer enters
+   expecting what Vehicles now has.
 
-Everything else — Furniture, Kids & Babies, Sports, Hobbies, Businesses &
-Industrial — needs attribute rows rather than new mechanisms. That is
-database work with no code behind it.
+Everything else — Furniture & Decor and Kids & Babies (nine categories
+each, no attributes at all), then Hobbies, Sports & Equipment and
+Businesses & Industrial — needs attribute rows rather than new mechanisms.
+That is database work with no code behind it.
 
 Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
@@ -47,6 +50,15 @@ the domains work, and both are `active = false` until then.
 one, Sale/Rent/Both replacing a meaningless New/Used, a generic
 conditional-field mechanism (`depends_on_slug`), real rent terms, and
 21 specs.
+
+**Pets**, 30 Aug 2026. Live animals stopped being asked whether they are
+new or used: `categories.uses_offer_type` became `condition_mode`, a third
+answer ("For sale / Free to a good home") joined New/Used and
+Sale/Rent/Both, and a free listing hides its price field and reads as
+"Free" rather than "$0". Age, sex, breed and vaccination on all four
+animal categories, size on dogs, and Pets services flagged as a service —
+which turned up that a service category could not be posted at all, since
+every listing was required to name a condition.
 
 **Vehicles**, 30 Aug 2026. Five vehicle-kind categories merged into one
 postable category with a `vehicle_type` spec; Auto Parts & Accessories

@@ -113,7 +113,11 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   // without usesOfferType keeps the single universal Price field. See
   // that screen's showRentFields/showSalePriceField for the reasoning.
   const showRentFields = usesOfferType && (listing?.condition === 'rent' || listing?.condition === 'both');
-  const showSalePriceField = !showRentFields || listing?.condition === 'both';
+  // An animal being given away has no price to ask for, here as in the
+  // single-item wizard -- and pricingValid below would otherwise hold the
+  // whole batch on a required field that should not be on screen.
+  const isFreeRehome = listing?.condition === 'free';
+  const showSalePriceField = !isFreeRehome && (!showRentFields || listing?.condition === 'both');
   const pricingValid =
     (!showSalePriceField || Number(price) > 0) &&
     (!showRentFields ||
@@ -332,7 +336,7 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
           // buildPayload: a rent-only property puts its rent value in
           // `price` so it never sorts or filters as $0, while rentPrice
           // carries the rent whenever renting is offered at all.
-          price: showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
+          price: isFreeRehome ? 0 : showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
           rentPrice: showRentFields ? Number(rentPrice) || 0 : null,
           rentPeriod: showRentFields ? rentPeriod : null,
           rentPaymentFrequency:

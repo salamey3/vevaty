@@ -236,7 +236,12 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
                 // depth of discount, put the apartment at the very front
                 // of Hot Deals with a "-99%" badge. Rentals simply don't
                 // participate in price-drop collections.
-                if (offersRent(l.condition)) return null;
+                // ...and neither is a giveaway. A pet listed at $300 and
+                // then rehomed free moves its price to 0, which reads as
+                // a 100% drop -- the deepest possible, so it would sort
+                // to the very front of Hot Deals with a "-100%" badge.
+                // Same class of bug as the rental one above, same guard.
+                if (offersRent(l.condition) || l.condition === 'free') return null;
                 const earliest = earliestPriceByListing.get(l.id);
                 if (!earliest || earliest.oldPrice <= 0) return null;
                 const dropPercent = ((earliest.oldPrice - l.price) / earliest.oldPrice) * 100;
@@ -269,7 +274,7 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
       // badge by being PINNED into a price-drop collection by an admin,
       // which bypasses the algorithmic filter entirely.
       const listing = listings.find((l) => l.id === listingId);
-      if (listing && offersRent(listing.condition)) return null;
+      if (listing && (offersRent(listing.condition) || listing.condition === 'free')) return null;
       const earliest = earliestPriceByListing.get(listingId);
       if (!earliest || earliest.oldPrice <= 0) return null;
       const pct = ((earliest.oldPrice - currentPrice) / earliest.oldPrice) * 100;

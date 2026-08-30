@@ -17,7 +17,7 @@ import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
-import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
+import { AttributeValue, Category, CategoryId, ConditionMode, Listing, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { resolveVisibleAttrs } from '../lib/attributeVisibility';
 import { buildDomainCandidates } from '../lib/domainCandidates';
@@ -101,7 +101,7 @@ function spinLabelSuggestionsFor(isVehicle: boolean, isProperty: boolean, langua
 
 export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified, authChecked, myShop } = useAppStore();
-  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, domains, allDomains, domainOfCategory, allCategories, childrenOf } = useSettings();
+  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, conditionModeForCategory, isServiceCategory, domains, allDomains, domainOfCategory, allCategories, childrenOf } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
   const editingListing = editListingId ? listings.find((l) => l.id === editListingId) : undefined;
@@ -134,7 +134,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // whole step the way photos/details do, and keeping it off the step
   // list means it needs no changes to stepKinds or the Android/web
   // back-navigation logic those rounds already got right.
-  const [condition, setCondition] = useState<'new' | 'used' | 'sale' | 'rent' | 'both' | null>(editingListing?.condition ?? null);
+  const [condition, setCondition] = useState<Listing['condition']>(editingListing?.condition ?? null);
   const [photos, setPhotos] = useState<string[]>(editingListing?.photos || []);
   // A listing can have more than one named 360° spin (e.g. "Exterior"/
   // "Interior" for a car, one per room for a property) -- see the SpinSet
@@ -667,24 +667,41 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // skip: a car genuinely can be priced from comparable listings, an
   // apartment cannot.
   const usesOfferType = category ? usesOfferTypeCategory(category) : false;
+  const conditionMode: ConditionMode = category ? conditionModeForCategory(category) : 'new_used';
+  // A service has no condition -- nobody sells a used dog groom. The
+  // picker is not rendered for one, and Continue does not wait for an
+  // answer to a question that was never asked. This became reachable the
+  // day Pets services was flagged: the only other service category is
+  // switched off, so until then every postable category had a condition
+  // and the requirement below was unconditional.
+  const asksCondition = category ? !isServiceCategory(category) : true;
+  // A rehoming listing given away rather than sold. The price field is
+  // hidden for it and the listing posts at 0, which the card renders as
+  // "Free" rather than as "$0" -- see ListingCard.
+  const isFreeRehome = conditionMode === 'rehome' && condition === 'free';
   // The Classify step's condition picker doubles as Sale/Rent/Both for
   // Properties (see condition state's own doc comment) -- same control,
   // same required slot, a different option set and label depending on
   // whether the resolved category is Properties.
-  const conditionOptions = useMemo(
-    () =>
-      usesOfferType
-        ? [
-            { value: 'sale', label: t('createListing.condition.sale') },
-            { value: 'rent', label: t('createListing.condition.rent') },
-            { value: 'both', label: t('createListing.condition.both') },
-          ]
-        : [
-            { value: 'new', label: t('createListing.condition.new') },
-            { value: 'used', label: t('createListing.condition.used') },
-          ],
-    [usesOfferType, t]
-  );
+  const conditionOptions = useMemo(() => {
+    if (conditionMode === 'offer_type') {
+      return [
+        { value: 'sale', label: t('createListing.condition.sale') },
+        { value: 'rent', label: t('createListing.condition.rent') },
+        { value: 'both', label: t('createListing.condition.both') },
+      ];
+    }
+    if (conditionMode === 'rehome') {
+      return [
+        { value: 'sale', label: t('createListing.condition.sale') },
+        { value: 'free', label: t('createListing.condition.free') },
+      ];
+    }
+    return [
+      { value: 'new', label: t('createListing.condition.new') },
+      { value: 'used', label: t('createListing.condition.used') },
+    ];
+  }, [conditionMode, t]);
   // What the Details step asks for money-wise. Something listed for rent
   // has no sale price to give, and one listed for sale has no rent terms
   // -- asking for both regardless is what made a rental read as though it
@@ -693,7 +710,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // so the step is never blank, and every category without usesOfferType
   // keeps the single universal Price field exactly as before.
   const showRentFields = usesOfferType && (condition === 'rent' || condition === 'both');
-  const showSalePriceField = !showRentFields || condition === 'both';
+  // Nothing to ask for when it is being given away -- and asking anyway,
+  // then ignoring the answer, is how a "free" listing ends up with a
+  // price on it.
+  const showSalePriceField = !isFreeRehome && (!showRentFields || condition === 'both');
   // Only whatever is actually on screen is required. The period is not
   // optional and is deliberately not defaulted: $800 a month and $800 a
   // year are a twelvefold difference, and a wrong guess here misprices
@@ -720,21 +740,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     if (showSalePriceField && !prevShowSalePriceRef.current) setPrice('');
     prevShowSalePriceRef.current = showSalePriceField;
   }, [showSalePriceField]);
-  // If the seller sets a New/Used value and then changes category across
-  // the Properties boundary (or vice versa), the previous value no longer
-  // belongs to either option set above -- it would sit on `condition`
-  // matching none of the visible pills, yet still read as "set" to
+  // If the seller sets a value and then changes category across a
+  // condition-mode boundary, the previous value may no longer belong to
+  // the option set on screen -- it would sit on `condition` matching none
+  // of the visible pills, yet still read as "set" to
   // canNextByKind.classify below. Clearing it keeps the picker and the
-  // Continue gate in sync with whichever option set is currently shown.
+  // Continue gate in sync with whichever set is currently shown.
+  //
+  // Checked against the options actually rendered rather than by listing
+  // the values again here: 'sale' is shared between Sale/Rent/Both and
+  // For sale/Free, so a hand-written list per mode would be one edit away
+  // from clearing a pick that was still perfectly valid.
   useEffect(() => {
-    setCondition((prev) => {
-      if (prev === null) return prev;
-      const stillValid = usesOfferType
-        ? prev === 'sale' || prev === 'rent' || prev === 'both'
-        : prev === 'new' || prev === 'used';
-      return stillValid ? prev : null;
-    });
-  }, [usesOfferType]);
+    setCondition((prev) => (prev === null || conditionOptions.some((o) => o.value === prev) ? prev : null));
+  }, [conditionOptions]);
 
   // True once category has an actual, trustworthy value behind it -- either
   // the seller picked it by hand, or they tapped the confirm pill on the
@@ -810,9 +829,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // question at all (see soleCategory) -- naming it "Category" would
     // label the screen after the one thing it does not contain.
     classify: soleCategory
-      ? usesOfferType
+      ? conditionMode === 'offer_type'
         ? t('createListing.stepSaleOrRent')
-        : t('createListing.stepCondition')
+        : conditionMode === 'rehome'
+          ? t('createListing.stepRehome')
+          : t('createListing.stepCondition')
       : t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
     verify: t('createListing.stepVerify'),
@@ -1421,7 +1442,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const canNextByKind: Record<StepKind, boolean> = {
     // Category must actually be resolved (AI-confirmed via the pill, or
     // picked by hand -- see categoryResolved above) and condition set.
-    classify: !!condition && categoryResolved,
+    classify: (!asksCondition || !!condition) && categoryResolved,
     // Photos no longer gates on the AI research call at all -- that call
     // can't even start until category is resolved on the Classify step
     // right after this one (see categoryResolved/the auto-suggest effect
@@ -1572,7 +1593,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // rent-only property there is no sale price to put there, so the
       // rent value stands in -- otherwise a rental would sort and filter
       // as $0 and show up priceless on its own card. See Listing.price.
-      price: showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
+      // Zero deliberately, and stated rather than fallen into: a free
+      // rehoming has no price field on screen, so without this it would
+      // land on the rent branch below and read as free only by accident.
+      // ListingCard renders a free listing's zero as "Free", never "$0".
+      price: isFreeRehome ? 0 : showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
       // Written whenever renting is offered at all, including the 'both'
       // case where a sale price occupies `price` -- so "what does it rent
       // for" always has one unambiguous home. Cleared to null the moment
@@ -2041,12 +2066,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 condition state's own doc comment above). ConditionPicker
                 (src/components/ConditionPicker.tsx) is the same control
                 the batch review screen's per-row fix path uses. */}
+            {asksCondition && (
             <ConditionPicker
               value={condition}
               onChange={(v) => setCondition(v as typeof condition)}
-              label={usesOfferType ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
+              label={
+                conditionMode === 'offer_type'
+                  ? t('createListing.saleRentLabel')
+                  : conditionMode === 'rehome'
+                    ? t('createListing.rehomeLabel')
+                    : t('createListing.conditionLabel')
+              }
               options={conditionOptions}
             />
+            )}
           </View>
         )}
 
@@ -2671,7 +2704,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
             {/* Mirrors what the posted card will actually show: the sale
                 price for a sale, the rent with its period for a rental,
-                and both lines when the property is offered either way. */}
+                both lines when the property is offered either way -- and
+                the word the card uses for a giveaway, which otherwise had
+                no money line here at all while the card had one. */}
+            {isFreeRehome && <Text style={styles.price}>{t('listingCard.freeAmount')}</Text>}
             {showSalePriceField && <Text style={styles.price}>${price || '0'}</Text>}
             {showRentFields && (
               <Text style={showSalePriceField ? styles.reviewRentLine : styles.price}>

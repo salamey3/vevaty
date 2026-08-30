@@ -288,6 +288,10 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     // `condition` (see Listing.condition); "both" keeps the buy wording,
     // since a listing offered either way is still for sale.
     if (listing.condition === 'rent') return t('listingDetail.contactToRent');
+    // Nothing is being bought when an animal is given away, and a hero
+    // reading "Free" above a button reading "Contact to buy" is the kind
+    // of mismatch a buyer reads as a catch.
+    if (listing.condition === 'free') return t('listingDetail.contactToAdopt');
     return t('listingDetail.contactToBuy');
   }, [listing, isServiceCategory, t]);
 

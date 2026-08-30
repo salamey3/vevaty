@@ -126,7 +126,7 @@ export default function HomeScreen() {
   // grid -- confusing, and not where that belongs (ProfileScreen's "My
   // listings" already surfaces it clearly with a status badge).
   const listings = useMemo(() => allListings.filter((l) => l.status === 'active'), [allListings]);
-  const { categoryById, childrenOf, categoryMatches, usesOfferTypeCategory, resolveFilterFacetsForCategory, domains, domainById, categoriesInDomain, domainOfCategory, ready: settingsReady } = useSettings();
+  const { categoryById, childrenOf, categoryMatches, conditionModeForCategory, resolveFilterFacetsForCategory, domains, domainById, categoriesInDomain, domainOfCategory, ready: settingsReady } = useSettings();
   const { saveSearch } = useSavedSearches();
   const { t, language, isRTL } = useLanguage();
   const goHome = useGoHome();
@@ -433,27 +433,47 @@ export default function HomeScreen() {
     }));
   };
 
-  // Always these two (or, browsing Properties, always Sale/Rent/Both --
-  // see isOfferTypeScope below), not gated by "does anything currently
-  // match" the way areaOptions/attributeOptions are -- there are only ever
-  // a fixed few values, so hiding one because nothing in the current scope
-  // happens to have it would look like a bug, not a real absence of that
-  // condition.
-  const isOfferTypeScope = effectiveCategoryId ? usesOfferTypeCategory(effectiveCategoryId) : false;
+  // Whatever the scope's own condition mode asks for -- New/Used,
+  // Sale/Rent/Both, or For sale/Free. Never gated by "does anything
+  // currently match" the way areaOptions/attributeOptions are: there are
+  // only ever a fixed few values, so hiding one because nothing in the
+  // current scope happens to have it would look like a bug rather than
+  // like a real absence.
+  const conditionScopeMode = effectiveCategoryId ? conditionModeForCategory(effectiveCategoryId) : 'new_used';
   const conditionOptions: FilterOption[] = useMemo(
     () =>
-      isOfferTypeScope
+      conditionScopeMode === 'offer_type'
         ? [
             { key: 'sale', label: t('home.filters.conditionSale') },
             { key: 'rent', label: t('home.filters.conditionRent') },
             { key: 'both', label: t('home.filters.conditionBoth') },
           ]
+        : conditionScopeMode === 'rehome'
+        ? [
+            { key: 'sale', label: t('home.filters.conditionSale') },
+            { key: 'free', label: t('home.filters.conditionFree') },
+          ]
         : [
             { key: 'new', label: t('home.filters.conditionNew') },
             { key: 'used', label: t('home.filters.conditionUsed') },
           ],
-    [isOfferTypeScope, t]
+    [conditionScopeMode, t]
   );
+
+  // A condition that the scope on screen cannot express any more. Checking
+  // "Used" under Pets and then ticking the Dogs subcategory flips the mode
+  // to For sale / Free -- and "used" would sit in the selection, matching
+  // no visible pill, filtering every animal out of the results with
+  // nothing on screen to say why. Cleared against the options actually
+  // offered, so a value both modes share ('sale') is kept.
+  useEffect(() => {
+    setSelection((prev) => {
+      if (prev.condition.length === 0) return prev;
+      const kept = prev.condition.filter((c) => conditionOptions.some((o) => o.key === c));
+      return kept.length === prev.condition.length ? prev : { ...prev, condition: kept };
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [conditionScopeMode]);
 
   const subCategoryOptions: FilterOption[] = useMemo(() => {
     // In a one-category section there is no category step, so the
@@ -732,7 +752,13 @@ export default function HomeScreen() {
           same way price/distance are, and worth seeing before drilling
           into subcategory/area. */}
       <FilterSection
-        title={isOfferTypeScope ? t('home.filters.saleRentTitle') : t('home.filters.condition')}
+        title={
+          conditionScopeMode === 'offer_type'
+            ? t('home.filters.saleRentTitle')
+            : conditionScopeMode === 'rehome'
+              ? t('home.filters.rehomeTitle')
+              : t('home.filters.condition')
+        }
         options={conditionOptions}
         selected={selection.condition}
         onToggle={toggleCondition}

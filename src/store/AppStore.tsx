@@ -237,6 +237,14 @@ function spinSetsFromRows(photoRows: any[], spinSetRows: any[]): SpinSet[] {
 // guarantees every downstream consumer can trust these arrays exist.
 // 15 days -- kept as one constant since both the client's optimistic local
 // value and the server's DB column default (`now() + interval '15 days'`)
+// Every value `listings.condition` may hold. Both read paths below filter
+// against this ONE list rather than repeating the values, because they had
+// already drifted once: 'free' was added to the type, the CHECK constraint
+// and every screen, and silently became null on the way back out of the
+// database -- so a pet given away read as "Free" to the seller who posted
+// it and as "$0" to everybody else, for as long as the app stayed open.
+const CONDITION_VALUES = ['new', 'used', 'sale', 'rent', 'both', 'free'];
+
 // need to agree, and extendListing/republishListing recompute it too.
 const LISTING_LIFETIME_MS = 15 * 24 * 60 * 60 * 1000;
 
@@ -313,9 +321,7 @@ function normalizeListing(l: any): Listing {
     // seller's pick genuinely never made it to the DB (see
     // dbListingToLocal's own condition mapping).
     condition:
-      l?.condition === 'new' || l?.condition === 'used' || l?.condition === 'sale' || l?.condition === 'rent' || l?.condition === 'both'
-        ? l.condition
-        : null,
+      CONDITION_VALUES.includes(l?.condition) ? (l.condition as Listing['condition']) : null,
     // Rent pricing (usesOfferType categories only) -- same defensive story: a
     // listing cached by a build that predates these fields has none of
     // them, which reads correctly as "no rent terms on file", exactly
@@ -438,9 +444,7 @@ function dbListingToLocal(row: any): Listing {
     // actually seller-facing) used-condition scale. See the Listing
     // type's own doc comment.
     condition:
-      row.condition === 'new' || row.condition === 'used' || row.condition === 'sale' || row.condition === 'rent' || row.condition === 'both'
-        ? row.condition
-        : null,
+      CONDITION_VALUES.includes(row.condition) ? (row.condition as Listing['condition']) : null,
     batchId: row.batch_id ?? null,
     batchParked: !!row.batch_parked,
   };

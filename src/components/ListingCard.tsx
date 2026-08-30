@@ -16,7 +16,7 @@ import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingPriceLines } from '../lib/priceDisplay';
-import { isPropertyCondition } from '../lib/rentTerms';
+import { conditionShownInPrice } from '../lib/rentTerms';
 import { RootStackParamList } from '../navigation/types';
 
 // How long the cursor has to sit still on a card before its preview
@@ -56,6 +56,8 @@ function conditionTagLabel(condition: NonNullable<Listing['condition']>, t: (key
       return t('listingCard.conditionRent');
     case 'both':
       return t('listingCard.conditionBoth');
+    case 'free':
+      return t('listingCard.conditionFree');
   }
 }
 
@@ -362,7 +364,8 @@ export default function ListingCard({
               )}
               {priceLines.primary.amount}
             </Text>
-            {/* New/Used only. A property's Sale/Rent/Both pick is already
+            {/* New/Used only. Any pick the price lines already state -- a
+                property's Sale/Rent/Both, an animal's Free is already
                 spelled out by the price lines themselves, and repeating it
                 as a pill cost enough width to truncate the price it sat
                 next to ("$450,..." beside "SALE OR RENT"), so properties
@@ -372,7 +375,7 @@ export default function ListingCard({
                 of the pre-existing seed rows a migration collapsed from a
                 more granular scale with no real "new" value among them) --
                 those simply show no tag rather than guessing. */}
-            {listing.condition && !isPropertyCondition(listing.condition) && (
+            {listing.condition && !conditionShownInPrice(listing.condition) && (
               <View style={styles.tag}>
                 <Text style={styles.tagText}>{conditionTagLabel(listing.condition, t)}</Text>
               </View>

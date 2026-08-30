@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, ensureSession } from '../lib/supabase';
 import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
-import { AttributeOption, AttributeType, Category, CategoryAttribute, FilterFacet, ListingDomain, SiteSettings } from '../types';
+import { AttributeOption, AttributeType, Category, CategoryAttribute, ConditionMode, FilterFacet, ListingDomain, SiteSettings } from '../types';
 import { DEFAULT_CATEGORIES, DEFAULT_DOMAINS, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK, GENERIC_CATEGORY_ICON } from '../data/categories';
 
 const KEYS = {
@@ -23,6 +23,26 @@ const DEFAULT_ADMIN_LOCK_MINUTES = 30;
 // gate that re-opens an already fully-verified (password+TOTP), still-live
 // session after the auto-lock timer fires. That means we only ever need
 // the credential ID locally, never its public key -- these two functions
+// A category list read back from the device cache, which was written by
+// whatever build was installed at the time. Every other cached entity in
+// this app goes through a normalizer for this reason (see AppStore's
+// normalizeListing); the categories cache never had one, and renaming a
+// field is exactly when that bites.
+//
+// The rename in question: `uses_offer_type` (boolean) became
+// `condition_mode`. Without this, a device upgrading with a warm cache
+// reads its Properties row as having no mode at all, and until the network
+// fetch lands -- forever, offline -- a seller posting an apartment is
+// asked New or Used and given no rent terms.
+function normalizeCachedCategories(raw: any): Category[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((c: any) => ({
+    ...c,
+    conditionMode:
+      (c?.conditionMode as ConditionMode) ?? (c?.usesOfferType ? 'offer_type' : null),
+  })) as Category[];
+}
+
 // just convert it to/from a string AsyncStorage can hold.
 function bufferToBase64Url(buf: ArrayBuffer): string {
   let str = '';
@@ -47,7 +67,7 @@ interface CreateCategoryInput {
   shotListEn: string[];
   shotListAr: string[];
   isService: boolean;
-  usesOfferType: boolean;
+  conditionMode: ConditionMode | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -66,7 +86,7 @@ interface UpdateCategoryPatch {
   shotListAr: string[];
   active: boolean;
   isService: boolean;
-  usesOfferType: boolean;
+  conditionMode: ConditionMode | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -122,6 +142,12 @@ interface SettingsValue {
   // True if the category (or any ancestor) is flagged as a services
   // category -- drives the "Contact to hire" call-to-action.
   isServiceCategory: (categoryId: string) => boolean;
+  // What `condition` means for this category, walking up the tree: the
+  // nearest ancestor (itself included) that names something other than
+  // the default wins.
+  conditionModeForCategory: (categoryId: string) => ConditionMode;
+  // conditionModeForCategory(id) === 'offer_type', kept as its own name
+  // because the rent-terms code reads better asking that question.
   usesOfferTypeCategory: (categoryId: string) => boolean;
   // Active domains that have at least one active category, in order --
   // what the gate renders. Jobs & Services is filtered out here until its
@@ -223,7 +249,7 @@ function dbToCategory(row: any): Category {
     sortOrder: row.sort_order ?? 0,
     active: row.active !== false,
     isService: !!row.is_service,
-    usesOfferType: !!row.uses_offer_type,
+    conditionMode: (row.condition_mode as ConditionMode) ?? null,
     domainId: row.domain_id || null,
     titleExampleEn: row.title_example_en || null,
     titleExampleAr: row.title_example_ar || null,
@@ -364,7 +390,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
           AsyncStorage.getItem(KEYS.categoryAttributes),
           AsyncStorage.getItem(KEYS.siteSettings),
         ]);
-        if (rawCats) setAllCategories(JSON.parse(rawCats));
+        if (rawCats) setAllCategories(normalizeCachedCategories(JSON.parse(rawCats)));
         if (rawDomains) setAllDomains(JSON.parse(rawDomains));
         if (rawAttrs) setAllCategoryAttributes(JSON.parse(rawAttrs));
         if (rawSettings) applySiteSettings(JSON.parse(rawSettings));
@@ -538,19 +564,30 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [buildAncestorChain, categoryById]
   );
 
-  // True if `categoryId` or any ancestor uses `condition` to mean
-  // Sale/Rent/Both instead of New/Used -- Properties and Vehicles today.
-  // Same inheritance story as isServiceCategory above: the flag is set on
-  // the top-level row, not repeated on every leaf. Every screen that used
-  // to ask "is this Properties?" to decide how to label and populate the
-  // condition picker asks this instead, so adding a third such category
-  // is a database change rather than a code change.
-  const usesOfferTypeCategory = useCallback(
-    (categoryId: string): boolean => {
+  // What `condition` means for this category: the nearest row in its
+  // ancestry (itself included) that names a mode, or New/Used if none
+  // does. Every screen that used to ask "is this Properties?" to decide
+  // how to label and populate the condition picker asks this instead, so
+  // a new kind of category is a database change rather than a code one.
+  const conditionModeForCategory = useCallback(
+    (categoryId: string): ConditionMode => {
+      // Root-first, so walking it backwards is nearest-first: a leaf that
+      // names its own mode overrides the branch it hangs off, which is
+      // how live animals and pet supplies live under one parent. A named
+      // 'new_used' counts as an answer, not as an absence -- that is the
+      // whole reason the column is nullable.
       const chain = buildAncestorChain(categoryId);
-      return chain.some((cid) => categoryById(cid)?.usesOfferType);
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const mode = categoryById(chain[i])?.conditionMode;
+        if (mode) return mode;
+      }
+      return 'new_used';
     },
     [buildAncestorChain, categoryById]
+  );
+  const usesOfferTypeCategory = useCallback(
+    (categoryId: string): boolean => conditionModeForCategory(categoryId) === 'offer_type',
+    [conditionModeForCategory]
   );
 
   const domainById = useCallback(
@@ -662,7 +699,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         sort_order: nextSortOrder,
         active: true,
         is_service: input.isService,
-        uses_offer_type: input.usesOfferType,
+        condition_mode: input.conditionMode,
         domain_id: input.domainId,
         title_example_en: input.titleExampleEn,
         title_example_ar: input.titleExampleAr,
@@ -691,7 +728,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.shotListAr !== undefined) dbPatch.required_shot_list_ar = patch.shotListAr;
       if (patch.active !== undefined) dbPatch.active = patch.active;
       if (patch.isService !== undefined) dbPatch.is_service = patch.isService;
-      if (patch.usesOfferType !== undefined) dbPatch.uses_offer_type = patch.usesOfferType;
+      if (patch.conditionMode !== undefined) dbPatch.condition_mode = patch.conditionMode;
       if (patch.domainId !== undefined) dbPatch.domain_id = patch.domainId;
       if (patch.titleExampleEn !== undefined) dbPatch.title_example_en = patch.titleExampleEn;
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
@@ -1045,6 +1082,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       ancestorsOf,
       categoryMatches,
       isServiceCategory,
+      conditionModeForCategory,
       usesOfferTypeCategory,
       domains,
       allDomains,
@@ -1092,6 +1130,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       ancestorsOf,
       categoryMatches,
       isServiceCategory,
+      conditionModeForCategory,
       usesOfferTypeCategory,
       domains,
       allDomains,

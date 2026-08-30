@@ -60,17 +60,24 @@ export interface Category {
   // physical item for sale/rent -- changes the listing detail page's
   // call-to-action to "Contact to hire".
   isService: boolean;
-  // Whether listings under this category use `condition` to mean
-  // Sale/Rent/Both rather than New/Used -- true for Properties and
-  // Vehicles, false for everything else. Inherited down the tree exactly
-  // as isService is, so it is set on the top-level row rather than on
-  // every leaf. This lived as a hardcoded "is it Properties?" check in
-  // four separate screens until a second category needed it; see
-  // usesOfferTypeCategory in SettingsStore.
-  usesOfferType: boolean;
+  // What `condition` means under this category -- see ConditionMode.
+  // null means "inherit", and most rows are null: the nearest ancestor
+  // (this row included) that names a mode wins, and nothing above the
+  // whole tree means New/Used.
+  //
+  // Null rather than a defaulted 'new_used' so the setting works in both
+  // directions. With the default doubling as "unset", a subcategory could
+  // only ever narrow -- setting one back to New/Used under a Sale/rent
+  // parent saved and then did nothing at all. This is what lets Pets hold
+  // live animals (rehome) beside pet supplies (New/Used, because a
+  // second-hand carrier really is one or the other) under one parent.
+  //
+  // Read it through conditionModeForCategory in SettingsStore, never off
+  // the row, or a subcategory will answer for itself alone.
+  conditionMode: ConditionMode | null;
   // Which domain this category belongs to (see ListingDomain). Set on
   // top-level rows and inherited by their descendants, exactly as
-  // isService and usesOfferType are -- read it through
+  // isService and conditionMode are -- read it through
   // domainOfCategory in SettingsStore rather than off the row, or a
   // subcategory will answer null.
   domainId: string | null;
@@ -97,6 +104,18 @@ export interface Category {
   areaFilterPriority: number | null;
   subcategoryFilterPriority: number | null;
 }
+
+// What the `condition` field means on a category, resolved by walking up
+// the tree (see SettingsStore's conditionModeForCategory). One value
+// rather than a row of booleans that could contradict each other. This
+// replaced a boolean that answered "is this Properties?" -- see AGENTS.md
+// for the table and for why a fourth kind extends this rather than
+// sitting beside it:
+//   new_used   -- New / Used. The default, and most of the catalogue.
+//   offer_type -- For sale / For rent / Both. Properties and Vehicles.
+//   rehome     -- For sale / Free to a good home. Live animals, where
+//                 New/Used is not a question anyone should be asked.
+export type ConditionMode = 'new_used' | 'offer_type' | 'rehome';
 
 // The kind of input a category attribute's value should be collected
 // with. `select`/`multiselect` use `options`; `number` and `text` are
@@ -241,7 +260,7 @@ export interface Listing {
   // column is NOT NULL in the database.
   price: number;
   // Rent pricing, for categories whose condition carries Sale/Rent/Both
-  // -- Properties and Vehicles (see Category.usesOfferType). Populated
+  // -- Properties and Vehicles (see Category.conditionMode). Populated
   // whenever renting is offered at all -- condition 'rent' OR 'both' --
   // so "what does it rent for" always has one unambiguous home no matter
   // whether a sale price sits alongside it. All three are null for a
@@ -268,7 +287,7 @@ export interface Listing {
   // existed -- see normalizeListing/dbListingToLocal's defensive-default
   // story for the same reasoning applied elsewhere on this type. A null
   // condition simply shows no badge on ListingCard rather than guessing.
-  condition: 'new' | 'used' | 'sale' | 'rent' | 'both' | null;
+  condition: 'new' | 'used' | 'sale' | 'rent' | 'both' | 'free' | null;
   district: string;
   // Lebanese governorate/caza (district), resolved via the map picker or
   // town-name autocomplete against the lebanonPlaces dataset (see

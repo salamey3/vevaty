@@ -47,14 +47,15 @@ export function offersRent(condition: Listing['condition']): boolean {
   return condition === 'rent' || condition === 'both';
 }
 
-// True for a Sale/Rent/Both pick, as opposed to a New/Used condition or
-// none at all. Used to suppress the listing card's condition pill on such
-// listings: the price lines there say "Buy for
-// $450,000" / "Rent for $12,000/yr" outright, so a pill repeating
-// "Sale or rent" beside them is redundant -- and it was wide enough to
-// squeeze the price itself down to "$450,...".
-export function isPropertyCondition(condition: Listing['condition']): boolean {
-  return offersSale(condition) || offersRent(condition);
+// True when the listing's own price lines already say what the offer is,
+// so the card's condition pill would only repeat them. Covers a
+// Sale/Rent/Both pick -- the lines read "Buy for $450,000" / "Rent for
+// $12,000/yr" outright, and the pill saying "Sale or rent" beside them was
+// wide enough to squeeze the price down to "$450,..." -- and a free
+// rehoming, whose price line is the word "Free". A New/Used listing, or
+// one with no condition at all, still gets its pill.
+export function conditionShownInPrice(condition: Listing['condition']): boolean {
+  return offersSale(condition) || offersRent(condition) || condition === 'free';
 }
 
 // Translation keys for the pill labels, kept next to the value lists so a

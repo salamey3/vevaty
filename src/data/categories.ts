@@ -1,4 +1,4 @@
-import { Category, ListingDomain } from '../types';
+import { ConditionMode, Category, ListingDomain } from '../types';
 
 // Offline / first-paint fallback only. The real, admin-editable category
 // list is fetched from Supabase (myazar.categories) by SettingsStore --
@@ -18,10 +18,10 @@ function topLevel(
   isService: boolean,
   shotListEn: string[] = [],
   shotListAr: string[] = [],
-  // Whether this category's listings use `condition` for Sale/Rent/Both
-  // rather than New/Used -- see Category.usesOfferType. Offline fallback
-  // only, like everything else here; the real value comes from Supabase.
-  usesOfferType = false,
+  // What this category's listings use `condition` for -- see
+  // Category.conditionMode. Offline fallback only, like everything else
+  // here; the real value comes from Supabase.
+  conditionMode: ConditionMode | null = null,
   // jobs and services are switched off in the database. Without this the
   // fallback renders two tiles that vanish the moment the real fetch
   // lands -- precisely the flash this file exists to prevent.
@@ -49,7 +49,7 @@ function topLevel(
     sortOrder,
     active,
     isService,
-    usesOfferType,
+    conditionMode,
     domainId,
     titleExampleEn: null,
     titleExampleAr: null,
@@ -80,9 +80,9 @@ export const DEFAULT_CATEGORIES: Category[] = [
   topLevel('vehicles', 'Vehicles', 'مركبات', 'car', 0, false,
     ['Front 3/4 view', 'Rear 3/4 view', 'Interior / dashboard', 'Odometer reading', 'Any damage close-up'],
     ['منظر أمامي جانبي', 'منظر خلفي جانبي', 'الداخلية / لوحة القيادة', 'قراءة عداد المسافة', 'صورة مقرّبة لأي ضرر'],
-    true, true, 'vehicles'),
-  topLevel('auto-parts-accessories', 'Auto Parts & Accessories', 'قطع غيار وإكسسوارات', 'wrench', 1, false, [], [], false, true, 'vehicles'),
-  topLevel('properties', 'Properties', 'عقارات', 'building', 2, false, [], [], true, true, 'properties'),
+    'offer_type', true, 'vehicles'),
+  topLevel('auto-parts-accessories', 'Auto Parts & Accessories', 'قطع غيار وإكسسوارات', 'wrench', 1, false, [], [], null, true, 'vehicles'),
+  topLevel('properties', 'Properties', 'عقارات', 'building', 2, false, [], [], 'offer_type', true, 'properties'),
   topLevel('mobiles-accessories', 'Mobiles & Accessories', 'موبايلات وإكسسوارات', 'phone', 3, false,
     ['Front, screen on', 'Back panel', 'All sides', 'Any scratches or damage', 'Box / accessories (if any)'],
     ['الأمام، والشاشة مضاءة', 'اللوحة الخلفية', 'كل الجوانب', 'أي خدوش أو تلف', 'العلبة / الملحقات (إن وجدت)']),
@@ -97,11 +97,11 @@ export const DEFAULT_CATEGORIES: Category[] = [
   topLevel('kids-babies', 'Kids & Babies', 'أطفال ورضّع', 'baby', 8, false),
   topLevel('sports-equipment', 'Sports & Equipment', 'رياضة ومعدات', 'dumbbell', 9, false),
   topLevel('hobbies', 'Hobbies', 'هوايات', 'sparkle', 10, false),
-  topLevel('jobs', 'Jobs', 'وظائف', 'briefcase', 11, false, [], [], false, false, 'jobs-services'),
+  topLevel('jobs', 'Jobs', 'وظائف', 'briefcase', 11, false, [], [], null, false, 'jobs-services'),
   topLevel('fashion-beauty', 'Fashion & Beauty', 'أزياء وجمال', 'shirt', 12, false,
     ['Front, laid flat or worn', 'Back', 'Label / size tag', 'Any flaws close-up'],
     ['من الأمام، مفرودة أو ملبوسة', 'من الخلف', 'بطاقة الماركة / المقاس', 'صورة مقرّبة لأي عيوب']),
-  topLevel('services', 'Services', 'خدمات', 'wrench', 13, true, [], [], false, false, 'jobs-services'),
+  topLevel('services', 'Services', 'خدمات', 'wrench', 13, true, [], [], null, false, 'jobs-services'),
 ];
 
 // Built-in icon fallback for categories that don't have a custom uploaded

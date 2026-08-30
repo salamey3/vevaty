@@ -11,7 +11,18 @@ import Button from '../../components/Button';
 import { colors, type, radius } from '../../theme/theme';
 import { useSettings } from '../../store/SettingsStore';
 import { uploadPhoto } from '../../lib/photoUpload';
-import { Category } from '../../types';
+import { Category, ConditionMode } from '../../types';
+
+// null first, and the default for a new row: most categories should take
+// whatever their parent says, and only the ones that mean something
+// different name it. A top-level row inheriting has nothing above it, so
+// it lands on New/Used.
+const CONDITION_MODES: { value: ConditionMode | null; label: string }[] = [
+  { value: null, label: 'Inherit' },
+  { value: 'new_used', label: 'New / Used' },
+  { value: 'offer_type', label: 'Sale / rent' },
+  { value: 'rehome', label: 'For sale / free' },
+];
 import { RootStackParamList } from '../../navigation/types';
 
 type FormState = {
@@ -23,7 +34,7 @@ type FormState = {
   shotListEn: string;
   shotListAr: string;
   isService: boolean;
-  usesOfferType: boolean;
+  conditionMode: ConditionMode | null;
   domainId: string | null;
   titleExampleEn: string;
   titleExampleAr: string;
@@ -35,7 +46,7 @@ type FormState = {
 function blankForm(): FormState {
   return {
     id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: false, shotListEn: '', shotListAr: '',
-    isService: false, usesOfferType: false, domainId: null, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
+    isService: false, conditionMode: null, domainId: null, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
     stockMode: 'unique',
   };
 }
@@ -50,7 +61,7 @@ function formFor(c: Category): FormState {
     shotListEn: c.shotListEn.join('\n'),
     shotListAr: c.shotListAr.join('\n'),
     isService: c.isService,
-    usesOfferType: c.usesOfferType,
+    conditionMode: c.conditionMode,
     domainId: c.domainId,
     titleExampleEn: c.titleExampleEn || '',
     titleExampleAr: c.titleExampleAr || '',
@@ -120,7 +131,7 @@ export default function AdminCategoriesScreen() {
     shotListEn: f.shotListEn.split('\n').map((s) => s.trim()).filter(Boolean),
     shotListAr: f.shotListAr.split('\n').map((s) => s.trim()).filter(Boolean),
     isService: f.isService,
-    usesOfferType: f.usesOfferType,
+    conditionMode: f.conditionMode,
     domainId: f.domainId,
     titleExampleEn: f.titleExampleEn.trim() || null,
     titleExampleAr: f.titleExampleAr.trim() || null,
@@ -362,12 +373,24 @@ export default function AdminCategoriesScreen() {
         <Switch value={form.isService} onValueChange={(v) => updateForm({ isService: v })} />
       </View>
 
-      <View style={styles.switchRow}>
-        <View style={{ flex: 1 }}>
-          <Text style={styles.fieldLabel}>Sale / rent category</Text>
-          <Text style={styles.fieldHint}>Sellers pick "For sale", "For rent" or "Both" instead of "New / Used", and rentals get rent terms (amount, period, advance payment). Used by Properties and Vehicles. Applies to all its subcategories too.</Text>
-        </View>
-        <Switch value={form.usesOfferType} onValueChange={(v) => updateForm({ usesOfferType: v })} />
+      <Text style={styles.fieldLabel}>What "condition" asks</Text>
+      <Text style={styles.fieldHint}>
+Inherit takes whatever the category above says, and is right for almost every row -- at the top of the tree
+        it means New / Used. Naming one applies it to everything beneath, until a subcategory names its own,
+        in either direction. Sale / rent adds rent terms (amount, period, advance payment) and is what Properties
+        and Vehicles use. For sale / free suits live animals, where new-or-used is not a question anyone should be
+        asked, and "free" hides the price.
+      </Text>
+      <View style={styles.chipRow}>
+        {CONDITION_MODES.map((m) => (
+          <Pressy
+            key={m.value ?? 'inherit'}
+            onPress={() => updateForm({ conditionMode: m.value })}
+            style={[styles.chip, form.conditionMode === m.value && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, form.conditionMode === m.value && styles.chipTextActive]}>{m.label}</Text>
+          </Pressy>
+        ))}
       </View>
 
       {/* Only meaningful on a top-level category: domain_id is set there
@@ -577,6 +600,15 @@ export default function AdminCategoriesScreen() {
 }
 
 const styles = StyleSheet.create({
+  chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginBottom: 6 },
+  chip: {
+    height: 34, paddingHorizontal: 14, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  chipActive: { backgroundColor: colors.primary, borderColor: colors.ink },
+  chipText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
+  chipTextActive: { color: colors.white },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingHorizontal: 18, paddingTop: 8, paddingBottom: 60 },
