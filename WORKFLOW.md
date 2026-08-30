@@ -174,6 +174,45 @@ gets the fresh start that swaps the update in.
 
 ---
 
+### Five files that quietly force a new build
+
+An over-the-air update only reaches an app whose **runtime version** matches
+it, and that runtime is a fingerprint of everything native. Touch one of
+these and every update after it publishes to a runtime no installed app is
+asking for — the update succeeds, appears in `eas update:list`, and never
+arrives:
+
+```
+.gitignore        app.json        package.json        eas.json        assets/icon and splash images
+```
+
+`.gitignore` is the surprising one, and it has now cost this project twice.
+Adding a single ignore rule is enough. If a rule is only about your own
+machine's clutter, put it where the fingerprint cannot see it:
+
+```sh
+echo '*.patch' >> .git/info/exclude
+```
+
+That file does the same job, is not tracked, and is not part of the
+fingerprint.
+
+To see where you stand at any time:
+
+```sh
+npx expo-updates fingerprint:generate --platform android
+CI=1 npx eas-cli build:list --platform android --limit 1 --json
+```
+
+The first prints what your next update will publish as; the second prints
+what the installed app is asking for. If they differ, only a new build
+(`npm run build:android`) reconnects them. `npm run ship` runs this
+comparison for you and prints a loud banner when they diverge — but it can
+only run it if `eas-cli` is logged in, so if you see COULD NOT VERIFY,
+treat it as a red flag rather than a shrug.
+
+---
+
 ### Automatic website upload — one-time setup
 
 Until you do this, `npm run ship` does everything except the website and

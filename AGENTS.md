@@ -104,6 +104,25 @@ is the thing this replaced.
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.
 
+# .gitignore is a native build input
+
+`app.json`'s `runtimeVersion` policy is `fingerprint`, so an over-the-air
+update only reaches an app whose runtime hash matches. That hash is
+computed from `.gitignore`, `eas.json`, `app.json`, `package.json` and the
+icon/splash assets — `.gitignore` included, which is the one nobody
+expects.
+
+Adding one ignore rule therefore strands every subsequent update: it
+publishes fine, and the phone never sees it, because it is asking for a
+runtime nobody publishes to. This has happened twice. The second time an
+`*.patch` rule — added to stop delivery artefacts being committed — cost a
+full day of work on the installed app while the website was perfectly up
+to date.
+
+Machine-local ignores go in `.git/info/exclude`, which is not tracked and
+not part of the fingerprint. Only change `.gitignore` when a new build is
+acceptable, and say so when you do.
+
 # Category structure
 
 Leaf-ness is **derived**, never stored: a category is postable when it has
