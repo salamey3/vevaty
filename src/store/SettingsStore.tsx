@@ -232,6 +232,7 @@ function dbToCategoryAttribute(row: any): CategoryAttribute {
     isVariant: !!row.is_variant,
     dependsOnSlug: row.depends_on_slug || null,
     dependsOnValues: Array.isArray(row.depends_on_values) ? row.depends_on_values : null,
+    allowNegative: !!row.allow_negative,
   };
 }
 

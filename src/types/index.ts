@@ -126,6 +126,14 @@ export interface CategoryAttribute {
   // src/lib/attributeVisibility.ts for the one place this is interpreted.
   dependsOnSlug: string | null;
   dependsOnValues: string[] | null;
+  // 'number' attributes only. False everywhere by default -- bedrooms,
+  // areas and years have no meaningful negative value -- and true for the
+  // few that do, currently just a property's floor, where -1 and -2 are
+  // ordinary Beirut addresses rather than typos. As well as permitting the
+  // value it decides which keyboard the field requests: iOS's plain
+  // numeric keypad has no minus key, so without this the seller cannot
+  // physically type one.
+  allowNegative: boolean;
 }
 
 // One step in a category's Home-screen filter drill-down, in the order

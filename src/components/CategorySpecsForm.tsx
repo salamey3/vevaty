@@ -93,14 +93,42 @@ function AttributeField({
     );
   }
 
+  // A number field needs more care than `Number(v) || 0`, which had two
+  // faults. It turned anything unparseable into a real, wrong 0 -- the
+  // exact coercion validateAiAttributeValue refuses to make, for the
+  // reason it gives there ("a bad number must NOT become 0"). And it made
+  // a negative impossible to type at all: the moment "-" was entered it
+  // became 0, so "-1" came out as 1.
+  //
+  // A lone "-" is kept as typed so the seller can go on to the digits,
+  // and reads as "not filled in yet" everywhere else -- attrHasValue
+  // rejects it, so it can neither satisfy a required field nor be saved.
+  const onChangeNumber = (v: string) => {
+    if (v === '') return onChangeValue('');
+    if (v === '-' && attribute.allowNegative) return onChangeValue('-');
+    const n = Number(v);
+    if (!Number.isFinite(n)) return; // keep what was there; never coerce to 0
+    if (n < 0 && !attribute.allowNegative) return;
+    onChangeValue(n);
+  };
+
   return (
     <View>
       {fieldLabelNode}
       <TextInput
         onFocus={onFocus}
         value={value === undefined ? '' : String(value)}
-        onChangeText={(v) => onChangeValue(attribute.type === 'number' ? (v === '' ? '' : Number(v) || 0) : v)}
-        keyboardType={attribute.type === 'number' ? 'numeric' : 'default'}
+        onChangeText={(v) => (attribute.type === 'number' ? onChangeNumber(v) : onChangeValue(v))}
+        keyboardType={
+          attribute.type !== 'number'
+            ? 'default'
+            : // iOS's 'numeric' keypad has no minus key at all, so a field
+              // that genuinely goes negative must ask for the punctuation
+              // keyboard or the value is untypeable on an iPhone.
+              attribute.allowNegative
+              ? 'numbers-and-punctuation'
+              : 'numeric'
+        }
         style={[localStyles.input, isEmptyRequired && localStyles.inputRequired]}
       />
     </View>

@@ -1,0 +1,123 @@
+From a9f82e53ce8f65239f96454ed16f601929814441 Mon Sep 17 00:00:00 2001
+From: Vevaty Assistant <assistant@vevaty.local>
+Date: Sun, 30 Aug 2026 06:56:50 +0000
+Subject: [PATCH] Let a spec depend on the Sale/Rent pick, not just on another
+ spec
+
+"Pets allowed" belongs on a rental and means nothing on a sale -- a
+distinction property_type cannot express, because it is the listing's own
+condition field that decides it, not a sibling attribute.
+
+resolveVisibleAttrs now accepts the listing's condition and treats one
+reserved dependsOnSlug, '$condition', as referring to it. The prefix
+cannot collide with a real attribute slug, which are plain identifiers.
+Both listing flows pass their condition through; the parameter is
+optional, so a caller without one hides every condition-dependent
+attribute, which is the safe direction -- a hidden attribute is never
+required and never saved.
+
+The Properties specs that use this (and the eight new property_type-scoped
+ones alongside them: elevator, maid's room, land area, balcony area, view,
+backup power, water supply, year built) are already inserted live. The
+pets_allowed row was simply hidden until this shipped, since no attribute
+value is ever stored under '$condition'.
+
+Co-Authored-By: Claude Opus 5 <noreply@anthropic.com>
+Claude-Session: https://claude.ai/code/session_01HnoM363F8ZSwiL3LcYGs6A
+---
+ src/lib/attributeVisibility.ts           | 33 +++++++++++++++++++-----
+ src/screens/CreateListingScreen.tsx      |  4 +--
+ src/screens/batch/BatchDetailsScreen.tsx |  4 +--
+ 3 files changed, 30 insertions(+), 11 deletions(-)
+
+diff --git a/src/lib/attributeVisibility.ts b/src/lib/attributeVisibility.ts
+index 386f6cd..f9b19a8 100644
+--- a/src/lib/attributeVisibility.ts
++++ b/src/lib/attributeVisibility.ts
+@@ -1,13 +1,25 @@
+-import { AttributeValue, CategoryAttribute } from '../types';
++import { AttributeValue, CategoryAttribute, Listing } from '../types';
++
++// The one slug that doesn't name another attribute. An attribute whose
++// dependsOnSlug is this depends on the LISTING's own condition field --
++// New/Used for most categories, Sale/Rent/Both for Properties -- rather
++// than on a sibling spec. Prefixed so it can never collide with a real
++// attribute slug, which are plain identifiers.
++//
++// Added for "Pets allowed", which applies to a rental and means nothing
++// on a sale, a distinction property_type cannot express. Any future
++// rent-only or sale-only spec uses the same slug.
++export const CONDITION_DEPENDENCY_SLUG = '$condition';
+ 
+ // Generic "field depends on another field's value" mechanism, driven
+ // entirely by CategoryAttribute.dependsOnSlug/dependsOnValues (set in the
+ // DB, resolved in SettingsStore's dbToCategoryAttribute). An attribute
+ // with no dependency is always visible; one with a dependency is only
+-// visible once the referenced attribute (by slug, within the same
+-// resolved list) currently holds one of the listed values. Built for
+-// Properties' Property Type -> Bedrooms/Bathrooms/etc relationship, but
+-// deliberately category-agnostic so any future category can use it too.
++// visible once what it references currently holds one of the listed
++// values -- either a sibling attribute by slug, or the listing's own
++// condition via CONDITION_DEPENDENCY_SLUG above. Built for Properties'
++// Property Type -> Bedrooms/Bathrooms/etc relationship, but deliberately
++// category-agnostic so any future category can use it too.
+ //
+ // Filtering the shared specAttrs list through this once, at its source
+ // in CreateListingScreen.tsx and BatchDetailsScreen.tsx, is the single
+@@ -15,13 +27,20 @@ import { AttributeValue, CategoryAttribute } from '../types';
+ // building, the AI-suggestion schema, payload building, required-field
+ // validation, the review-step summary) automatically respects field
+ // visibility with no further changes.
++//
++// `condition` is optional so a caller with no listing-level condition to
++// hand (a preview, a test) keeps working -- such a caller simply hides
++// every condition-dependent attribute, which is the safe direction: a
++// hidden attribute is never required and never saved.
+ export function resolveVisibleAttrs(
+   attrs: CategoryAttribute[],
+-  attrValues: Record<string, AttributeValue>
++  attrValues: Record<string, AttributeValue>,
++  condition?: Listing['condition']
+ ): CategoryAttribute[] {
+   return attrs.filter((a) => {
+     if (!a.dependsOnSlug || !a.dependsOnValues) return true;
+-    const v = attrValues[a.dependsOnSlug];
++    const v =
++      a.dependsOnSlug === CONDITION_DEPENDENCY_SLUG ? condition ?? undefined : attrValues[a.dependsOnSlug];
+     return typeof v === 'string' && a.dependsOnValues.includes(v);
+   });
+ }
+diff --git a/src/screens/CreateListingScreen.tsx b/src/screens/CreateListingScreen.tsx
+index 950d596..685e555 100644
+--- a/src/screens/CreateListingScreen.tsx
++++ b/src/screens/CreateListingScreen.tsx
+@@ -534,8 +534,8 @@ export default function CreateListingScreen({ navigation, route }: Props) {
+   // (spec lines, AI-suggestion schema, payload, required-field
+   // validation, the review-step summary) already reads from this list.
+   const specAttrs = useMemo(
+-    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues),
+-    [resolvedAttrs, attrValues]
++    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues, condition),
++    [resolvedAttrs, attrValues, condition]
+   );
+   const hasSpecs = specAttrs.length > 0;
+   // Category.stockMode -- see its own doc comment. 'unique' (everything
+diff --git a/src/screens/batch/BatchDetailsScreen.tsx b/src/screens/batch/BatchDetailsScreen.tsx
+index 6184188..b30f346 100644
+--- a/src/screens/batch/BatchDetailsScreen.tsx
++++ b/src/screens/batch/BatchDetailsScreen.tsx
+@@ -98,8 +98,8 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
+   // resolveVisibleAttrs does and why filtering here is the single choke
+   // point for every downstream consumer (spec form, validation, payload).
+   const specAttrs = useMemo(
+-    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues),
+-    [resolvedAttrs, attrValues]
++    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues, listing?.condition),
++    [resolvedAttrs, attrValues, listing?.condition]
+   );
+   const hasSpecs = specAttrs.length > 0;
+ 
+-- 
+2.43.0
+

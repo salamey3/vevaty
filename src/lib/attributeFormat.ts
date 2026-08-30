@@ -5,7 +5,11 @@ import { AttributeValue, CategoryAttribute } from '../types';
 // form and to decide whether to show a spec on the listing detail page.
 export function attrHasValue(v: AttributeValue | undefined): boolean {
   if (v === undefined || v === null) return false;
-  if (typeof v === 'string') return v.trim().length > 0;
+  // A lone "-" is the half-typed state of a negative number field (see
+  // CategorySpecsForm's onChangeNumber) -- a seller on their way to -1,
+  // not an answer. Treating it as filled in would let a required field
+  // pass validation and save "-" where a number belongs.
+  if (typeof v === 'string') return v.trim().length > 0 && v.trim() !== '-';
   if (Array.isArray(v)) return v.length > 0;
   return true; // number/boolean
 }
