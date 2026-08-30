@@ -4,37 +4,22 @@ Kept here rather than in anyone's head, so it survives closing a laptop.
 
 ## Next up
 
-**Give the remaining categories the treatment Properties just had.**
-Properties was rebuilt on 29 Aug 2026: eleven real-estate categories
-merged into one, Sale/Rent/Both replacing a meaningless New/Used, a
-generic conditional-field mechanism, and real rent terms. The same
-questions apply elsewhere, in this order.
+**Listing domains — see @DOMAINS.md.** Splitting the app into Properties,
+Vehicles, Classifieds and (later) Jobs & Services, on both the posting and
+the browsing side. Decided 30 Aug 2026; that document holds the reasoning,
+the conflicts already reconciled, the known risk, and the build order.
+Step one is tagging the categories and adding the admin control, which is
+invisible to users and unblocks the rest.
 
-1. **Vehicles.** All eight vehicle leaves have *zero* spec attributes —
-   no make, model, year, mileage, transmission, fuel, body type. Cars are
-   the highest-consideration purchase after property and those are
-   exactly the fields buyers filter on; right now a car listing is a
-   photo, a title and a price. Vehicles also still carries the same
-   `Cars for Sale` / `Cars for Rent` split Properties just shed, which
-   makes the classifier guess sale-vs-rent from a photo that cannot show
-   it. Do the specs first — they hurt every listing, where the split
-   only misfires on rentals. `depends_on_slug` applies directly: one
-   vehicle-type field showing engine cc for motorcycles, length for
-   boats, neither for spare parts.
+## After that
 
-2. **Jobs and Services.** Both top-level categories are `active = false`
-   today, so neither is reachable from the home grid — decide whether
-   that is deliberate before building anything. Neither fits the item
-   model: New/Used is meaningless for a plumber or a vacancy, and the
-   price is hourly, per-project, or a salary range rather than a sale
-   price. `is_service` is already wired (it swaps the detail CTA to
-   "contact to hire"); it is only ever set on the inactive parent.
+Categories still short of specs, in the order they are worth doing.
 
-3. **Pets.** Six leaves, no attributes, and live animals currently get a
+1. **Pets.** Six leaves, no attributes, and live animals currently get a
    New/Used tag. Wants age, breed, sex, vaccinated, and a price field
    that allows free-to-a-good-home.
 
-4. **Fashion.** Eight leaves, no attributes — and the size-variant
+2. **Fashion.** Eight leaves, no attributes — and the size-variant
    machinery (`Category.stockMode: 'multiple'` +
    `CategoryAttribute.isVariant`) is already built and entirely unused.
    Clothing is its natural home.
@@ -42,6 +27,22 @@ questions apply elsewhere, in this order.
 Everything else — Furniture, Kids & Babies, Sports, Hobbies, Businesses &
 Industrial — needs attribute rows rather than new mechanisms. That is
 database work with no code behind it.
+
+Jobs and Services are deliberately not on this list: they are step four of
+the domains work, and both are `active = false` until then.
+
+## Recently done
+
+**Properties**, 29 Aug 2026. Eleven real-estate categories merged into
+one, Sale/Rent/Both replacing a meaningless New/Used, a generic
+conditional-field mechanism (`depends_on_slug`), real rent terms, and
+21 specs.
+
+**Vehicles**, 30 Aug 2026. Five vehicle-kind categories merged into one
+postable category with a `vehicle_type` spec; Auto Parts & Accessories
+promoted to its own top-level; 19 specs where there had been none at all;
+and the Properties-or-not question behind Sale/Rent/Both generalised into
+the `categories.uses_offer_type` flag.
 
 ## Waiting on something external
 
