@@ -10,7 +10,7 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-One thing worth fixing, found while clearing the last of those:
+Two things worth fixing, both found while clearing the last of those:
 
 - **`addListing` swallows a refused insert.** On a Supabase error it keeps
   its optimistic local row and returns it, so the caller cannot tell a
@@ -20,6 +20,13 @@ One thing worth fixing, found while clearing the last of those:
   items can appear to save. It is also exactly what a missed column grant
   produces (see the grants note in @AGENTS.md), which is the failure this
   repo has already been caught by twice. `updateListing` at least warns.
+- **The app has not had a native build since 26 Aug.** Nothing needs one
+  right now -- the fingerprint was restored rather than rebuilt around, so
+  updates reach it again (see @AGENTS.md, "What forces a new native
+  build"). But the installed app is several months of native config behind
+  whatever it will be built from next, and that gap is only discovered the
+  day something genuinely native changes. Worth a build on a quiet day
+  rather than an urgent one.
 
 ## After that
 
@@ -46,6 +53,16 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**Listing domains**, 30 Aug 2026. The largest change the app has had: it is
+now split into Properties, Vehicles and Classifieds (and a dormant Jobs &
+Services), on both sides. Sellers answer one question the photos cannot --
+which is what stopped the classifier being asked to choose between
+"Apartment" and "Decor Concept" on the same pictures -- and buyers land on
+a gate instead of one mixed home, with each section carrying its own
+categories, collections, banners, filters and feed. Every decision, and
+the reasoning behind each, is in @DOMAINS.md; all four steps of its build
+order are done except Jobs & Services.
+
 **Properties**, 29 Aug 2026. Eleven real-estate categories merged into
 one, Sale/Rent/Both replacing a meaningless New/Used, a generic
 conditional-field mechanism (`depends_on_slug`), real rent terms, and
@@ -64,7 +81,8 @@ every listing was required to name a condition.
 postable category with a `vehicle_type` spec; Auto Parts & Accessories
 promoted to its own top-level; 19 specs where there had been none at all;
 and the Properties-or-not question behind Sale/Rent/Both generalised into
-the `categories.uses_offer_type` flag.
+a category flag -- which the Pets work above then turned into
+`categories.condition_mode`.
 
 ## Waiting on something external
 

@@ -8,31 +8,50 @@ See @BRANDING.md before touching any logo, icon, colour token, typeface or
 brand asset. It is the source of truth and the assets are generated from
 it — do not hand-edit a PNG in `assets/`, change the spec and regenerate.
 
-# Do not add npm scripts casually
+# What forces a new native build
 
-`@expo/fingerprint` hashes package.json's **`scripts`** block into the
-runtime version (source: `packageJson:scripts`). Over-the-air updates only
-reach an installed app whose runtime matches, so adding one line to
-`scripts` orphans every future update: `eas update` reports success, the
-update appears in `eas update:list`, and no phone ever asks for that
-runtime.
+`app.json` sets `runtimeVersion` to the `fingerprint` policy. An
+over-the-air update only reaches an app whose runtime hash matches it, and
+`@expo/fingerprint` computes that hash from more than the native code:
 
-This has already happened once. `"test:upload"` was added, the fingerprint
-went from `b3a56e8f…` to `e97b364d…`, and the app sat frozen on an old
-bundle through six ships while the website updated correctly every time —
-which made it look, repeatedly, like the code was wrong rather than
-undelivered.
+```
+.gitignore    package.json (INCLUDING "scripts")    app.json
+eas.json      assets/ icon and splash images
+```
 
-- Dev-only tooling: run it directly (`node scripts/…`), not via an npm script.
-- If a script genuinely must exist, a new native build is required before
-  any update reaches existing installs.
-- `npm run ship` checks this now and says so loudly. It did not before: it
+Touch one and every update after it is orphaned — `eas update` reports
+success, the update appears in `eas update:list`, and no phone ever asks
+for that runtime. Nothing fails; the app stays on an old bundle while the
+website updates correctly, which reads over and over as a change that did
+not work rather than one that was never delivered.
+
+**This has happened twice, both times over something that was not code.**
+
+1. `"test:upload"` added to `scripts`. `b3a56e8f...` -> `e97b364d...`,
+   six ships lost.
+2. `*.patch` added to `.gitignore`, to stop delivery artefacts being
+   committed. `543df3a5...` -> `d0d31f6d...`, thirteen commits and a full
+   day lost -- the vehicle merge, all three domains steps, the storefront
+   skip, sectioned banners and Pets, every one of them live on the website
+   the whole time.
+
+Both were reverted rather than rebuilt around: restoring the file
+byte-for-byte restores the old hash, and the installed app picks up
+everything on the next ship. Measure it with
+`npx expo-updates fingerprint:generate --platform android` before and
+after -- do not reason about it.
+
+- Dev-only tooling: run it directly (`node scripts/...`), never as an npm script.
+- Machine-local ignores go in `.git/info/exclude`. Not tracked, not hashed.
+- If one of these files genuinely must change, say so and expect a build.
+- `npm run ship` checks this and says so loudly. It did not always: it
   passed `--non-interactive` to `eas-cli`, which that CLI rejects, so the
   check threw and printed "skipped" every time. A diagnostic that cannot
-  run must never report like one that ran and passed.
+  run must never report like one that ran and passed -- and when it prints
+  COULD NOT VERIFY, that is a red flag, not a shrug.
 
-devDependencies themselves are fine — `esbuild` and `sharp` are not
-autolinked and do not move the fingerprint. It is the `scripts` block.
+devDependencies themselves are fine -- `esbuild` and `sharp` are not
+autolinked and do not move the fingerprint.
 
 # Grant every new column, or writes fail silently
 
@@ -104,24 +123,35 @@ is the thing this replaced.
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.
 
-# .gitignore is a native build input
+# navigate() does not go back -- it pushes
 
-`app.json`'s `runtimeVersion` policy is `fingerprint`, so an over-the-air
-update only reaches an app whose runtime hash matches. That hash is
-computed from `.gitignore`, `eas.json`, `app.json`, `package.json` and the
-icon/splash assets — `.gitignore` included, which is the one nobody
-expects.
+React Navigation 7 changed this, and the app was written against the old
+behaviour in five places. `navigation.navigate('X')` only reuses route X
+when X is **already focused**; anything else is a push. Every cross-stack
+jump that assumed otherwise stacked a second copy of the screen it meant
+to return to -- twice, a second copy of the entire tab navigator, mounted
+and holding its own state, with back walking out through an
+identical-looking app.
 
-Adding one ignore rule therefore strands every subsequent update: it
-publishes fine, and the phone never sees it, because it is asking for a
-runtime nobody publishes to. This has happened twice. The second time an
-`*.patch` rule — added to stop delivery artefacts being committed — cost a
-full day of work on the installed app while the website was perfectly up
-to date.
+Use `popTo(name, params)` within a stack, or pass `pop: true` at each
+nesting level for a nested jump:
 
-Machine-local ignores go in `.git/info/exclude`, which is not tracked and
-not part of the fingerprint. Only change `.gitignore` when a new build is
-acceptable, and say so when you do.
+```ts
+navigation.navigate('MainTabs', { screen: 'HomeTab', params: { screen: 'HomeRoot', pop: true } }, { pop: true });
+```
+
+`pop: true` is a valid sibling of `screen` in a nested payload (threaded
+through by `useNavigationBuilder`) and a valid third-argument option.
+`popTo` adds the route if it is not already in the stack, so it is safe
+where there is nothing to pop back to.
+
+Related, and silent: navigate bubbles UP to parent navigators and is never
+handed DOWN into a child. Addressing a tab route from a screen that sits
+ABOVE the tabs in the root stack does nothing at all -- no error, no
+warning. A banner pointing at a category did exactly nothing, everywhere,
+for as long as that code existed. All the "show me this category" jumps
+now live in `lib/browseNav.ts` so this cannot be re-decided one screen at
+a time.
 
 # Category structure
 
