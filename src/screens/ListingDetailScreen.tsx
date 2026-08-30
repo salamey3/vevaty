@@ -237,7 +237,12 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const ctaLabel = useMemo(() => {
     if (!listing) return t('listingDetail.contactToBuy');
     if (isServiceCategory(listing.cat)) return t('listingDetail.contactToHire');
-    if (listing.attributes['listing_purpose'] === 'rent') return t('listingDetail.contactToRent');
+    // Was keyed off a 'listing_purpose' attribute that no category has
+    // ever defined and nothing has ever written, so this arm never fired
+    // and every rental read "Contact to buy". The offer type lives on
+    // `condition` (see Listing.condition); "both" keeps the buy wording,
+    // since a listing offered either way is still for sale.
+    if (listing.condition === 'rent') return t('listingDetail.contactToRent');
     return t('listingDetail.contactToBuy');
   }, [listing, isServiceCategory, t]);
 

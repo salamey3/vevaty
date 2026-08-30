@@ -50,3 +50,8 @@ deploy.config.json
 # you to bin later). Ignored so a leftover never blocks `npm run ship`,
 # which refuses to run while `git status --porcelain` reports anything.
 _to_delete/
+
+# Delivery artefacts. Patches get written into the repo root to be
+# handed over and applied with `git am`; one of them was swept into a
+# commit by `git add -A` and shipped, which is what this prevents.
+*.patch

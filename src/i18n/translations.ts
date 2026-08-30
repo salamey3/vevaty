@@ -253,10 +253,14 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // way. One key per period rather than a shared template, so neither
     // has to reuse the form's "Per month" pill wording, which reads wrong
     // after a number.
+    'listingCard.rentPer.day': '${amount} / day',
+    'listingCard.rentPer.week': '${amount} / week',
     'listingCard.rentPer.month': '${amount} / month',
     'listingCard.rentPer.year': '${amount} / year',
     // Abbreviated period for the browse card, where the figure also
     // carries a "Rent for" label and the long form would overrun.
+    'listingCard.rentPerShort.day': '${amount}/day',
+    'listingCard.rentPerShort.week': '${amount}/wk',
     'listingCard.rentPerShort.month': '${amount}/mo',
     'listingCard.rentPerShort.year': '${amount}/yr',
     // Rendered just before the figure, a few points smaller than it, so
@@ -475,6 +479,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.price': 'Price (USD)',
     'createListing.salePriceLabel': 'Sale price (USD)',
     'createListing.rentValueLabel': 'Rent (USD)',
+    'createListing.rentPeriod.day': 'Per day',
+    'createListing.rentPeriod.week': 'Per week',
     'createListing.rentPeriod.month': 'Per month',
     'createListing.rentPeriod.year': 'Per year',
     'createListing.rentPaymentFrequencyLabel': 'Rent paid in advance',
@@ -1016,8 +1022,12 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingCard.conditionSale': 'للبيع',
     'listingCard.conditionRent': 'للإيجار',
     'listingCard.conditionBoth': 'بيع أو إيجار',
+    'listingCard.rentPer.day': '{amount}$ / يومياً',
+    'listingCard.rentPer.week': '{amount}$ / أسبوعياً',
     'listingCard.rentPer.month': '{amount}$ / شهرياً',
     'listingCard.rentPer.year': '{amount}$ / سنوياً',
+    'listingCard.rentPerShort.day': '{amount}$/يوم',
+    'listingCard.rentPerShort.week': '{amount}$/أسبوع',
     'listingCard.rentPerShort.month': '{amount}$/شهر',
     'listingCard.rentPerShort.year': '{amount}$/سنة',
     // Left as the adjectival "for sale at" / "for rent at" rather than
@@ -1214,6 +1224,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.price': 'السعر (دولار أمريكي)',
     'createListing.salePriceLabel': 'سعر البيع (دولار أمريكي)',
     'createListing.rentValueLabel': 'قيمة الإيجار (دولار أمريكي)',
+    'createListing.rentPeriod.day': 'يومياً',
+    'createListing.rentPeriod.week': 'أسبوعياً',
     'createListing.rentPeriod.month': 'شهرياً',
     'createListing.rentPeriod.year': 'سنوياً',
     'createListing.rentPaymentFrequencyLabel': 'دفعة الإيجار المقدمة',

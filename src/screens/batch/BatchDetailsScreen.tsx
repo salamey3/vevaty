@@ -20,7 +20,7 @@ import { useVerificationPhotosFor } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
 import { AttributeValue, ListingVariant } from '../../types';
 import { resolveVisibleAttrs } from '../../lib/attributeVisibility';
-import { RentPaymentFrequency, RentPeriod } from '../../lib/rentTerms';
+import { RentPaymentFrequency, RentPeriod, requiresPaymentFrequency } from '../../lib/rentTerms';
 import RentTermsFields from '../../components/RentTermsFields';
 
 // Same backstop as CreateListingScreen's own local copy (see its own doc
@@ -46,7 +46,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'BatchDetails'>;
 export default function BatchDetailsScreen({ navigation, route }: Props) {
   const { batchId } = route.params;
   const { listings, updateListing, deleteListing, profile } = useAppStore();
-  const { categoryById, resolveAttributesForCategory, categoryMatches } = useSettings();
+  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory } = useSettings();
   const { t, language } = useLanguage();
 
   const activeItems = useMemo(
@@ -78,13 +78,17 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
   const hasStockStep = cat?.stockMode === 'multiple';
   const isVehicleCategory = listing?.cat ? categoryMatches(listing.cat, 'vehicles') : false;
-  const isPropertyCategory = listing?.cat ? categoryMatches(listing.cat, 'properties') : false;
+  // Whether this category's `condition` carries Sale/Rent/Both rather than
+  // New/Used -- Properties and Vehicles today, read from a database flag.
+  // Not the same question as "is this Properties", which still gates the
+  // AI price skip further down and is asked there directly.
+  const usesOfferType = listing?.cat ? usesOfferTypeCategory(listing.cat) : false;
 
   const [title, setTitle] = useState('');
   const [description, setDescription] = useState('');
   const [price, setPrice] = useState('');
-  // Rent terms -- Properties only, mirroring CreateListingScreen's own
-  // smart price block. See showRentFields below.
+  // Rent terms -- usesOfferType categories only, mirroring
+  // CreateListingScreen's own smart price block. See showRentFields below.
   const [rentPrice, setRentPrice] = useState('');
   const [rentPeriod, setRentPeriod] = useState<RentPeriod | null>(null);
   const [rentPaymentFrequency, setRentPaymentFrequency] = useState<RentPaymentFrequency | null>(null);
@@ -103,16 +107,19 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   );
   const hasSpecs = specAttrs.length > 0;
 
-  // Same money-fields rule as CreateListingScreen's Details step: a
-  // property listed for rent has no sale price to give, one listed for
-  // sale has no rent terms, and one offered either way needs both. Every
-  // other category keeps the single universal Price field. See that
-  // screen's showRentFields/showSalePriceField for the full reasoning.
-  const showRentFields = isPropertyCategory && (listing?.condition === 'rent' || listing?.condition === 'both');
+  // Same money-fields rule as CreateListingScreen's Details step: an item
+  // listed for rent has no sale price to give, one listed for sale has no
+  // rent terms, and one offered either way needs both. Every category
+  // without usesOfferType keeps the single universal Price field. See
+  // that screen's showRentFields/showSalePriceField for the reasoning.
+  const showRentFields = usesOfferType && (listing?.condition === 'rent' || listing?.condition === 'both');
   const showSalePriceField = !showRentFields || listing?.condition === 'both';
   const pricingValid =
     (!showSalePriceField || Number(price) > 0) &&
-    (!showRentFields || (Number(rentPrice) > 0 && !!rentPeriod && !!rentPaymentFrequency));
+    (!showRentFields ||
+      (Number(rentPrice) > 0 &&
+        !!rentPeriod &&
+        (!requiresPaymentFrequency(rentPeriod) || !!rentPaymentFrequency)));
 
   // Re-seed local form state every time the active item changes (new
   // index, or the same index now pointing at a different listing because
@@ -328,7 +335,8 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
           price: showSalePriceField ? Number(price) || 0 : Number(rentPrice) || 0,
           rentPrice: showRentFields ? Number(rentPrice) || 0 : null,
           rentPeriod: showRentFields ? rentPeriod : null,
-          rentPaymentFrequency: showRentFields ? rentPaymentFrequency : null,
+          rentPaymentFrequency:
+            showRentFields && requiresPaymentFrequency(rentPeriod) ? rentPaymentFrequency : null,
           attributes,
           stockQty: stock.stockQty,
           variants: stock.variants,
@@ -425,7 +433,7 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
         {showSalePriceField && (
           <>
             <Text style={styles.fieldLabel}>
-              {isPropertyCategory && (listing.condition === 'sale' || listing.condition === 'both')
+              {usesOfferType && (listing.condition === 'sale' || listing.condition === 'both')
                 ? t('createListing.salePriceLabel')
                 : t('createListing.price')}
               <Text style={styles.requiredMark}> *</Text>

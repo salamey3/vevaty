@@ -29,7 +29,7 @@ function ReviewRow({
   onRetry: (listingId: string, photos: string[]) => void;
 }) {
   const { updateListing } = useAppStore();
-  const { categoryById, categoryMatches } = useSettings();
+  const { categoryById, usesOfferTypeCategory } = useSettings();
   const { t, language } = useLanguage();
   const classifyState = useBatchItemClassifyState(listing.id);
   const [fixOpen, setFixOpen] = useState(false);
@@ -41,10 +41,10 @@ function ReviewRow({
   // Same Sale/Rent/Both-instead-of-New/Used swap as CreateListingScreen's
   // Classify step -- see its conditionOptions/isPropertyCategory for the
   // identical reasoning, mirrored here per-row.
-  const isPropertyCategory = listing.cat ? categoryMatches(listing.cat, 'properties') : false;
+  const usesOfferType = listing.cat ? usesOfferTypeCategory(listing.cat) : false;
   const conditionOptions = useMemo(
     () =>
-      isPropertyCategory
+      usesOfferType
         ? [
             { value: 'sale', label: t('createListing.condition.sale') },
             { value: 'rent', label: t('createListing.condition.rent') },
@@ -54,7 +54,7 @@ function ReviewRow({
             { value: 'new', label: t('createListing.condition.new') },
             { value: 'used', label: t('createListing.condition.used') },
           ],
-    [isPropertyCategory, t]
+    [usesOfferType, t]
   );
 
   const setCategory = (id: CategoryId) => {
@@ -63,8 +63,8 @@ function ReviewRow({
     // 'used') doesn't belong to the new one once the category crosses the
     // Properties boundary, so it's cleared rather than left stranded,
     // matching none of the now-shown pills.
-    const newIsProperty = categoryMatches(id, 'properties');
-    const conditionStillValid = newIsProperty
+    const newUsesOfferType = usesOfferTypeCategory(id);
+    const conditionStillValid = newUsesOfferType
       ? listing.condition === 'sale' || listing.condition === 'rent' || listing.condition === 'both'
       : listing.condition === 'new' || listing.condition === 'used';
     updateListing(
@@ -163,7 +163,7 @@ function ReviewRow({
         onChange={(c) =>
           updateListing(listing.id, listingToInput(listing, { condition: c as Listing['condition'] })).catch(() => {})
         }
-        label={isPropertyCategory ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
+        label={usesOfferType ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
         options={conditionOptions}
       />
 

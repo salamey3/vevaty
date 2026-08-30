@@ -316,13 +316,17 @@ function normalizeListing(l: any): Listing {
       l?.condition === 'new' || l?.condition === 'used' || l?.condition === 'sale' || l?.condition === 'rent' || l?.condition === 'both'
         ? l.condition
         : null,
-    // Rent pricing (Properties only) -- same defensive story once more: a
+    // Rent pricing (usesOfferType categories only) -- same defensive story: a
     // listing cached by a build that predates these fields has none of
     // them, which reads correctly as "no rent terms on file", exactly
     // what every sale-only and non-property listing carries anyway. price
     // itself rides the spread above and is NOT NULL in the DB.
     rentPrice: typeof l?.rentPrice === 'number' ? l.rentPrice : null,
-    rentPeriod: l?.rentPeriod === 'month' || l?.rentPeriod === 'year' ? l.rentPeriod : null,
+    // Day and week are for vehicle hire; month and year for property.
+    // Kept in step with RENT_PERIODS and the listings_rent_period_check
+    // constraint -- a value missing from this list is silently dropped
+    // on read, which turns a $50/day car hire back into a bare $50.
+    rentPeriod: ['day', 'week', 'month', 'year'].includes(l?.rentPeriod) ? l.rentPeriod : null,
     rentPaymentFrequency:
       l?.rentPaymentFrequency === 'monthly' ||
       l?.rentPaymentFrequency === 'quarterly' ||
@@ -370,14 +374,14 @@ function dbListingToLocal(row: any): Listing {
     descriptionEn: row.description_en ?? '',
     descriptionAr: row.description_ar ?? '',
     price: Number(row.price) || 0,
-    // Rent pricing (Properties only) -- null for every sale-only and
-    // non-property listing, and for anything posted before these columns
-    // existed. Number() guards the numeric column the same way price/lat/
+    // Rent pricing -- null for every sale-only listing, every category
+    // that doesn't use offer types, and anything posted before these
+    // columns existed. Number() guards the numeric column the same way price/lat/
     // lng above do; the two text columns are already constrained to their
     // allowed values by CHECK constraints in the database, and are read
     // back defensively here regardless.
     rentPrice: row.rent_price != null ? Number(row.rent_price) : null,
-    rentPeriod: row.rent_period === 'month' || row.rent_period === 'year' ? row.rent_period : null,
+    rentPeriod: ['day', 'week', 'month', 'year'].includes(row.rent_period) ? row.rent_period : null,
     rentPaymentFrequency:
       row.rent_payment_frequency === 'monthly' ||
       row.rent_payment_frequency === 'quarterly' ||

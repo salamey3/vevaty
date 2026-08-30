@@ -119,7 +119,7 @@ export default function HomeScreen() {
   // grid -- confusing, and not where that belongs (ProfileScreen's "My
   // listings" already surfaces it clearly with a status badge).
   const listings = useMemo(() => allListings.filter((l) => l.status === 'active'), [allListings]);
-  const { categories, categoryById, childrenOf, categoryMatches, resolveFilterFacetsForCategory } = useSettings();
+  const { categories, categoryById, childrenOf, categoryMatches, usesOfferTypeCategory, resolveFilterFacetsForCategory } = useSettings();
   const { saveSearch } = useSavedSearches();
   const { t, language, isRTL } = useLanguage();
   const goHome = useGoHome();
@@ -348,15 +348,15 @@ export default function HomeScreen() {
   };
 
   // Always these two (or, browsing Properties, always Sale/Rent/Both --
-  // see isPropertiesScope below), not gated by "does anything currently
+  // see isOfferTypeScope below), not gated by "does anything currently
   // match" the way areaOptions/attributeOptions are -- there are only ever
   // a fixed few values, so hiding one because nothing in the current scope
   // happens to have it would look like a bug, not a real absence of that
   // condition.
-  const isPropertiesScope = effectiveCategoryId ? categoryMatches(effectiveCategoryId, 'properties') : false;
+  const isOfferTypeScope = effectiveCategoryId ? usesOfferTypeCategory(effectiveCategoryId) : false;
   const conditionOptions: FilterOption[] = useMemo(
     () =>
-      isPropertiesScope
+      isOfferTypeScope
         ? [
             { key: 'sale', label: t('home.filters.conditionSale') },
             { key: 'rent', label: t('home.filters.conditionRent') },
@@ -366,7 +366,7 @@ export default function HomeScreen() {
             { key: 'new', label: t('home.filters.conditionNew') },
             { key: 'used', label: t('home.filters.conditionUsed') },
           ],
-    [isPropertiesScope, t]
+    [isOfferTypeScope, t]
   );
 
   const subCategoryOptions: FilterOption[] = useMemo(() => {
@@ -603,7 +603,7 @@ export default function HomeScreen() {
           same way price/distance are, and worth seeing before drilling
           into subcategory/area. */}
       <FilterSection
-        title={isPropertiesScope ? t('home.filters.saleRentTitle') : t('home.filters.condition')}
+        title={isOfferTypeScope ? t('home.filters.saleRentTitle') : t('home.filters.condition')}
         options={conditionOptions}
         selected={selection.condition}
         onToggle={toggleCondition}

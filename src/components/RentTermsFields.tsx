@@ -10,6 +10,7 @@ import {
   RentPeriod,
   rentPaymentFrequencyLabelKey,
   rentPeriodLabelKey,
+  requiresPaymentFrequency,
 } from '../lib/rentTerms';
 
 // The rent half of a Properties listing's money fields: how much, per
@@ -47,59 +48,66 @@ export default function RentTermsFields({
 
   return (
     <View>
-      {/* The rent value and its per month/year pills share one row: the
-          number is meaningless without the period beside it, so the two
-          read as a single figure rather than two separate answers. The
-          period is deliberately not pre-selected -- $800 a month and $800
-          a year are a twelvefold difference, and a wrong default here
-          misprices the listing by more than any other field could. */}
+      {/* The period sits directly under the amount rather than beside it.
+          It shared a row with the input while there were only two options;
+          at four (day and week were added for vehicle hire) the pills no
+          longer fit any phone width, and because a pill row does not
+          shrink they squeezed the amount field to nothing rather than
+          wrapping. The period is deliberately not pre-selected -- $800 a
+          month and $800 a year are a twelvefold difference, and a wrong
+          default here misprices the listing by more than any other field
+          could. */}
       <Text style={localStyles.fieldLabel}>
         {t('createListing.rentValueLabel')}
         <Text style={localStyles.required}> *</Text>
       </Text>
-      <View style={localStyles.valueRow}>
-        <TextInput
-          onFocus={onInputFocus}
-          value={rentPrice}
-          onChangeText={onChangeRentPrice}
-          placeholder="0"
-          placeholderTextColor={colors.inkSoft}
-          keyboardType="numeric"
-          style={[localStyles.input, localStyles.valueInput, !rentPrice.trim() && localStyles.inputRequired]}
-        />
-        <View style={[localStyles.pillRow, !rentPeriod && localStyles.pillRowRequired]}>
-          {RENT_PERIODS.map((p) => (
-            <Pressy
-              key={p}
-              onPress={() => onChangeRentPeriod(p)}
-              style={[localStyles.optPill, rentPeriod === p && localStyles.optPillActive]}
-            >
-              <Text style={[localStyles.optPillText, rentPeriod === p && localStyles.optPillTextActive]}>
-                {t(rentPeriodLabelKey(p))}
-              </Text>
-            </Pressy>
-          ))}
-        </View>
-      </View>
-
-      <Text style={localStyles.fieldLabel}>
-        {t('createListing.rentPaymentFrequencyLabel')}
-        <Text style={localStyles.required}> *</Text>
-      </Text>
-      <View style={[localStyles.pillRow, !rentPaymentFrequency && localStyles.pillRowRequired]}>
-        {RENT_PAYMENT_FREQUENCIES.map((f) => (
+      <TextInput
+        onFocus={onInputFocus}
+        value={rentPrice}
+        onChangeText={onChangeRentPrice}
+        placeholder="0"
+        placeholderTextColor={colors.inkSoft}
+        keyboardType="numeric"
+        style={[localStyles.input, !rentPrice.trim() && localStyles.inputRequired]}
+      />
+      <View style={[localStyles.pillRow, localStyles.periodRow, !rentPeriod && localStyles.pillRowRequired]}>
+        {RENT_PERIODS.map((p) => (
           <Pressy
-            key={f}
-            onPress={() => onChangeRentPaymentFrequency(f)}
-            style={[localStyles.optPill, rentPaymentFrequency === f && localStyles.optPillActive]}
+            key={p}
+            onPress={() => onChangeRentPeriod(p)}
+            style={[localStyles.optPill, rentPeriod === p && localStyles.optPillActive]}
           >
-            <Text style={[localStyles.optPillText, rentPaymentFrequency === f && localStyles.optPillTextActive]}>
-              {t(rentPaymentFrequencyLabelKey(f))}
+            <Text style={[localStyles.optPillText, rentPeriod === p && localStyles.optPillTextActive]}>
+              {t(rentPeriodLabelKey(p))}
             </Text>
           </Pressy>
         ))}
       </View>
-      <Text style={localStyles.hint}>{t('createListing.rentPaymentFrequencyHint')}</Text>
+
+      {/* Skipped entirely for a day or week hire -- see
+          requiresPaymentFrequency. */}
+      {requiresPaymentFrequency(rentPeriod) && (
+        <>
+          <Text style={localStyles.fieldLabel}>
+            {t('createListing.rentPaymentFrequencyLabel')}
+            <Text style={localStyles.required}> *</Text>
+          </Text>
+          <View style={[localStyles.pillRow, !rentPaymentFrequency && localStyles.pillRowRequired]}>
+            {RENT_PAYMENT_FREQUENCIES.map((f) => (
+              <Pressy
+                key={f}
+                onPress={() => onChangeRentPaymentFrequency(f)}
+                style={[localStyles.optPill, rentPaymentFrequency === f && localStyles.optPillActive]}
+              >
+                <Text style={[localStyles.optPillText, rentPaymentFrequency === f && localStyles.optPillTextActive]}>
+                  {t(rentPaymentFrequencyLabelKey(f))}
+                </Text>
+              </Pressy>
+            ))}
+          </View>
+          <Text style={localStyles.hint}>{t('createListing.rentPaymentFrequencyHint')}</Text>
+        </>
+      )}
     </View>
   );
 }
@@ -112,10 +120,9 @@ const localStyles = StyleSheet.create({
     borderRadius: radius.sm, paddingHorizontal: 14, height: 46, fontSize: 14.5, color: colors.ink,
   },
   inputRequired: { borderColor: colors.danger, borderWidth: 1.5, backgroundColor: '#f5e4e2' },
-  // 'flex-start' rather than 'center' so the pill row still sits level
-  // with the input when the required-red padding wraps around it.
-  valueRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 10 },
-  valueInput: { flex: 1 },
+  // The period pills sit on their own line under the amount; marginTop
+  // replaces the gap the shared row used to provide.
+  periodRow: { marginTop: 8 },
   pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   pillRowRequired: {
     borderWidth: 1.5, borderColor: colors.danger, borderRadius: radius.sm,

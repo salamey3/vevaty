@@ -20,7 +20,7 @@ import { RootStackParamList } from '../navigation/types';
 import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { resolveVisibleAttrs } from '../lib/attributeVisibility';
-import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey } from '../lib/rentTerms';
+import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey, requiresPaymentFrequency } from '../lib/rentTerms';
 import RentTermsFields from '../components/RentTermsFields';
 import { useLanguage } from '../i18n/LanguageContext';
 import { translateListing } from '../lib/translate';
@@ -98,7 +98,7 @@ function spinLabelSuggestionsFor(isVehicle: boolean, isProperty: boolean, langua
 
 export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified, authChecked, myShop } = useAppStore();
-  const { categoryById, resolveAttributesForCategory, categoryMatches, allCategories, childrenOf } = useSettings();
+  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, allCategories, childrenOf } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
   const editingListing = editListingId ? listings.find((l) => l.id === editListingId) : undefined;
@@ -123,9 +123,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const [step, setStep] = useState(0);
   const [category, setCategory] = useState<CategoryId | null>(initialCategory);
-  // New vs used (or, for Properties, Sale/Rent/Both -- see
-  // isPropertyCategory below and ConditionPicker's genericized options
-  // prop) -- lives on the Classify step, alongside category confirmation
+  // New vs used -- or, on a category flagged usesOfferType (Properties
+  // and Vehicles), Sale/Rent/Both instead, see ConditionPicker's
+  // genericized options prop -- lives on the Classify step, alongside category confirmation
   // (see canNextByKind.classify and the 'classify' step's JSX below), not
   // its own step: it's a single pick, not enough of a decision to earn a
   // whole step the way photos/details do, and keeping it off the step
@@ -555,9 +555,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // one, so the seller can't tap through before the AI has had a real shot
   // at recognising the item.
   const hasEnoughPhotosForAi = photos.length >= PHOTOS_MIN_FOR_AI;
-  // Drives the Brand/Model suggestion fields below -- true for "Vehicles"
-  // itself and every subcategory under it (Cars for Sale, Cars for Rent,
-  // Motorcycles & ATVs, Trucks & Buses, Boats, Spare Parts, ...).
+  // Drives the Brand/Model suggestion fields below. Vehicles is now a
+  // single postable category rather than a tree of kinds -- the kind is
+  // the vehicle_type spec -- so in practice this is that one category.
   const isVehicleCategory = category ? categoryMatches(category, 'vehicles') : false;
   // Drives the spin-name quick-pick chips (Living room/Kitchen/...) below,
   // same idea as isVehicleCategory -- true for "Properties" and everything
@@ -572,13 +572,20 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const isPropertyCategoryRef = useRef(isPropertyCategory);
   isPropertyCategoryRef.current = isPropertyCategory;
   const spinLabelSuggestions = spinLabelSuggestionsFor(isVehicleCategory, isPropertyCategory, language);
+  // Whether this category's `condition` carries Sale/Rent/Both rather
+  // than New/Used -- Properties and Vehicles today, read from a database
+  // flag rather than a hardcoded list. Deliberately NOT the same
+  // question as isPropertyCategory above, which still gates the AI price
+  // skip: a car genuinely can be priced from comparable listings, an
+  // apartment cannot.
+  const usesOfferType = category ? usesOfferTypeCategory(category) : false;
   // The Classify step's condition picker doubles as Sale/Rent/Both for
   // Properties (see condition state's own doc comment) -- same control,
   // same required slot, a different option set and label depending on
   // whether the resolved category is Properties.
   const conditionOptions = useMemo(
     () =>
-      isPropertyCategory
+      usesOfferType
         ? [
             { value: 'sale', label: t('createListing.condition.sale') },
             { value: 'rent', label: t('createListing.condition.rent') },
@@ -588,16 +595,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             { value: 'new', label: t('createListing.condition.new') },
             { value: 'used', label: t('createListing.condition.used') },
           ],
-    [isPropertyCategory, t]
+    [usesOfferType, t]
   );
-  // What the Details step asks for money-wise. A property listed for rent
+  // What the Details step asks for money-wise. Something listed for rent
   // has no sale price to give, and one listed for sale has no rent terms
   // -- asking for both regardless is what made a rental read as though it
-  // were being sold. A property with no Sale/Rent/Both pick yet (an
+  // were being sold. A listing with no Sale/Rent/Both pick yet (an
   // unfinished draft reopened here) falls back to the plain price field
-  // so the step is never blank, and every non-property category keeps the
-  // single universal Price field exactly as before.
-  const showRentFields = isPropertyCategory && (condition === 'rent' || condition === 'both');
+  // so the step is never blank, and every category without usesOfferType
+  // keeps the single universal Price field exactly as before.
+  const showRentFields = usesOfferType && (condition === 'rent' || condition === 'both');
   const showSalePriceField = !showRentFields || condition === 'both';
   // Only whatever is actually on screen is required. The period is not
   // optional and is deliberately not defaulted: $800 a month and $800 a
@@ -609,7 +616,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // rent would otherwise post a live rental reading "$0 / month", which
     // every price filter then skips over. Matches the batch flow's own
     // long-standing price gate.
-    (!showRentFields || (Number(rentPrice) > 0 && !!rentPeriod && !!rentPaymentFrequency));
+    (!showRentFields ||
+      (Number(rentPrice) > 0 &&
+        !!rentPeriod &&
+        (!requiresPaymentFrequency(rentPeriod) || !!rentPaymentFrequency)));
   // A rent-only property mirrors its rent value into `price` (see
   // buildPayload), so a seller who switches from Rent to Sale or Both
   // would otherwise find the sale field already filled in with the
@@ -631,12 +641,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   useEffect(() => {
     setCondition((prev) => {
       if (prev === null) return prev;
-      const stillValid = isPropertyCategory
+      const stillValid = usesOfferType
         ? prev === 'sale' || prev === 'rent' || prev === 'both'
         : prev === 'new' || prev === 'used';
       return stillValid ? prev : null;
     });
-  }, [isPropertyCategory]);
+  }, [usesOfferType]);
 
   // True once category has an actual, trustworthy value behind it -- either
   // the seller picked it by hand, or they tapped the confirm pill on the
@@ -1475,7 +1485,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // Rent to Sale never leaves stale terms behind.
       rentPrice: showRentFields ? Number(rentPrice) || 0 : null,
       rentPeriod: showRentFields ? rentPeriod : null,
-      rentPaymentFrequency: showRentFields ? rentPaymentFrequency : null,
+      // Cleared for a day or week hire, where the term does not apply --
+      // otherwise a seller who set it while on a monthly term and then
+      // switched to daily would leave it behind, invisible and wrong.
+      rentPaymentFrequency:
+        showRentFields && requiresPaymentFrequency(rentPeriod) ? rentPaymentFrequency : null,
       district: trimmedDistrict,
       governorate: resolvedPlace?.governorate ?? null,
       caza: resolvedPlace?.caza ?? null,
@@ -1848,7 +1862,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <ConditionPicker
               value={condition}
               onChange={(v) => setCondition(v as typeof condition)}
-              label={isPropertyCategory ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
+              label={usesOfferType ? t('createListing.saleRentLabel') : t('createListing.conditionLabel')}
               options={conditionOptions}
             />
           </View>
@@ -2213,7 +2227,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             {showSalePriceField && (
               <>
                 <Text style={styles.fieldLabel}>
-                  {isPropertyCategory && (condition === 'sale' || condition === 'both')
+                  {usesOfferType && (condition === 'sale' || condition === 'both')
                     ? t('createListing.salePriceLabel')
                     : t('createListing.price')}
                   <RequiredMark />

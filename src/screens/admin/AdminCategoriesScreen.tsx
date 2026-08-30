@@ -23,6 +23,7 @@ type FormState = {
   shotListEn: string;
   shotListAr: string;
   isService: boolean;
+  usesOfferType: boolean;
   titleExampleEn: string;
   titleExampleAr: string;
   descriptionExampleEn: string;
@@ -33,7 +34,7 @@ type FormState = {
 function blankForm(): FormState {
   return {
     id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: false, shotListEn: '', shotListAr: '',
-    isService: false, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
+    isService: false, usesOfferType: false, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
     stockMode: 'unique',
   };
 }
@@ -48,6 +49,7 @@ function formFor(c: Category): FormState {
     shotListEn: c.shotListEn.join('\n'),
     shotListAr: c.shotListAr.join('\n'),
     isService: c.isService,
+    usesOfferType: c.usesOfferType,
     titleExampleEn: c.titleExampleEn || '',
     titleExampleAr: c.titleExampleAr || '',
     descriptionExampleEn: c.descriptionExampleEn || '',
@@ -116,6 +118,7 @@ export default function AdminCategoriesScreen() {
     shotListEn: f.shotListEn.split('\n').map((s) => s.trim()).filter(Boolean),
     shotListAr: f.shotListAr.split('\n').map((s) => s.trim()).filter(Boolean),
     isService: f.isService,
+    usesOfferType: f.usesOfferType,
     titleExampleEn: f.titleExampleEn.trim() || null,
     titleExampleAr: f.titleExampleAr.trim() || null,
     descriptionExampleEn: f.descriptionExampleEn.trim() || null,
@@ -354,6 +357,14 @@ export default function AdminCategoriesScreen() {
           <Text style={styles.fieldHint}>Listings under this category get a "Contact to hire" button instead of buy/rent. Applies to all its subcategories too.</Text>
         </View>
         <Switch value={form.isService} onValueChange={(v) => updateForm({ isService: v })} />
+      </View>
+
+      <View style={styles.switchRow}>
+        <View style={{ flex: 1 }}>
+          <Text style={styles.fieldLabel}>Sale / rent category</Text>
+          <Text style={styles.fieldHint}>Sellers pick "For sale", "For rent" or "Both" instead of "New / Used", and rentals get rent terms (amount, period, advance payment). Used by Properties and Vehicles. Applies to all its subcategories too.</Text>
+        </View>
+        <Switch value={form.usesOfferType} onValueChange={(v) => updateForm({ usesOfferType: v })} />
       </View>
 
       <View style={styles.switchRow}>

@@ -40,6 +40,14 @@ export interface Category {
   // physical item for sale/rent -- changes the listing detail page's
   // call-to-action to "Contact to hire".
   isService: boolean;
+  // Whether listings under this category use `condition` to mean
+  // Sale/Rent/Both rather than New/Used -- true for Properties and
+  // Vehicles, false for everything else. Inherited down the tree exactly
+  // as isService is, so it is set on the top-level row rather than on
+  // every leaf. This lived as a hardcoded "is it Properties?" check in
+  // four separate screens until a second category needed it; see
+  // usesOfferTypeCategory in SettingsStore.
+  usesOfferType: boolean;
   // 'unique' (the default, and every category until this field existed):
   // a listing is one specific physical item -- an apartment, a car, a
   // single phone -- so stock/variant intake never shows on the create
@@ -206,7 +214,8 @@ export interface Listing {
   // a rental never shows up priceless or sorts as $0. Never null -- the
   // column is NOT NULL in the database.
   price: number;
-  // Rent pricing, Properties only (see condition below). Populated
+  // Rent pricing, for categories whose condition carries Sale/Rent/Both
+  // -- Properties and Vehicles (see Category.usesOfferType). Populated
   // whenever renting is offered at all -- condition 'rent' OR 'both' --
   // so "what does it rent for" always has one unambiguous home no matter
   // whether a sale price sits alongside it. All three are null for a
@@ -220,7 +229,7 @@ export interface Listing {
   // a real negotiating term in the Lebanese rental market, which is why
   // it sits with the rent value rather than among the category specs.
   rentPrice: number | null;
-  rentPeriod: 'month' | 'year' | null;
+  rentPeriod: 'day' | 'week' | 'month' | 'year' | null;
   rentPaymentFrequency: 'monthly' | 'quarterly' | 'semiannual' | 'annual' | null;
   // For most categories: whether the item is brand new or used, chosen by
   // the seller as a required pick on the very first step of the

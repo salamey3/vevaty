@@ -1,6 +1,6 @@
 import { Listing } from '../types';
 
-// Shared vocabulary for Properties' rent terms, so the create wizard, the
+// Shared vocabulary for rent terms, so the create wizard, the
 // batch flow, the listing card and the detail screen can never drift on
 // what the allowed values are or what order they're offered in. The
 // values themselves are also what the database's own CHECK constraints
@@ -9,7 +9,20 @@ import { Listing } from '../types';
 export type RentPeriod = NonNullable<Listing['rentPeriod']>;
 export type RentPaymentFrequency = NonNullable<Listing['rentPaymentFrequency']>;
 
-export const RENT_PERIODS: readonly RentPeriod[] = ['month', 'year'] as const;
+// Day and week are for vehicle hire, which Lebanon quotes daily;
+// month and year are how property is quoted. Shortest first, so the
+// pills read as a scale.
+export const RENT_PERIODS: readonly RentPeriod[] = ['day', 'week', 'month', 'year'] as const;
+
+// Whether the advance-payment term applies at all. It is a tenancy
+// negotiating point -- month to month against a full year up front -- and
+// reads as nonsense on a car hired by the day, where forcing a pick would
+// have a one-day rental publicly advertising "Rent paid in advance: full
+// year upfront". Asked only for month and year terms, and cleared rather
+// than saved otherwise.
+export function requiresPaymentFrequency(period: RentPeriod | null): boolean {
+  return period === 'month' || period === 'year';
+}
 
 // How far ahead the tenant pays, in ascending commitment. A real
 // negotiating term in the Lebanese rental market -- "full year up front"
@@ -24,9 +37,8 @@ export const RENT_PAYMENT_FREQUENCIES: readonly RentPaymentFrequency[] = [
 ] as const;
 
 // Whether a given Sale/Rent/Both pick means the seller is offering the
-// property for sale at all. Non-property listings ('new'/'used'/null)
-// answer false to both of these -- callers gate on their own
-// isPropertyCategory check first.
+// item for sale at all. A New/Used or absent condition answers false to
+// both -- callers gate on their category's own usesOfferType first.
 export function offersSale(condition: Listing['condition']): boolean {
   return condition === 'sale' || condition === 'both';
 }
@@ -35,9 +47,9 @@ export function offersRent(condition: Listing['condition']): boolean {
   return condition === 'rent' || condition === 'both';
 }
 
-// True for a Properties listing's Sale/Rent/Both pick, as opposed to a
-// New/Used condition or none at all. Used to suppress the listing card's
-// condition pill on properties: the price lines there say "Buy for
+// True for a Sale/Rent/Both pick, as opposed to a New/Used condition or
+// none at all. Used to suppress the listing card's condition pill on such
+// listings: the price lines there say "Buy for
 // $450,000" / "Rent for $12,000/yr" outright, so a pill repeating
 // "Sale or rent" beside them is redundant -- and it was wide enough to
 // squeeze the price itself down to "$450,...".

@@ -46,6 +46,7 @@ interface CreateCategoryInput {
   shotListEn: string[];
   shotListAr: string[];
   isService: boolean;
+  usesOfferType: boolean;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
   descriptionExampleEn: string | null;
@@ -63,6 +64,7 @@ interface UpdateCategoryPatch {
   shotListAr: string[];
   active: boolean;
   isService: boolean;
+  usesOfferType: boolean;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
   descriptionExampleEn: string | null;
@@ -117,6 +119,7 @@ interface SettingsValue {
   // True if the category (or any ancestor) is flagged as a services
   // category -- drives the "Contact to hire" call-to-action.
   isServiceCategory: (categoryId: string) => boolean;
+  usesOfferTypeCategory: (categoryId: string) => boolean;
   // Every attribute row for every category. Prefer resolveAttributesForCategory
   // for rendering a listing form; this is mainly for the admin attribute manager.
   categoryAttributes: CategoryAttribute[];
@@ -201,6 +204,7 @@ function dbToCategory(row: any): Category {
     sortOrder: row.sort_order ?? 0,
     active: row.active !== false,
     isService: !!row.is_service,
+    usesOfferType: !!row.uses_offer_type,
     titleExampleEn: row.title_example_en || null,
     titleExampleAr: row.title_example_ar || null,
     descriptionExampleEn: row.description_example_en || null,
@@ -494,6 +498,21 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [buildAncestorChain, categoryById]
   );
 
+  // True if `categoryId` or any ancestor uses `condition` to mean
+  // Sale/Rent/Both instead of New/Used -- Properties and Vehicles today.
+  // Same inheritance story as isServiceCategory above: the flag is set on
+  // the top-level row, not repeated on every leaf. Every screen that used
+  // to ask "is this Properties?" to decide how to label and populate the
+  // condition picker asks this instead, so adding a third such category
+  // is a database change rather than a code change.
+  const usesOfferTypeCategory = useCallback(
+    (categoryId: string): boolean => {
+      const chain = buildAncestorChain(categoryId);
+      return chain.some((cid) => categoryById(cid)?.usesOfferType);
+    },
+    [buildAncestorChain, categoryById]
+  );
+
   const resolveAttributesForCategory = useCallback(
     (categoryId: string): CategoryAttribute[] => {
       const chain = buildAncestorChain(categoryId); // root -> leaf, includes categoryId
@@ -562,6 +581,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         sort_order: nextSortOrder,
         active: true,
         is_service: input.isService,
+        uses_offer_type: input.usesOfferType,
         title_example_en: input.titleExampleEn,
         title_example_ar: input.titleExampleAr,
         description_example_en: input.descriptionExampleEn,
@@ -589,6 +609,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.shotListAr !== undefined) dbPatch.required_shot_list_ar = patch.shotListAr;
       if (patch.active !== undefined) dbPatch.active = patch.active;
       if (patch.isService !== undefined) dbPatch.is_service = patch.isService;
+      if (patch.usesOfferType !== undefined) dbPatch.uses_offer_type = patch.usesOfferType;
       if (patch.titleExampleEn !== undefined) dbPatch.title_example_en = patch.titleExampleEn;
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
       if (patch.descriptionExampleEn !== undefined) dbPatch.description_example_en = patch.descriptionExampleEn;
@@ -941,6 +962,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       ancestorsOf,
       categoryMatches,
       isServiceCategory,
+      usesOfferTypeCategory,
       categoryAttributes: allCategoryAttributes,
       resolveAttributesForCategory,
       resolveFilterFacetsForCategory,
@@ -982,6 +1004,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       ancestorsOf,
       categoryMatches,
       isServiceCategory,
+      usesOfferTypeCategory,
       allCategoryAttributes,
       resolveAttributesForCategory,
       resolveFilterFacetsForCategory,

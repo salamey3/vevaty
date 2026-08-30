@@ -9,7 +9,8 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 // number is the thing the buyer came for, and it must never be the half
 // that gets ellipsised.
 export interface PriceLine {
-  // null for every non-property listing, and on the detail variant.
+  // null unless this is a card-variant line on a listing that carries an
+  // offer type; the detail variant never labels.
   label: string | null;
   amount: string;
 }
@@ -46,9 +47,9 @@ export function priceLineText(line: PriceLine): string {
 //            The default: a full-width price line with its own rent-terms
 //            block underneath needs neither the label nor the shortening.
 //
-// A label is never applied to a non-property listing, where "Buy for
-// $500" on a used phone would be noise -- everything on the marketplace
-// that isn't a property is for sale, so saying so adds nothing.
+// A label is never applied to a listing without an offer type, where
+// "Buy for $500" on a used phone would be noise -- anything that isn't
+// offered both ways is for sale, so saying so adds nothing.
 export function listingPriceLines(
   listing: Listing,
   t: Translate,
