@@ -5,6 +5,26 @@
 // used to be required.
 export type CategoryId = string;
 
+// The gate above the category tree -- Properties, Vehicles, Classifieds
+// and (dormant) Jobs & Services. See DOMAINS.md for why this is a layer
+// beside myazar.categories rather than a new root level inside it.
+//
+// A domain is a posting constraint and a browsing scope, not a category:
+// listings never carry a domain of their own, it is derived from their
+// category's top-level ancestor. That way the two can never disagree.
+export interface ListingDomain {
+  id: string;
+  nameEn: string;
+  nameAr: string;
+  // Built-in icon name (src/icons/Icon.tsx), same convention as Category.
+  icon: string;
+  sortOrder: number;
+  // Retires a domain outright. Separate from whether it currently has any
+  // active categories -- a domain with none is simply not rendered, which
+  // is what keeps Jobs & Services off the gate until it is switched on.
+  active: boolean;
+}
+
 export interface Category {
   id: CategoryId; // stable slug, also the id stored on listings.category_id
   // Top-level categories have parentId === null. A category with a
@@ -48,6 +68,12 @@ export interface Category {
   // four separate screens until a second category needed it; see
   // usesOfferTypeCategory in SettingsStore.
   usesOfferType: boolean;
+  // Which domain this category belongs to (see ListingDomain). Set on
+  // top-level rows and inherited by their descendants, exactly as
+  // isService and usesOfferType are -- read it through
+  // domainOfCategory in SettingsStore rather than off the row, or a
+  // subcategory will answer null.
+  domainId: string | null;
   // 'unique' (the default, and every category until this field existed):
   // a listing is one specific physical item -- an apartment, a car, a
   // single phone -- so stock/variant intake never shows on the create

@@ -1,4 +1,4 @@
-import { Category } from '../types';
+import { Category, ListingDomain } from '../types';
 
 // Offline / first-paint fallback only. The real, admin-editable category
 // list is fetched from Supabase (myazar.categories) by SettingsStore --
@@ -25,7 +25,10 @@ function topLevel(
   // jobs and services are switched off in the database. Without this the
   // fallback renders two tiles that vanish the moment the real fetch
   // lands -- precisely the flash this file exists to prevent.
-  active = true
+  active = true,
+  // Which gate card this sits behind. Defaulted to classifieds because
+  // that is where nine of the twelve live; the three that differ pass it.
+  domainId: string | null = 'classifieds'
 ): Category {
   return {
     id,
@@ -47,6 +50,7 @@ function topLevel(
     active,
     isService,
     usesOfferType,
+    domainId,
     titleExampleEn: null,
     titleExampleAr: null,
     descriptionExampleEn: null,
@@ -60,13 +64,25 @@ function topLevel(
   };
 }
 
+// Offline / first-paint fallback for the gate, same story as
+// DEFAULT_CATEGORIES below. Mirrors myazar.listing_domains. Jobs &
+// Services is listed but never renders while both of its categories are
+// inactive -- the gate filters on "has at least one active category", so
+// it needs no separate switch here.
+export const DEFAULT_DOMAINS: ListingDomain[] = [
+  { id: 'properties', nameEn: 'Properties', nameAr: 'عقارات', icon: 'building', sortOrder: 0, active: true },
+  { id: 'vehicles', nameEn: 'Vehicles', nameAr: 'مركبات', icon: 'car', sortOrder: 1, active: true },
+  { id: 'classifieds', nameEn: 'Classifieds', nameAr: 'إعلانات مبوبة', icon: 'grip', sortOrder: 2, active: true },
+  { id: 'jobs-services', nameEn: 'Jobs & Services', nameAr: 'وظائف وخدمات', icon: 'briefcase', sortOrder: 3, active: true },
+];
+
 export const DEFAULT_CATEGORIES: Category[] = [
   topLevel('vehicles', 'Vehicles', 'مركبات', 'car', 0, false,
     ['Front 3/4 view', 'Rear 3/4 view', 'Interior / dashboard', 'Odometer reading', 'Any damage close-up'],
     ['منظر أمامي جانبي', 'منظر خلفي جانبي', 'الداخلية / لوحة القيادة', 'قراءة عداد المسافة', 'صورة مقرّبة لأي ضرر'],
-    true),
-  topLevel('auto-parts-accessories', 'Auto Parts & Accessories', 'قطع غيار وإكسسوارات', 'wrench', 1, false),
-  topLevel('properties', 'Properties', 'عقارات', 'building', 2, false, [], [], true),
+    true, true, 'vehicles'),
+  topLevel('auto-parts-accessories', 'Auto Parts & Accessories', 'قطع غيار وإكسسوارات', 'wrench', 1, false, [], [], false, true, 'vehicles'),
+  topLevel('properties', 'Properties', 'عقارات', 'building', 2, false, [], [], true, true, 'properties'),
   topLevel('mobiles-accessories', 'Mobiles & Accessories', 'موبايلات وإكسسوارات', 'phone', 3, false,
     ['Front, screen on', 'Back panel', 'All sides', 'Any scratches or damage', 'Box / accessories (if any)'],
     ['الأمام، والشاشة مضاءة', 'اللوحة الخلفية', 'كل الجوانب', 'أي خدوش أو تلف', 'العلبة / الملحقات (إن وجدت)']),
@@ -81,11 +97,11 @@ export const DEFAULT_CATEGORIES: Category[] = [
   topLevel('kids-babies', 'Kids & Babies', 'أطفال ورضّع', 'baby', 8, false),
   topLevel('sports-equipment', 'Sports & Equipment', 'رياضة ومعدات', 'dumbbell', 9, false),
   topLevel('hobbies', 'Hobbies', 'هوايات', 'sparkle', 10, false),
-  topLevel('jobs', 'Jobs', 'وظائف', 'briefcase', 11, false, [], [], false, false),
+  topLevel('jobs', 'Jobs', 'وظائف', 'briefcase', 11, false, [], [], false, false, 'jobs-services'),
   topLevel('fashion-beauty', 'Fashion & Beauty', 'أزياء وجمال', 'shirt', 12, false,
     ['Front, laid flat or worn', 'Back', 'Label / size tag', 'Any flaws close-up'],
     ['من الأمام، مفرودة أو ملبوسة', 'من الخلف', 'بطاقة الماركة / المقاس', 'صورة مقرّبة لأي عيوب']),
-  topLevel('services', 'Services', 'خدمات', 'wrench', 13, true, [], [], false, false),
+  topLevel('services', 'Services', 'خدمات', 'wrench', 13, true, [], [], false, false, 'jobs-services'),
 ];
 
 // Built-in icon fallback for categories that don't have a custom uploaded

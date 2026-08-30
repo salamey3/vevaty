@@ -24,6 +24,7 @@ type FormState = {
   shotListAr: string;
   isService: boolean;
   usesOfferType: boolean;
+  domainId: string | null;
   titleExampleEn: string;
   titleExampleAr: string;
   descriptionExampleEn: string;
@@ -34,7 +35,7 @@ type FormState = {
 function blankForm(): FormState {
   return {
     id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: false, shotListEn: '', shotListAr: '',
-    isService: false, usesOfferType: false, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
+    isService: false, usesOfferType: false, domainId: null, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
     stockMode: 'unique',
   };
 }
@@ -50,6 +51,7 @@ function formFor(c: Category): FormState {
     shotListAr: c.shotListAr.join('\n'),
     isService: c.isService,
     usesOfferType: c.usesOfferType,
+    domainId: c.domainId,
     titleExampleEn: c.titleExampleEn || '',
     titleExampleAr: c.titleExampleAr || '',
     descriptionExampleEn: c.descriptionExampleEn || '',
@@ -87,7 +89,7 @@ type CreatingUnder = string | null | undefined;
 
 export default function AdminCategoriesScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { allCategories, childrenOf, createCategory, updateCategory, reorderCategories, deleteCategory } = useSettings();
+  const { allDomains, allCategories, childrenOf, createCategory, updateCategory, reorderCategories, deleteCategory } = useSettings();
 
   const [editingId, setEditingId] = useState<string | null>(null);
   const [creatingUnder, setCreatingUnder] = useState<CreatingUnder>(undefined);
@@ -119,6 +121,7 @@ export default function AdminCategoriesScreen() {
     shotListAr: f.shotListAr.split('\n').map((s) => s.trim()).filter(Boolean),
     isService: f.isService,
     usesOfferType: f.usesOfferType,
+    domainId: f.domainId,
     titleExampleEn: f.titleExampleEn.trim() || null,
     titleExampleAr: f.titleExampleAr.trim() || null,
     descriptionExampleEn: f.descriptionExampleEn.trim() || null,
@@ -367,6 +370,32 @@ export default function AdminCategoriesScreen() {
         <Switch value={form.usesOfferType} onValueChange={(v) => updateForm({ usesOfferType: v })} />
       </View>
 
+      {/* Only meaningful on a top-level category: domain_id is set there
+          and inherited by everything beneath it, so a subcategory showing
+          its own picker would invite setting it to something that then
+          gets ignored. See DOMAINS.md. */}
+      {!parentId && (
+        <>
+          <Text style={styles.fieldLabel}>Domain</Text>
+          <Text style={styles.fieldHint}>
+            Which card on the Sell and Home gate this category sits behind. Applies to all its subcategories too.
+          </Text>
+          <View style={styles.domainRow}>
+            {allDomains.map((d) => (
+              <Pressy
+                key={d.id}
+                onPress={() => updateForm({ domainId: form.domainId === d.id ? null : d.id })}
+                style={[styles.domainPill, form.domainId === d.id && styles.domainPillActive]}
+              >
+                <Text style={[styles.domainPillText, form.domainId === d.id && styles.domainPillTextActive]}>
+                  {d.nameEn}
+                </Text>
+              </Pressy>
+            ))}
+          </View>
+        </>
+      )}
+
       <View style={styles.switchRow}>
         <View style={{ flex: 1 }}>
           <Text style={styles.fieldLabel}>Shops carry stock (vs. one-of-a-kind)</Text>
@@ -581,6 +610,15 @@ const styles = StyleSheet.create({
   addSubBtnText: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   form: { padding: 16, paddingTop: 4 },
   fieldLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 14, marginBottom: 6 },
+  domainRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8, marginBottom: 4 },
+  domainPill: {
+    paddingHorizontal: 14, height: 36, borderRadius: radius.pill,
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  domainPillActive: { backgroundColor: colors.primary, borderColor: colors.ink },
+  domainPillText: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  domainPillTextActive: { color: colors.white },
   fieldHint: { ...type.tiny, textTransform: 'none', letterSpacing: 0, color: colors.inkSoft, marginBottom: 6 },
   input: {
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,

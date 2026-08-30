@@ -5,7 +5,8 @@ Classifieds and (later) Jobs & Services. Agreed 30 Aug 2026, before any of
 it was built, so that the reasoning survives the build rather than being
 reconstructed from the diff afterwards.
 
-Nothing in this document is implemented yet. It is the spec.
+Step 1 of the build order at the end is done. Everything else is still
+spec.
 
 ## Why
 
@@ -31,7 +32,7 @@ rest of the system which schema applies. That is why it earns a screen.
 ## What it is not
 
 The three cards look symmetric. They are not: Properties is one category,
-Vehicles is two, Classifieds is eleven.
+Vehicles is two, Classifieds is nine.
 
 This change eliminates apartment-versus-sofa confusion completely. It does
 nothing whatsoever for phone-versus-tablet, which stays exactly as accurate
@@ -63,7 +64,7 @@ opposite.
 **"Tapping a domain goes straight to listings" is not true.** It was the
 original shape of the gate, and per-domain homes replaced it. Every domain
 opens its own home: Properties gets a feed and collections, Vehicles gets
-its two tiles plus a feed, Classifieds gets eleven tiles plus a feed.
+its two tiles plus a feed, Classifieds gets nine tiles plus a feed.
 
 **The domain is a hard wall. A shop's category narrowing is not.** If both
 were absolute, a computer shop could never add mobile phones — which is
@@ -111,8 +112,12 @@ separate decision from "do we build it".
 
 Each step ships something usable on its own.
 
-1. **Domain as data.** Tag the top-level categories, add the admin
-   control. Invisible to users, unblocks everything else.
+1. ~~**Domain as data.**~~ *Done 30 Aug 2026.* `myazar.listing_domains`
+   plus a `domain_id` on categories, set on top-level rows and inherited
+   downward; `domains` / `domainOfCategory` / `categoriesInDomain` in
+   SettingsStore; a Domain picker on the admin category editor, shown
+   only for top-level rows since a subcategory's own value would be
+   ignored. Invisible to users -- nothing reads it yet.
 2. **Posting.** The gate screen, the constrained classifier, the storefront
    skip. This is where the accuracy win lands, and it can ship while
    browsing is untouched.

@@ -3,11 +3,12 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { supabase, ensureSession } from '../lib/supabase';
 import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
-import { AttributeOption, AttributeType, Category, CategoryAttribute, FilterFacet, SiteSettings } from '../types';
-import { DEFAULT_CATEGORIES, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK, GENERIC_CATEGORY_ICON } from '../data/categories';
+import { AttributeOption, AttributeType, Category, CategoryAttribute, FilterFacet, ListingDomain, SiteSettings } from '../types';
+import { DEFAULT_CATEGORIES, DEFAULT_DOMAINS, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK, GENERIC_CATEGORY_ICON } from '../data/categories';
 
 const KEYS = {
   categories: 'vevaty:categories',
+  listingDomains: 'vevaty:listingDomains',
   categoryAttributes: 'vevaty:categoryAttributes',
   siteSettings: 'vevaty:siteSettings',
   adminLockDuration: 'vevaty:admin:lockDurationMinutes',
@@ -47,6 +48,7 @@ interface CreateCategoryInput {
   shotListAr: string[];
   isService: boolean;
   usesOfferType: boolean;
+  domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
   descriptionExampleEn: string | null;
@@ -65,6 +67,7 @@ interface UpdateCategoryPatch {
   active: boolean;
   isService: boolean;
   usesOfferType: boolean;
+  domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
   descriptionExampleEn: string | null;
@@ -120,6 +123,22 @@ interface SettingsValue {
   // category -- drives the "Contact to hire" call-to-action.
   isServiceCategory: (categoryId: string) => boolean;
   usesOfferTypeCategory: (categoryId: string) => boolean;
+  // Active domains that have at least one active category, in order --
+  // what the gate renders. Jobs & Services is filtered out here until its
+  // categories are switched on.
+  domains: ListingDomain[];
+  // Every domain including ones with nothing active in them -- the admin
+  // category editor needs to offer Jobs & Services even while it is
+  // dormant. Same relationship as categories/allCategories.
+  allDomains: ListingDomain[];
+  domainById: (id: string) => ListingDomain | undefined;
+  // The domain a category belongs to, found by walking up to its
+  // top-level ancestor. Categories carry domain_id only on that top-level
+  // row, so reading it off a leaf directly returns null.
+  domainOfCategory: (categoryId: string) => ListingDomain | undefined;
+  // Active top-level categories within a domain, in order. One for
+  // Properties, two for Vehicles, nine for Classifieds.
+  categoriesInDomain: (domainId: string) => Category[];
   // Every attribute row for every category. Prefer resolveAttributesForCategory
   // for rendering a listing form; this is mainly for the admin attribute manager.
   categoryAttributes: CategoryAttribute[];
@@ -205,6 +224,7 @@ function dbToCategory(row: any): Category {
     active: row.active !== false,
     isService: !!row.is_service,
     usesOfferType: !!row.uses_offer_type,
+    domainId: row.domain_id || null,
     titleExampleEn: row.title_example_en || null,
     titleExampleAr: row.title_example_ar || null,
     descriptionExampleEn: row.description_example_en || null,
@@ -212,6 +232,17 @@ function dbToCategory(row: any): Category {
     areaFilterPriority: row.area_filter_priority ?? null,
     subcategoryFilterPriority: row.subcategory_filter_priority ?? null,
     stockMode: row.stock_mode === 'multiple' ? 'multiple' : 'unique',
+  };
+}
+
+function dbToListingDomain(row: any): ListingDomain {
+  return {
+    id: row.id,
+    nameEn: row.name_en,
+    nameAr: row.name_ar,
+    icon: row.icon || 'grip',
+    sortOrder: row.sort_order ?? 0,
+    active: row.active !== false,
   };
 }
 
@@ -270,6 +301,7 @@ function friendlyError(e: any, context: 'category' | 'attribute' = 'category'): 
 export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [allCategories, setAllCategories] = useState<Category[]>(DEFAULT_CATEGORIES);
+  const [allDomains, setAllDomains] = useState<ListingDomain[]>(DEFAULT_DOMAINS);
   const [allCategoryAttributes, setAllCategoryAttributes] = useState<CategoryAttribute[]>([]);
   const [siteSettings, setSiteSettings] = useState<SiteSettings>(DEFAULT_SITE_SETTINGS);
   const [isAdmin, setIsAdmin] = useState(false);
@@ -326,12 +358,14 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   useEffect(() => {
     (async () => {
       try {
-        const [rawCats, rawAttrs, rawSettings] = await Promise.all([
+        const [rawCats, rawDomains, rawAttrs, rawSettings] = await Promise.all([
           AsyncStorage.getItem(KEYS.categories),
+          AsyncStorage.getItem(KEYS.listingDomains),
           AsyncStorage.getItem(KEYS.categoryAttributes),
           AsyncStorage.getItem(KEYS.siteSettings),
         ]);
         if (rawCats) setAllCategories(JSON.parse(rawCats));
+        if (rawDomains) setAllDomains(JSON.parse(rawDomains));
         if (rawAttrs) setAllCategoryAttributes(JSON.parse(rawAttrs));
         if (rawSettings) applySiteSettings(JSON.parse(rawSettings));
         else applySiteSettings(DEFAULT_SITE_SETTINGS);
@@ -393,8 +427,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const refreshFromSupabase = useCallback(async () => {
     try {
       await ensureSession();
-      const [{ data: catRows, error: catErr }, { data: attrRows, error: attrErr }, { data: settingsRow, error: settingsErr }] = await Promise.all([
+      const [{ data: catRows, error: catErr }, { data: domainRows, error: domainErr }, { data: attrRows, error: attrErr }, { data: settingsRow, error: settingsErr }] = await Promise.all([
         supabase.from('categories').select('*').order('sort_order', { ascending: true }),
+        supabase.from('listing_domains').select('*').order('sort_order', { ascending: true }),
         supabase.from('category_attributes').select('*').order('sort_order', { ascending: true }),
         supabase.from('site_settings').select('*').eq('id', true).maybeSingle(),
       ]);
@@ -402,6 +437,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         const mapped = catRows.map(dbToCategory);
         setAllCategories(mapped);
         AsyncStorage.setItem(KEYS.categories, JSON.stringify(mapped)).catch(() => {});
+      }
+      if (!domainErr && domainRows) {
+        const mapped = domainRows.map(dbToListingDomain);
+        setAllDomains(mapped);
+        AsyncStorage.setItem(KEYS.listingDomains, JSON.stringify(mapped)).catch(() => {});
       }
       if (!attrErr && attrRows) {
         const mapped = attrRows.map(dbToCategoryAttribute);
@@ -513,6 +553,47 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [buildAncestorChain, categoryById]
   );
 
+  const domainById = useCallback(
+    (id: string) => allDomains.find((d) => d.id === id),
+    [allDomains]
+  );
+
+  // Active top-level categories in a domain. Top-level only: domain_id is
+  // set on those rows and inherited downward, so filtering the flat list
+  // on it naturally yields exactly the tiles a domain should show.
+  const categoriesInDomain = useCallback(
+    (domainId: string): Category[] =>
+      allCategories
+        .filter((c) => c.active && c.parentId === null && c.domainId === domainId)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [allCategories]
+  );
+
+  // Only domains that are themselves active AND have something to show.
+  // That second half is what keeps Jobs & Services off the gate while its
+  // two categories are switched off, without a separate flag to remember.
+  const domains = useMemo(
+    () =>
+      allDomains
+        .filter((d) => d.active && categoriesInDomain(d.id).length > 0)
+        .sort((a, b) => a.sortOrder - b.sortOrder),
+    [allDomains, categoriesInDomain]
+  );
+
+  // Walks to the top-level ancestor, since that is the only row carrying
+  // domain_id -- asking a leaf directly would always answer null.
+  const domainOfCategory = useCallback(
+    (categoryId: string): ListingDomain | undefined => {
+      const chain = buildAncestorChain(categoryId);
+      for (const cid of chain) {
+        const d = categoryById(cid)?.domainId;
+        if (d) return domainById(d);
+      }
+      return undefined;
+    },
+    [buildAncestorChain, categoryById, domainById]
+  );
+
   const resolveAttributesForCategory = useCallback(
     (categoryId: string): CategoryAttribute[] => {
       const chain = buildAncestorChain(categoryId); // root -> leaf, includes categoryId
@@ -582,6 +663,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         active: true,
         is_service: input.isService,
         uses_offer_type: input.usesOfferType,
+        domain_id: input.domainId,
         title_example_en: input.titleExampleEn,
         title_example_ar: input.titleExampleAr,
         description_example_en: input.descriptionExampleEn,
@@ -610,6 +692,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.active !== undefined) dbPatch.active = patch.active;
       if (patch.isService !== undefined) dbPatch.is_service = patch.isService;
       if (patch.usesOfferType !== undefined) dbPatch.uses_offer_type = patch.usesOfferType;
+      if (patch.domainId !== undefined) dbPatch.domain_id = patch.domainId;
       if (patch.titleExampleEn !== undefined) dbPatch.title_example_en = patch.titleExampleEn;
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
       if (patch.descriptionExampleEn !== undefined) dbPatch.description_example_en = patch.descriptionExampleEn;
@@ -963,6 +1046,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       usesOfferTypeCategory,
+      domains,
+      allDomains,
+      domainById,
+      domainOfCategory,
+      categoriesInDomain,
       categoryAttributes: allCategoryAttributes,
       resolveAttributesForCategory,
       resolveFilterFacetsForCategory,
@@ -1005,6 +1093,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       usesOfferTypeCategory,
+      domains,
+      allDomains,
+      domainById,
+      domainOfCategory,
+      categoriesInDomain,
       allCategoryAttributes,
       resolveAttributesForCategory,
       resolveFilterFacetsForCategory,
