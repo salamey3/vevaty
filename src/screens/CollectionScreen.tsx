@@ -8,6 +8,7 @@ import Icon from '../icons/Icon';
 import ListingCard from '../components/ListingCard';
 import { colors, type, radius } from '../theme/theme';
 import { useCollections } from '../store/CollectionsStore';
+import { useSettings } from '../store/SettingsStore';
 import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
@@ -26,15 +27,21 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Collection'>;
 // collection is the same kind of thing to a visitor: a themed page of
 // listings with something worth sharing about it.
 export default function CollectionScreen({ route, navigation }: Props) {
-  const { slug } = route.params;
+  const { slug, domain } = route.params;
   const { loaded, collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
+  const { domainOfCategory } = useSettings();
   const { language, t } = useLanguage();
   const isDesktop = useIsDesktop();
   const columns = useGridColumns(2, 4);
   const goBack = useGoBack();
 
   const collection = collectionBySlug(slug);
-  const items = collection ? resolveCollection(collection) : [];
+  // Scoped to the section it was opened from, if any -- a Just Listed row
+  // inside Properties that opens onto cars and phones would undo the
+  // scoping the row itself just did. See DOMAINS.md.
+  const items = collection
+    ? resolveCollection(collection, domain ? (l) => domainOfCategory(l.cat)?.id === domain : undefined)
+    : [];
 
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
 

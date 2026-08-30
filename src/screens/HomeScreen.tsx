@@ -8,25 +8,25 @@ import {
   Text,
   View,
   TextInput,
-  FlatList,
   ScrollView,
   TouchableWithoutFeedback,
   ViewStyle,
 } from 'react-native';
-// Aliased, not a straight swap of the 'ScrollView'/'FlatList' imports
-// above: renderGrid below uses core RN's FlatList (it's not nested inside
-// anything, so it doesn't need this) and the rest of this file's plain
-// ScrollViews (sidebar, modal, desktop category chip row) aren't nested
-// pairs either. renderCarousels uses GHScrollView because every
-// CategoryCarouselSection/CollectionCarouselSection it renders nests its
-// own horizontal ScrollView inside this one (both of those were migrated
-// to react-native-gesture-handler too -- see their own files' comments),
-// and gesture ownership between an outer scroller and its nested
-// horizontal ones only negotiates correctly when both sides are
-// gesture-handler components. renderCarousels used to also import
-// GHFlatList for the same reason, back when it was a windowed FlatList --
-// see that function's own comment for why it's a plain ScrollView now.
-import { ScrollView as GHScrollView } from 'react-native-gesture-handler';
+// Aliased rather than swapped for the plain 'ScrollView' import above:
+// this file's other ScrollViews (sidebar, modal, desktop category chip
+// row) hold nothing that scrolls sideways, so they stay core RN's.
+//
+// Both scrollers that CAN hold a CategoryCarouselSection or a
+// CollectionCarouselSection are gesture-handler ones, because each of
+// those nests its own horizontal scroller (they were migrated too -- see
+// their files), and gesture ownership between an outer scroller and its
+// nested horizontal ones only negotiates correctly when both sides are
+// gesture-handler components; on Android a core-RN outer falls back to
+// the nestedScrollEnabled protocol, which is what caused the swipe
+// jumping this whole migration fixed. renderCarousels always holds them;
+// renderGrid holds them in its header on a one-category section's home,
+// which is why it is a GHFlatList rather than a plain one.
+import { FlatList as GHFlatList, ScrollView as GHScrollView } from 'react-native-gesture-handler';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
@@ -39,11 +39,11 @@ import CarouselArrows from '../components/CarouselArrows';
 import CategoryCarouselSection from '../components/CategoryCarouselSection';
 import CollectionCarouselSection from '../components/CollectionCarouselSection';
 import BannerSlot from '../components/BannerSlot';
-import LanguageSwitch from '../components/LanguageSwitch';
 import FilterSection, { FilterOption } from '../components/FilterSection';
 import RangeSlider from '../components/RangeSlider';
 import SaveSearchModal from '../components/SaveSearchModal';
 import BrandMark from '../components/BrandMark';
+import BrowseHeaderControls from '../components/BrowseHeaderControls';
 import { mirrorRow } from '../lib/mirrorRow';
 import { useGoHome } from '../hooks/useGoHome';
 import * as Location from 'expo-location';
@@ -108,6 +108,13 @@ export default function HomeScreen() {
   // hook's RootStackParamList typing.
   const homeNav = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const route = useRoute<RouteProp<HomeStackParamList, 'HomeCategory'>>();
+  // One component, two routes: HomeDomain carries `domain`, HomeCategory
+  // carries `cat`. Neither param list is a subset of the other, so they are
+  // read through a shape covering both rather than through a union
+  // TypeScript would refuse to index.
+  const params = route.params as
+    | Partial<HomeStackParamList['HomeCategory'] & HomeStackParamList['HomeDomain']>
+    | undefined;
   const { listings: allListings, profile, isVerified } = useAppStore();
   const { collections, resolveCollection } = useCollections();
   // Browse/search only ever wants to show published listings -- RLS already
@@ -119,7 +126,7 @@ export default function HomeScreen() {
   // grid -- confusing, and not where that belongs (ProfileScreen's "My
   // listings" already surfaces it clearly with a status badge).
   const listings = useMemo(() => allListings.filter((l) => l.status === 'active'), [allListings]);
-  const { categories, categoryById, childrenOf, categoryMatches, usesOfferTypeCategory, resolveFilterFacetsForCategory } = useSettings();
+  const { categoryById, childrenOf, categoryMatches, usesOfferTypeCategory, resolveFilterFacetsForCategory, domains, domainById, categoriesInDomain, domainOfCategory } = useSettings();
   const { saveSearch } = useSavedSearches();
   const { t, language, isRTL } = useLanguage();
   const goHome = useGoHome();
@@ -129,7 +136,7 @@ export default function HomeScreen() {
   // topCat-reset effect run so it doesn't immediately wipe the criteria
   // that same effect would otherwise treat as "just switched category".
   const skipNextResetRef = useRef(false);
-  const [query, setQuery] = useState(() => route.params?.applyCriteria?.query ?? '');
+  const [query, setQuery] = useState(() => params?.applyCriteria?.query ?? params?.q ?? '');
   // Mobile only -- see mobileGreetingSearchRow/mobileChromeOverlay below.
   // True for exactly as long as the mobile search input has focus; toggles
   // the greeting text and the category icon slider out of view so the
@@ -189,8 +196,59 @@ export default function HomeScreen() {
   // back button, which is why pressing back while browsing a category used
   // to exit the whole app instead of returning to "all categories" (see
   // HomeStack.tsx). It's now derived from the Home stack's own route
-  // params: HomeRoot has none (-> 'all'), HomeCategory always carries `cat`.
-  const topCat: CategoryId | 'all' = route.params?.cat ?? 'all';
+  // params: HomeDomain carries only `domain` (-> 'all', the section's own
+  // home), HomeCategory always carries `cat`.
+  const topCat: CategoryId | 'all' = params?.cat ?? 'all';
+
+  // Which section this screen is browsing. Given directly by HomeDomain;
+  // derived from the category on HomeCategory, because a category belongs
+  // to exactly one section and storing it twice is a second source of
+  // truth that drifts (the same rule as leaf-ness and domain visibility --
+  // see DOMAINS.md).
+  const domainId = params?.domain ?? (params?.cat ? domainOfCategory(params.cat)?.id ?? null : null);
+  const activeDomain = domainId ? domainById(domainId) : undefined;
+  const domainName = activeDomain ? (language === 'ar' ? activeDomain.nameAr : activeDomain.nameEn) : '';
+  // The section's own top-level categories -- what its tiles, chips and
+  // carousels are drawn from. Falls back to nothing rather than to every
+  // category: this screen is never reached without a section now.
+  const domainCategories = useMemo(
+    () => (domainId ? categoriesInDomain(domainId) : []),
+    [domainId, categoriesInDomain]
+  );
+  // A section with exactly one category has no category question to ask,
+  // so it shows no tiles and no chips and opens straight onto its feed and
+  // filters -- Properties today. Derived, not hardcoded: Vehicles has two
+  // and Properties would stop being a special case the moment it gained a
+  // sibling.
+  const soleDomainCategory = domainCategories.length === 1 ? domainCategories[0] : null;
+  // Whether this is the section's own home rather than a category inside
+  // it. Usually that is simply "no category chosen" -- but a one-category
+  // section reached by its category id (a saved search filed under
+  // Properties, /category/properties, a listing's own category link) is
+  // the same page by another name, and anything keyed off the raw route
+  // would render it differently from the page it is indistinguishable
+  // from: same title, same feed, no collection rows.
+  const isSectionHome =
+    !params?.cat || (!!soleDomainCategory && params.cat === soleDomainCategory.id);
+  // Everything below reads this rather than `listings`: the feed, the
+  // carousels, the collection rows and every facet's option list are all
+  // section-scoped, and doing it once here is what makes that true
+  // everywhere instead of at each site that remembered to.
+  // One pass, reused by the feed and by the cross-section count below.
+  // domainOfCategory walks a category's ancestor chain on every call, so
+  // asking it per listing per keystroke is real work on a phone.
+  const domainIdByListing = useMemo(() => {
+    const m = new Map<string, string>();
+    for (const l of listings) {
+      const id = domainOfCategory(l.cat)?.id;
+      if (id) m.set(l.id, id);
+    }
+    return m;
+  }, [listings, domainOfCategory]);
+  const domainListings = useMemo(
+    () => (domainId ? listings.filter((l) => domainIdByListing.get(l.id) === domainId) : listings),
+    [listings, domainId, domainIdByListing]
+  );
   const [selection, setSelection] = useState<SelectionState>(() => {
     const criteria = route.params?.applyCriteria;
     if (!criteria) return emptySelection();
@@ -261,13 +319,20 @@ export default function HomeScreen() {
     }
   };
   const clearAllCategories = () => {
-    // Mirrors the hardware/browser back button exactly: pop the pushed
-    // HomeCategory entry if there is one (the normal case), or just go to
-    // HomeRoot directly if this screen was reached some other way (e.g. a
-    // direct deep link straight into a category, with nothing to pop).
-    if (homeNav.canGoBack()) homeNav.goBack();
-    else homeNav.navigate('HomeRoot');
+    // popTo, not goBack: this is reached from a category page arrived at
+    // directly as often as from one entered here -- a listing's category
+    // link, a saved search -- and in that case there is no section home
+    // underneath to pop back to. popTo goes to the one in the stack if it
+    // is there and adds it if it is not, so the link always lands where it
+    // says it does. (Plain navigate would push a second copy: React
+    // Navigation 7 no longer pops to an existing route.)
+    if (domainId) homeNav.popTo('HomeDomain', { domain: domainId });
+    else homeNav.popTo('HomeRoot');
   };
+  // Out of the section entirely, back to the gate. The only way to reach
+  // another section, by design -- there is no persistent switcher, so this
+  // link and the back button are the same journey (see DOMAINS.md).
+  const leaveDomain = () => homeNav.popTo('HomeRoot');
   const clearFilters = () => setSelection(emptySelection());
 
   // Selection (subcategory checkboxes + facet filters) is scoped to
@@ -305,7 +370,17 @@ export default function HomeScreen() {
   // checking both Phones and Laptops, then filtering on Phones' storage_gb,
   // would wrongly exclude every Laptop listing).
   const effectiveCategoryId: CategoryId | null =
-    topCat === 'all' ? null : selection.subCatIds.length === 1 ? selection.subCatIds[0] : topCat;
+    selection.subCatIds.length === 1
+      ? selection.subCatIds[0]
+      : topCat !== 'all'
+        ? topCat
+        : // A one-category section is already as narrow as a category pick:
+          // resolving its facets here is what gives Properties its bedrooms
+          // and bathrooms filters without a category step that has one
+          // answer. The checked-subcategory rule above still applies to it,
+          // or checking "Apartments" inside Properties would filter the
+          // results without ever deepening the sidebar to match.
+          soleDomainCategory?.id ?? null;
 
   const facets: FilterFacet[] = effectiveCategoryId ? resolveFilterFacetsForCategory(effectiveCategoryId) : [];
 
@@ -316,13 +391,13 @@ export default function HomeScreen() {
   // stable and don't shrink/flicker as a shopper checks other boxes --
   // the same simplification most faceted-search sidebars make.
   const categoryScoped = useMemo(() => {
-    if (topCat === 'all' || !effectiveCategoryId) return listings;
-    return listings.filter((l) => {
+    if (!effectiveCategoryId) return domainListings;
+    return domainListings.filter((l) => {
       if (!categoryMatches(l.cat, effectiveCategoryId)) return false;
       if (selection.subCatIds.length > 0 && !selection.subCatIds.some((id) => categoryMatches(l.cat, id))) return false;
       return true;
     });
-  }, [listings, topCat, effectiveCategoryId, selection.subCatIds, categoryMatches]);
+  }, [domainListings, effectiveCategoryId, selection.subCatIds, categoryMatches]);
 
   const toggleFacetValue = (key: string, value: string) => {
     setSelection((prev) => {
@@ -370,9 +445,13 @@ export default function HomeScreen() {
   );
 
   const subCategoryOptions: FilterOption[] = useMemo(() => {
-    if (topCat === 'all') return [];
-    return childrenOf(topCat).map((c) => ({ key: c.id, label: language === 'ar' ? c.nameAr : c.nameEn }));
-  }, [topCat, childrenOf, language]);
+    // In a one-category section there is no category step, so the
+    // subcategory checkboxes are that category's own children -- the same
+    // list the skipped step would have offered.
+    const parent = topCat !== 'all' ? topCat : soleDomainCategory?.id ?? null;
+    if (!parent) return [];
+    return childrenOf(parent).map((c) => ({ key: c.id, label: language === 'ar' ? c.nameAr : c.nameEn }));
+  }, [topCat, soleDomainCategory, childrenOf, language]);
 
   const areaOptions: FilterOption[] = useMemo(() => {
     const districts = Array.from(new Set(categoryScoped.map((l) => l.district).filter(Boolean))).sort();
@@ -468,6 +547,27 @@ export default function HomeScreen() {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [categoryScoped, selection, query, anchor, facets]);
 
+  // What this same search would find outside this section. The whole point
+  // of scoping search to a section is that it answers "what is here" -- but
+  // a buyer who searched the wrong section deserves to be told so rather
+  // than shown an empty page, so the count is offered as a way across to
+  // the gate's own search, which spans everything.
+  const elsewhereCount = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q || !domainId) return 0;
+    // Only sections the gate itself renders. A listing filed under a
+    // dormant section (Jobs & Services) or under a category with no
+    // section at all is invisible there, and promising results that the
+    // screen on the other side of the tap cannot show is worse than
+    // saying nothing.
+    const reachable = new Set(domains.map((d) => d.id).filter((id) => id !== domainId));
+    return listings.filter((l) => {
+      const id = domainIdByListing.get(l.id);
+      if (!id || !reachable.has(id)) return false;
+      return l.titleEn.toLowerCase().includes(q) || l.titleAr.toLowerCase().includes(q);
+    }).length;
+  }, [query, listings, domainId, domainIdByListing, domains]);
+
   // Per-row item caps for the mobile "all categories" carousels view.
   // Lowered from an original flat 10 (categories) to shrink how much work
   // each row did when it was still a FlatList cell being mounted and
@@ -498,11 +598,13 @@ export default function HomeScreen() {
   // results and a single category's listings both read better as one
   // flat list), or if there happen to be no listings anywhere yet.
   const categoryCarousels = useMemo(() => {
-    if (topCat !== 'all' || query.trim().length > 0) return [];
-    return categories
-      .map((c) => ({ category: c, items: listings.filter((l) => categoryMatches(l.cat, c.id)).slice(0, CATEGORY_ROW_CAP) }))
+    // A one-category section would render a single carousel holding its
+    // whole feed -- a row that is the page. It gets the plain grid instead.
+    if (topCat !== 'all' || soleDomainCategory || query.trim().length > 0) return [];
+    return domainCategories
+      .map((c) => ({ category: c, items: domainListings.filter((l) => categoryMatches(l.cat, c.id)).slice(0, CATEGORY_ROW_CAP) }))
       .filter((section) => section.items.length > 0);
-  }, [topCat, query, categories, listings, categoryMatches]);
+  }, [topCat, soleDomainCategory, query, domainCategories, domainListings, categoryMatches]);
   const showCarousels = categoryCarousels.length > 0;
 
   // Editor's Picks / Hot Deals / Just Listed rows -- same "all categories,
@@ -525,21 +627,32 @@ export default function HomeScreen() {
   // all -- resolveCollection returns everything an admin pinned -- so
   // for that kind this is the only cap that exists.
   const collectionCarousels = useMemo(() => {
-    if (topCat !== 'all' || query.trim().length > 0) return [];
+    if (!isSectionHome || query.trim().length > 0) return [];
     return collections
       .filter((c) => c.active)
       .map((c) => ({
         collection: c,
-        items: resolveCollection(c).slice(0, c.kind === 'recent' ? JUST_LISTED_ROW_CAP : COLLECTION_ROW_CAP),
+        // Filtered to this section, not tagged with one: a collection goes
+        // on resolving across the whole catalogue and simply shows the part
+        // of itself that belongs here, so Just Listed inside Properties is
+        // the newest properties and no section can be missing a row an
+        // admin forgot to duplicate. A collection with nothing in this
+        // section drops out below, same as an empty one always has.
+        //
+        // The scope is handed to resolveCollection rather than applied to
+        // its result, so the collection's own limitCount counts THIS
+        // section's listings -- see that function's comment.
+        items: resolveCollection(c, domainId ? (l) => domainIdByListing.get(l.id) === domainId : undefined)
+          .slice(0, c.kind === 'recent' ? JUST_LISTED_ROW_CAP : COLLECTION_ROW_CAP),
       }))
       .filter((section) => section.items.length > 0);
-  }, [topCat, query, collections, resolveCollection]);
+  }, [isSectionHome, query, collections, resolveCollection, domainId, domainIdByListing]);
 
   // The categories chip strip is one "All" chip followed by every top-level
   // category. Reversing that whole sequence (rather than transforming the
   // scroller) is what gives the strip its RTL swipe direction -- see the
   // comment at the render site.
-  const catChips = useMemo<('all' | Category)[]>(() => ['all', ...categories], [categories]);
+  const catChips = useMemo<('all' | Category)[]>(() => ['all', ...domainCategories], [domainCategories]);
   const {
     ordered: orderedCatChips,
     scrollRef: catSliderRef,
@@ -559,8 +672,13 @@ export default function HomeScreen() {
     setSaveSearchModalOpen(true);
   };
 
+  // What a saved search is filed under. Normally the chosen category; in a
+  // one-category section, that category -- otherwise Properties, which
+  // never asks a category question, could never save a search at all.
+  const saveScopeCategoryId: CategoryId | null = topCat !== 'all' ? topCat : soleDomainCategory?.id ?? null;
+
   const handleSaveSearch = async (label: string) => {
-    if (topCat === 'all' || !label) return;
+    if (!saveScopeCategoryId || !label) return;
     const criteria: SavedSearchCriteria = {
       query,
       subCatIds: selection.subCatIds,
@@ -572,7 +690,7 @@ export default function HomeScreen() {
     };
     setSavingSearch(true);
     try {
-      await saveSearch(topCat, label, criteria);
+      await saveSearch(saveScopeCategoryId, label, criteria);
       setSaveSearchModalOpen(false);
       Alert.alert(t('home.savedSearches.saved'));
     } catch (e) {
@@ -743,7 +861,15 @@ export default function HomeScreen() {
   // cards. Anything that should scroll with the page has to be inside the
   // one scrollable, not a sibling of it.
   const renderGrid = (header?: React.ReactNode) => (
-    <FlatList
+    // gesture-handler's FlatList, not core RN's. This list used to hold
+    // nothing but cards, so it never needed to be one -- but its header
+    // now carries the collection rows on a one-category section's home
+    // (see scrollHeader), and each of those nests its own horizontal
+    // gesture-handler scroller. On Android an outer core-RN scroller only
+    // hands off gesture ownership to a nested pair through the
+    // nestedScrollEnabled protocol, which is what caused the swipe
+    // jumping this file's other lists were migrated away from.
+    <GHFlatList
       key={columns}
       ListHeaderComponent={header ? <>{header}</> : null}
       data={filtered}
@@ -768,7 +894,6 @@ export default function HomeScreen() {
     />
   );
 
-  const grid = renderGrid();
 
   // Mobile-only "all categories" home view: a vertical stack of per-
   // category carousels (see categoryCarousels above) instead of the
@@ -830,7 +955,12 @@ export default function HomeScreen() {
             <CollectionCarouselSection
               collection={collection}
               items={items}
-              onSeeAll={() => navigation.navigate('Collection', { slug: collection.slug })}
+              onSeeAll={() =>
+                navigation.navigate('Collection', {
+                  slug: collection.slug,
+                  ...(domainId ? { domain: domainId } : {}),
+                })
+              }
               onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
             />
             {includeBanners && collection.kind === 'curated' && (
@@ -919,27 +1049,74 @@ export default function HomeScreen() {
 
   const carousels = renderCarousels(mobileCollectionRowsHeader);
 
+  // Where you are and the way out, on every layout: the section's name (or
+  // the category's, one level in), a back link naming what it goes back to,
+  // and -- on mobile, where there is no sidebar -- the Filters button.
+  // Rendered whenever a section is in force, which is always now: the gate
+  // is the only screen above this one.
+  const scopeBar = (
+    <View style={[styles.categoryBar, isDesktop && styles.categoryBarDesktop]}>
+      <Pressy onPress={isSectionHome ? leaveDomain : clearAllCategories} style={styles.backRow}>
+        <Icon name="back" size={14} color={colors.inkSoft} />
+        {/* The label names the destination, so it follows the same
+            fallbacks the action does: a category whose top-level row
+            carries no section has no section home to return to, and
+            clearAllCategories drops it at the gate. */}
+        <Text style={styles.backText} numberOfLines={1}>
+          {isSectionHome || !domainName ? t('home.allSections') : domainName}
+        </Text>
+      </Pressy>
+      <Text style={styles.categoryTitle} numberOfLines={1}>
+        {isSectionHome ? domainName || categoryLabel : categoryLabel}
+      </Text>
+      {!isDesktop && !!effectiveCategoryId && (
+        <Pressy onPress={() => setMobileFiltersOpen(true)} style={styles.filtersBtn}>
+          <Icon name="gear" size={13} color={colors.ink} />
+          <Text style={styles.filtersBtnText}>{t('home.filters.filters')}</Text>
+        </Pressy>
+      )}
+    </View>
+  );
+
+  // Offered, never automatic: switching sections is the buyer's decision,
+  // and a search that quietly widened itself would put them in a section
+  // they never chose -- the one thing this whole design is built to avoid.
+  const elsewhereLine = elsewhereCount > 0 && (
+    <Pressy
+      onPress={() => homeNav.popTo('HomeRoot', { q: query })}
+      style={styles.elsewhereRow}
+    >
+      <Icon name="search" size={13} color={colors.primary} />
+      <Text style={styles.elsewhereText} numberOfLines={2}>
+        {t('home.searchElsewhere', { n: elsewhereCount })}
+      </Text>
+    </Pressy>
+  );
+
+  // Everything that rides above the results inside the scroll container.
+  // It has to be in there rather than above it for two reasons: on the web
+  // a list is its own scroll container, so a sibling above it does not
+  // scroll with the page (see renderGrid); and on mobile the search input
+  // floats over the top of this list, so a line appearing in the flow
+  // above it would shove the field down mid-keystroke as a search starts
+  // matching elsewhere.
+  //
+  // The collection rows are part of it on the section home only -- a
+  // category page inside a section is a results page, not a shop window.
+  // This is what keeps a one-category section (Properties, which never
+  // shows carousels) from silently losing Editor's Picks, Hot Deals, Just
+  // Listed and both mobile banner slots.
+  const scrollHeader = (
+    <>
+      {elsewhereLine}
+      {isSectionHome && (isDesktop ? collectionRowsHeader : mobileCollectionRowsHeader)}
+    </>
+  );
+
   // The language toggle and the points pill. They live in the brand bar on
   // mobile and in the greeting row on desktop -- one place or the other,
   // never both, so they're declared once here rather than written out at
   // each site where the two copies could drift apart.
-  const headerControls = (
-    <View style={styles.headerActions}>
-      {/* The one entry point into ShopsDirectoryScreen that doesn't require
-          already knowing a shop's slug or visiting Profile first -- see
-          that screen's own header comment for why it exists at all. */}
-      <Pressy style={styles.storefrontsBadge} onPress={() => navigation.navigate('Shops')}>
-        <Icon name="building" size={13} color={colors.ink} />
-        <Text style={styles.pointsText}>{t('home.browseStorefronts')}</Text>
-      </Pressy>
-      <LanguageSwitch compact />
-      <Pressy style={styles.pointsBadge} onPress={() => navigation.navigate('MainTabs')}>
-        <Icon name="sparkle" size={13} color={colors.ink} />
-        <Text style={styles.pointsText}>{profile.points}</Text>
-      </Pressy>
-    </View>
-  );
-
   // Greeting ("Good to see you, X") and search bar markup -- shared between
   // desktop (static, normal document flow, unchanged) and mobile (folded
   // into the floating auto-hide chrome below, alongside the category
@@ -953,7 +1130,7 @@ export default function HomeScreen() {
         <Text style={type.soft}>{profile.name && profile.name !== 'You' ? t('home.greeting') : ''}</Text>
         <Text style={[styles.name, isDesktop && styles.nameDesktop]}>{profile.name && profile.name !== 'You' ? profile.name : t('home.welcome')}</Text>
       </View>
-      {isDesktop && headerControls}
+      {isDesktop && <BrowseHeaderControls />}
     </View>
   );
 
@@ -1049,7 +1226,7 @@ export default function HomeScreen() {
       {!isDesktop && (
         <View style={[styles.brandBar, mirrorRow(isRTL)]}>
           <BrandMark variant="sidebar" onPress={goHome} />
-          {headerControls}
+          <BrowseHeaderControls />
         </View>
       )}
 
@@ -1072,7 +1249,7 @@ export default function HomeScreen() {
         // same per-category carousels mobile has, on top of (not instead
         // of) its own big category tile strip -- see the topCat === 'all'
         // branch's own comment for the fallback-to-grid details.
-        topCat === 'all' ? (
+        topCat === 'all' && !soleDomainCategory ? (
           // One scrollable row, same as mobile, rather than a wrapping
           // grid. Thirteen categories over six columns spilled onto a
           // third row, which pushed the listings themselves below the
@@ -1096,7 +1273,8 @@ export default function HomeScreen() {
           // show yet (see showCarousels above).
           (showCarousels ? renderCarousels : renderGrid)(
             <>
-              {collectionRowsHeader}
+              {scopeBar}
+              {scrollHeader}
               <CarouselArrows
                 onScrollBy={(delta) => {
                   catRowX.current = Math.max(0, catRowX.current + delta);
@@ -1130,7 +1308,7 @@ export default function HomeScreen() {
                   style={styles.catRowDesktopScroll}
                   contentContainerStyle={styles.catRowDesktopContent}
                 >
-                  {categories.map((c) => (
+                  {domainCategories.map((c) => (
                     <CategoryCard key={c.id} category={c} width={88} onPress={() => chooseTopCategory(c.id)} />
                   ))}
                 </ScrollView>
@@ -1139,18 +1317,12 @@ export default function HomeScreen() {
           )
         ) : (
           <>
-            <View style={[styles.categoryBar, styles.categoryBarDesktop]}>
-              <Pressy onPress={clearAllCategories} style={styles.backRow}>
-                <Icon name="back" size={14} color={colors.inkSoft} />
-                <Text style={styles.backText}>{t('home.categoryBack')}</Text>
-              </Pressy>
-              <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
-            </View>
+            {scopeBar}
             <View style={[styles.body, styles.bodyDesktop]}>
               <ScrollView style={styles.sidebar} contentContainerStyle={styles.sidebarContent}>
                 {renderFilterSections()}
               </ScrollView>
-              {grid}
+              {renderGrid(scrollHeader)}
             </View>
           </>
         )
@@ -1166,15 +1338,7 @@ export default function HomeScreen() {
         // was just buried below a full-screen wall of category tiles with
         // nothing else visible above the fold.
         <>
-          {topCat !== 'all' && (
-            <View style={styles.mobileCatRow}>
-              <Text style={styles.categoryTitle} numberOfLines={1}>{categoryLabel}</Text>
-              <Pressy onPress={() => setMobileFiltersOpen(true)} style={styles.filtersBtn}>
-                <Icon name="gear" size={13} color={colors.ink} />
-                <Text style={styles.filtersBtnText}>{t('home.filters.filters')}</Text>
-              </Pressy>
-            </View>
-          )}
+          {scopeBar}
 
           {/* carouselsAnchor is the positioning root for mobileChromeOverlay
               below (position: absolute positions relative to the nearest
@@ -1201,7 +1365,7 @@ export default function HomeScreen() {
                 putting a TouchableWithoutFeedback between a tap and the
                 input that needs to receive it. */}
             <TouchableWithoutFeedback onPress={Keyboard.dismiss} accessible={false}>
-              <View style={styles.resultsTouchArea}>{showCarousels ? carousels : grid}</View>
+              <View style={styles.resultsTouchArea}>{showCarousels ? carousels : renderGrid(scrollHeader)}</View>
             </TouchableWithoutFeedback>
 
             {/* Floats ABOVE the scrollable content (position: absolute)
@@ -1251,7 +1415,7 @@ export default function HomeScreen() {
                   onLayout above), which is what actually pulls the results
                   up into the freed space rather than leaving a gap where
                   this used to be. */}
-              {!searchFocused && (
+              {!searchFocused && !soleDomainCategory && (
                 // RTL swipe direction here is done by reversing the chip
                 // ORDER and parking the viewport at the far end, not by
                 // mirroring the scroller with scaleX(-1) and counter-
@@ -1306,7 +1470,7 @@ export default function HomeScreen() {
 
       <SaveSearchModal
         visible={saveSearchModalOpen}
-        defaultLabel={categoryLabel}
+        defaultLabel={categoryLabel || domainName}
         loading={savingSearch}
         onSave={handleSaveSearch}
         onCancel={() => setSaveSearchModalOpen(false)}
@@ -1387,32 +1551,8 @@ const styles = StyleSheet.create({
     borderBottomColor: colors.line,
     marginBottom: 4,
   },
-  headerActions: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   name: { ...type.title, fontSize: 21 },
   nameDesktop: { fontSize: 28 },
-  pointsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    height: 34,
-  },
-  pointsText: { ...type.h3, fontSize: 13.5 },
-  storefrontsBadge: {
-    flexDirection: 'row',
-    alignItems: 'center',
-    gap: 5,
-    backgroundColor: colors.card,
-    borderWidth: 1,
-    borderColor: colors.line,
-    borderRadius: radius.pill,
-    paddingHorizontal: 12,
-    height: 34,
-  },
   searchRow: {
     flexDirection: 'row',
     alignItems: 'center',
@@ -1531,7 +1671,17 @@ const styles = StyleSheet.create({
   // once a category chip is active (the slider itself stays visible and
   // shows which chip is selected, so no separate "< back" link is needed
   // here the way desktop's categoryBar has one).
-  mobileCatRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 18, marginBottom: 12, gap: 10 },
+  // No horizontal margin of its own: this only ever renders inside
+  // renderGrid's content container (a search in progress is exactly when
+  // the carousels give way to the grid), which already carries the page
+  // inset -- 18 on mobile, none on desktop. Adding one here doubled the
+  // mobile inset and left the pill visibly narrower than the cards below.
+  elsewhereRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8,
+    marginBottom: 12, paddingHorizontal: 12, paddingVertical: 9,
+    borderRadius: radius.sm, backgroundColor: colors.primaryTint,
+  },
+  elsewhereText: { flex: 1, fontSize: 12.5, fontWeight: '600', color: colors.primary },
 
   // Desktop-only category header bar shown once a category is picked.
   categoryBar: { flexDirection: 'row', alignItems: 'center', paddingHorizontal: 18, marginBottom: 12, gap: 10 },

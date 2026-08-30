@@ -74,7 +74,13 @@ export type RootStackParamList = {
   // myazar.collections. slug, not id: it's what the shareable URL and the
   // linking config below use, and it's stable/human-legible where an id
   // wouldn't be.
-  Collection: { slug: string };
+  //
+  // `domain` narrows it to one section, and is set when the page was
+  // reached from a section's own collection row: that row showed the
+  // section's part of the collection, so opening it must not silently
+  // widen back to the whole catalogue. Absent on a shared link, which is
+  // global by nature and should stay that way.
+  Collection: { slug: string; domain?: string };
   // The signed-in seller's own shop -- create or manage. No params: it
   // always operates on AppStore's myShop, never someone else's.
   MyStorefront: undefined;
@@ -103,14 +109,21 @@ export type MainTabParamList = {
 };
 
 // HomeTab is itself a small nested stack (see navigation/HomeStack.tsx),
-// not a single screen. Both routes render the exact same HomeScreen
-// component -- the only difference is whether `cat` is set -- but giving
-// "a category is selected" its own real stack entry is what makes it a
-// genuine back-stop: entering a category is an actual push (so hardware/
-// browser back correctly pops back to "all categories" instead of local
-// component state silently eating the back button and exiting the app).
+// not a single screen. HomeRoot is the buyer's gate; HomeDomain and
+// HomeCategory render the same HomeScreen component, scoped one level
+// apart. Each is a real stack entry rather than local state, which is
+// what makes back a genuine back-stop: it walks category -> section ->
+// gate instead of silently eating the button and exiting the app.
 export type HomeStackParamList = {
-  HomeRoot: undefined;
+  // The buyer's gate, and the app's home screen (BrowseGateScreen). `q`
+  // is set only when a search inside a section hands its words back here
+  // through the "results in other sections" line -- typing on the gate
+  // itself never touches the route.
+  HomeRoot: { q?: string } | undefined;
+  // A section's own home: its categories, its collections, its feed.
+  // `q` carries a search across from the gate, so tapping a section on a
+  // results page lands with the same words already applied.
+  HomeDomain: { domain: string; q?: string };
   // applyCriteria is set when arriving via "Run" on a saved search --
   // HomeScreen seeds its filter state from it on mount, then scrubs it
   // back out via navigation.setParams so a later plain category tap

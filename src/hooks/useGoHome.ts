@@ -15,6 +15,16 @@ import { useNavigation } from '@react-navigation/native';
 export function useGoHome() {
   const navigation = useNavigation<any>();
   return useCallback(() => {
-    navigation.navigate('MainTabs', { screen: 'HomeTab', params: { screen: 'HomeRoot' } });
+    // `pop: true` at both levels, or this pushes rather than returns.
+    // React Navigation 7's plain navigate only reuses a route that is
+    // already focused; anything else gets a second copy -- so from a
+    // category three levels in, the logo would stack a fresh gate ON TOP
+    // of where you were, and one back press would drop you right back into
+    // it. That is the exact thing this hook exists to prevent.
+    navigation.navigate(
+      'MainTabs',
+      { screen: 'HomeTab', params: { screen: 'HomeRoot', pop: true } },
+      { pop: true }
+    );
   }, [navigation]);
 }

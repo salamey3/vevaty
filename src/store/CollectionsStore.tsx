@@ -84,7 +84,7 @@ interface CollectionsStoreValue {
   // pinned "hot deal" whose price hasn't actually dropped); exclusions
   // only ever suppress an ALGORITHMIC pick, never a pin -- there's no UI
   // path that lets the two apply to the same listing at once.
-  resolveCollection: (collection: Collection) => Listing[];
+  resolveCollection: (collection: Collection, scope?: (listing: Listing) => boolean) => Listing[];
   // The percent a listing's price has dropped, if it currently qualifies
   // as a "hot deal" (>= MIN_PRICE_DROP_PERCENT within the lookback
   // window) -- null otherwise. Split out from resolveCollection so a
@@ -187,9 +187,15 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
     return map;
   }, [priceChanges]);
 
+  // `scope` narrows the catalogue this collection resolves against, and it
+  // is applied BEFORE limitCount rather than to the result -- otherwise a
+  // section gets "the properties among the 20 newest listings site-wide"
+  // instead of "the 20 newest properties", and a busy Classifieds would
+  // empty out Just Listed everywhere else. See HomeScreen's own comment on
+  // why collections filter rather than being tagged with a section.
   const resolveCollection = useCallback(
-    (collection: Collection): Listing[] => {
-      const active = listings.filter((l) => l.status === 'active');
+    (collection: Collection, scope?: (listing: Listing) => boolean): Listing[] => {
+      const active = listings.filter((l) => l.status === 'active' && (!scope || scope(l)));
       const byId = new Map(active.map((l) => [l.id, l]));
 
       if (collection.kind === 'curated') {

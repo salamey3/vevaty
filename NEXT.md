@@ -4,14 +4,26 @@ Kept here rather than in anyone's head, so it survives closing a laptop.
 
 ## Next up
 
-**Listing domains, step 3: browsing — see @DOMAINS.md.** Per-domain homes
-with their own collections, banners and feed; collections scoped to a
-domain instead of resolving globally; search scoped with a line pointing
-at matches elsewhere. The large one, and the last step before Jobs &
-Services. Steps 1 (domains as data) and 2 (posting, gate, constrained
-classifier, storefront skip) are done.
+**Listing domains, step 4: Jobs & Services — see @DOMAINS.md.** Only when
+there is an actual intention to launch them, and with real thinking about
+salary ranges and hourly pricing rather than a guess made now. Steps 1
+(domains as data), 2 (posting) and 3 (browsing) are done.
 
-Two smaller things left over from step 2, neither blocking:
+Three smaller things left over, none blocking:
+
+- **Banners are not sectioned yet.** The decision was that a banner gains
+  an optional section — blank runs everywhere, set runs only inside that
+  one. The five slots are unchanged; it wants a `domain_id` on the banner
+  row, the admin picker, and the section threaded into the two home slots.
+  This is the one browsing decision not yet built.
+- **Three screens still push a duplicate tab navigator.**
+  `ListingDetailScreen` (the category link, twice), `FavoritesScreen` (run
+  a saved search) and `lib/bannerLink.ts` all call plain
+  `navigate('MainTabs', …)`. In React Navigation 7 that pushes a second
+  copy rather than returning to the one already there, so back has to be
+  pressed twice through identical screens. `useGoHome` shows the fix:
+  `pop: true` at each nesting level. Pre-existing, and older than the
+  domains work.
 
 - A storefront's saved category is not used at posting time at all — see
   the note in @DOMAINS.md on why the obvious uses were dropped. Filling

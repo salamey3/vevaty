@@ -55,6 +55,41 @@ within-Classifieds errors.
 | Per-domain home | Each domain gets its own collections, banners and feed |
 | Search | Scoped to the domain, with a line pointing at matches elsewhere |
 
+## The browsing decisions
+
+Step 3's own set, agreed 30 Aug 2026 the same way -- one question at a
+time, before any of it was built. The first table settled what domains
+*are*; this one settles what a buyer meets.
+
+| Question | Decision |
+|---|---|
+| Buyer's home | The gate itself |
+| Stickiness | None -- asked every launch, never remembered |
+| Switching | Back to the gate; no persistent section switcher |
+| Collections | The same collections, filtered to the section |
+| Search on the gate | Yes -- across everything, each result labelled by section |
+| Search inside a section | Scoped, with a line handing the same words to the gate's search |
+| Gate content | Live counts on the tiles, and one newest-across-the-site row |
+| Banners | A banner gains an optional section; the five slots are unchanged |
+| Category tiles | A section shows its own top-level categories, and none when it has one |
+| Addresses | `/category/electronics` still resolves; each section gets its own too |
+
+Not sectioned, deliberately: favourites, chat, profile, storefronts and the
+shops directory. A shop sells what it sells.
+
+**The newest-across-the-site row is not a collection.** It is the single
+exception to the row above it, and the exception is the point: collections
+filter to their section, that row does not, because it lives on the one
+screen that sits above the sections. Building it as a collection would put
+a cross-section row one config change away from appearing inside a section,
+where it would undo the whole design.
+
+**Asked every launch is a choice with a cost, taken on purpose.** A buyer
+who is house-hunting this month opens into the gate every single time
+rather than into Properties. The reason to accept that: nobody is ever in
+a section they did not just pick, and all three stay equally visible --
+which is what the first months are for finding out.
+
 ## Three things that had to be reconciled
 
 These are conflicts the decisions above created between them. Recorded
@@ -164,8 +199,16 @@ Each step ships something usable on its own.
    table) and skips it while posting into itself; both flows show the
    domain and a Change link that pops back to the hub with the gate
    forced, so the skip never becomes a lock.
-3. **Browsing.** Per-domain homes, collections scoping, search scoping.
-   The large one.
+3. **Browsing.** *Done 30 Aug 2026, except banners.* HomeRoot is now the
+   buyer's gate (BrowseGateScreen); HomeDomain and HomeCategory render the
+   same HomeScreen one level apart, with the feed, category tiles,
+   collection rows and every facet's option list scoped to the section.
+   Collections take a scope predicate applied before their own limit, so a
+   section's Just Listed is genuinely its newest and not the part of the
+   site's newest that happens to belong to it. Search inside a section
+   stays scoped and offers a count of what the same words find elsewhere,
+   which hands them to the gate's own search. Banners are the one decision
+   here still to build -- see @NEXT.md.
 4. **Jobs & Services.** Only when there is an actual intention to launch
    them, and with real thinking about salary ranges and hourly pricing
    rather than a guess made now.

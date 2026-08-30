@@ -56,6 +56,9 @@ const linking: LinkingOptions<RootStackParamList> = {
           HomeTab: {
             screens: {
               HomeRoot: '',
+              // Not a bare ':domain' at the root: that would swallow
+              // 'shops', 'favorites' and every other top-level path.
+              HomeDomain: 'section/:domain',
               HomeCategory: 'category/:cat',
             },
           },
