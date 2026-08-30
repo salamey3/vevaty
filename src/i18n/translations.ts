@@ -408,6 +408,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     // Create / edit listing
     'createListing.stepCategory': 'Category',
+    'createListing.stepSaleOrRent': 'Sale or rent',
+    'createListing.stepCondition': 'Condition',
     'createListing.conditionLabel': 'Item condition',
     'createListing.condition.new': 'New',
     'createListing.condition.used': 'Used',
@@ -505,6 +507,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.classifyAiGuessBadge': 'AI guessed',
     'createListing.classifyNoGuessHint': "We couldn\u2019t tell what this is from your photos \u2014 pick a category below.",
     'createListing.classifyWorking': 'Looking at your photos to guess a category\u2026',
+    'createListing.classifyWorkingItem': 'Looking at your photos\u2026',
     'createListing.classifyPhotoReadFailed': "Those photos couldn't be read. Try again.",
     'createListing.classifyRetry': 'Try again',
     'createListing.mapHint': 'Tap or drag the pin to set your exact location',
@@ -1159,6 +1162,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.seeAll': 'عرض الكل',
 
     'createListing.stepCategory': 'الفئة',
+    'createListing.stepSaleOrRent': 'بيع أو إيجار',
+    'createListing.stepCondition': 'الحالة',
     'createListing.conditionLabel': 'حالة المنتج',
     'createListing.condition.new': 'جديد',
     'createListing.condition.used': 'مستعمل',
@@ -1256,6 +1261,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'createListing.classifyAiGuessBadge': 'خمّن الذكاء الاصطناعي',
     'createListing.classifyNoGuessHint': 'لم نتمكّن من معرفة ماهية هذا الغرض من صورك — اختر فئة أدناه.',
     'createListing.classifyWorking': 'ننظر إلى صورك لتخمين الفئة\u2026',
+    'createListing.classifyWorkingItem': 'ننظر إلى صورك\u2026',
     'createListing.classifyPhotoReadFailed': 'تعذّرت قراءة هذه الصور. حاول من جديد.',
     'createListing.classifyRetry': 'أعد المحاولة',
     'createListing.mapHint': 'اضغط أو اسحب الدبوس لتحديد موقعك بدقة',

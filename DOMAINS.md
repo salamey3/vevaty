@@ -79,6 +79,18 @@ on. Derived from the category rows, never stored — the same rule as
 leaf-ness, and for the same reason: a stored flag is a second source of
 truth that drifts.
 
+**A domain with exactly ONE category asks no category question.** Found in
+testing: having picked Properties on the gate, the seller was then shown
+"AI guessed: Properties" and asked to confirm it. The candidate list holds
+one real option in that case, so the classifier could not have answered
+anything else — it was ceremony over a decision with one outcome. Where a
+domain resolves to a single category the wizard settles it silently and
+the step drops to the question that is actually open (Sale or rent). The
+classify call is still made: it seeds the title and can still raise the
+domain-mismatch offer, neither of which depends on the category answer.
+Derived, not hardcoded to Properties: Vehicles has four leaves and its
+guess is real.
+
 ## What this costs
 
 **~~The classify edge function changes shape.~~** *Turned out not to be

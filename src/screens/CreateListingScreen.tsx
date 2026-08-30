@@ -485,6 +485,33 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   );
 
   const activeDomain = domainId ? allDomains.find((d) => d.id === domainId) : undefined;
+
+  // A domain can resolve to exactly one postable category -- Properties
+  // does today. There is then genuinely nothing to classify: the candidate
+  // list handed to the AI holds one real option, so its "guess" is the
+  // only answer it could have given. Asking the seller to double-check
+  // that, having just picked Properties on the gate themselves, is
+  // ceremony over a decision with one outcome.
+  //
+  // Derived rather than hardcoded to Properties: Vehicles has four leaves
+  // (a car, spare parts, accessories, a number plate) and its guess is
+  // real, and Properties would stop being a special case the moment it
+  // gained subcategories again.
+  const soleCategory = useMemo(() => {
+    if (!domainId) return null;
+    const inDomain = leafCategories.filter((c) => domainOfCategory(c.id)?.id === domainId);
+    return inDomain.length === 1 ? inDomain[0] : null;
+  }, [domainId, leafCategories, domainOfCategory]);
+
+  // Settle it silently. manuallyChosen is the honest flag here: the seller
+  // DID choose this, on the gate -- so Continue unlocks and no confirm
+  // pill is ever offered.
+  useEffect(() => {
+    if (!soleCategory || category === soleCategory.id) return;
+    setCategory(soleCategory.id);
+    setManuallyChosen(true);
+    setAiCategoryId(null);
+  }, [soleCategory, category]);
   const mismatchDomain = mismatchDomainId ? allDomains.find((d) => d.id === mismatchDomainId) : undefined;
 
   // Leaf-only, parent-qualified category options for both the classify
@@ -532,8 +559,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       setMismatchDomainId(suggestedDomain);
       return;
     }
-    setAiCategoryId(outcome.result.categoryId);
-    setCategory(outcome.result.categoryId);
+    // With one possible category the classify call is still worth making
+    // -- it seeds the title and can still flag a domain mismatch above --
+    // but its category answer carries no information, so it is not
+    // presented as a guess to confirm.
+    if (!soleCategory) {
+      setAiCategoryId(outcome.result.categoryId);
+      setCategory(outcome.result.categoryId);
+    }
     // A plain name for the item, which the AI suggestion pass then uses as
     // its seed and rewrites into a proper listing title.
     if (outcome.result.itemName && !title.trim()) {
@@ -753,7 +786,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const photosRemaining = Math.max(0, PHOTOS_MAX - photos.length);
 
   const STEP_LABELS: Record<StepKind, string> = {
-    classify: t('createListing.stepCategory'),
+    // With one possible category the step no longer asks a category
+    // question at all (see soleCategory) -- naming it "Category" would
+    // label the screen after the one thing it does not contain.
+    classify: soleCategory
+      ? usesOfferType
+        ? t('createListing.stepSaleOrRent')
+        : t('createListing.stepCondition')
+      : t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
     verify: t('createListing.stepVerify'),
     spin: t('createListing.stepSpin'),
@@ -1819,44 +1859,6 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 overlays further down) covers the "please wait" state --
                 this block only needs to handle the resolved states:
                 error, AI-guess-with-pill, or empty-mandatory. */}
-            <Text style={styles.fieldLabel}>
-              {t('createListing.categoryLabel')}
-              <RequiredMark />
-            </Text>
-
-            {!!classifyError && !classifying && (
-              <>
-                <Text style={styles.aiErrorText}>{classifyError}</Text>
-                <Pressy onPress={() => runClassify(photos)}>
-                  <Text style={styles.retryLink}>{t('createListing.classifyRetry')}</Text>
-                </Pressy>
-              </>
-            )}
-
-            {!classifying && !classifyError && (
-              <Text style={[type.soft, { marginBottom: 10 }]}>
-                {category ? t('createListing.classifyAiGuessHint') : t('createListing.classifyNoGuessHint')}
-              </Text>
-            )}
-
-            {/* The standalone "here's what's selected" pill still applies
-                once the seller has manually picked a category (the search
-                field's own typed text doesn't reliably mirror a browse-
-                modal pick -- see selectCategoryManually) -- but NOT while
-                there's an unconfirmed AI guess standing (showConfirmPill),
-                since that case is now merged straight into the field
-                itself via CategorySuggestInput's aiGuess prop just below,
-                per the Classify-screen highlight redesign. */}
-            {!!cat && !showConfirmPill && (
-              <View style={fieldStyles.pillRow}>
-                <View style={[fieldStyles.optPill, fieldStyles.optPillActive]}>
-                  <Text style={[fieldStyles.optPillText, fieldStyles.optPillTextActive]}>
-                    {language === 'ar' ? cat.nameAr : cat.nameEn}
-                  </Text>
-                </View>
-              </View>
-            )}
-
             {/* Which domain this listing is being posted into, and the way
                 out. Shown whenever a domain is in force so a seller who
                 tapped the wrong card on the gate can see it before they
@@ -1907,6 +1909,51 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </View>
             )}
 
+            {/* Everything from here to the browse button is the "which
+                category is this?" question. Skipped entirely when the
+                domain has only one -- see soleCategory. What remains on
+                the step is the domain line above and the Sale/Rent (or
+                New/Used) pick below, which are real questions. */}
+            {!soleCategory && (
+              <>
+            <Text style={styles.fieldLabel}>
+              {t('createListing.categoryLabel')}
+              <RequiredMark />
+            </Text>
+
+            {!!classifyError && !classifying && (
+              <>
+                <Text style={styles.aiErrorText}>{classifyError}</Text>
+                <Pressy onPress={() => runClassify(photos)}>
+                  <Text style={styles.retryLink}>{t('createListing.classifyRetry')}</Text>
+                </Pressy>
+              </>
+            )}
+
+            {!classifying && !classifyError && (
+              <Text style={[type.soft, { marginBottom: 10 }]}>
+                {category ? t('createListing.classifyAiGuessHint') : t('createListing.classifyNoGuessHint')}
+              </Text>
+            )}
+
+            {/* The standalone "here's what's selected" pill still applies
+                once the seller has manually picked a category (the search
+                field's own typed text doesn't reliably mirror a browse-
+                modal pick -- see selectCategoryManually) -- but NOT while
+                there's an unconfirmed AI guess standing (showConfirmPill),
+                since that case is now merged straight into the field
+                itself via CategorySuggestInput's aiGuess prop just below,
+                per the Classify-screen highlight redesign. */}
+            {!!cat && !showConfirmPill && (
+              <View style={fieldStyles.pillRow}>
+                <View style={[fieldStyles.optPill, fieldStyles.optPillActive]}>
+                  <Text style={[fieldStyles.optPillText, fieldStyles.optPillTextActive]}>
+                    {language === 'ar' ? cat.nameAr : cat.nameEn}
+                  </Text>
+                </View>
+              </View>
+            )}
+
             <CategorySuggestInput
               query={categoryQuery}
               onChangeQuery={setCategoryQuery}
@@ -1937,6 +1984,8 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               <Icon name="grip" size={15} color={colors.ink} />
               <Text style={styles.browseCategoriesBtnText}>{t('createListing.classifyBrowseButton')}</Text>
             </Pressy>
+              </>
+            )}
 
             {/* New vs used (or, for Properties, Sale/Rent/Both -- see
                 conditionOptions above) -- lives on this same screen, below
@@ -2782,7 +2831,13 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           can no longer fire while on the Photos step now that it's gated
           on categoryResolved, which can't be true until at least the
           Classify step. */}
-      <AiWorkingOverlay visible={classifying && currentKind === 'classify'} message={t('createListing.classifyWorking')} />
+      <AiWorkingOverlay
+        visible={classifying && currentKind === 'classify'}
+        // With one possible category the call is still made -- it
+        // seeds the title and can flag a domain mismatch -- but it is
+        // not guessing a category, so it should not say it is.
+        message={soleCategory ? t('createListing.classifyWorkingItem') : t('createListing.classifyWorking')}
+      />
       <AiWorkingOverlay visible={translating} message={t('createListing.aiTranslateOverlay')} />
       {/* Same reasoning as the classify overlay above, applied to specs:
           `suggesting` (useAiSpecSuggestion) can already be true while the
