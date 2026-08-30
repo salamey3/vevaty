@@ -10,7 +10,7 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-Two smaller things left over, neither blocking:
+Three smaller things left over, none blocking:
 
 - **Three screens still push a duplicate tab navigator.**
   `ListingDetailScreen` (the category link, twice), `FavoritesScreen` (run
@@ -20,7 +20,6 @@ Two smaller things left over, neither blocking:
   pressed twice through identical screens. `useGoHome` shows the fix:
   `pop: true` at each nesting level. Pre-existing, and older than the
   domains work.
-
 - A storefront's saved category is not used at posting time at all — see
   the note in @DOMAINS.md on why the obvious uses were dropped. Filling
   the category in when the classifier says it cannot tell is the one safe
