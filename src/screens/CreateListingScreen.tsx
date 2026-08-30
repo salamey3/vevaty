@@ -21,6 +21,7 @@ import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, Spi
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { resolveVisibleAttrs } from '../lib/attributeVisibility';
 import { buildDomainCandidates } from '../lib/domainCandidates';
+import { useShopFallbackCategory } from '../hooks/useShopFallbackCategory';
 import { domainIdFromSentinel } from '../lib/classifyPhotos';
 import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey, requiresPaymentFrequency } from '../lib/rentTerms';
 import RentTermsFields from '../components/RentTermsFields';
@@ -436,6 +437,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // decide whether the confirm pill is shown, never re-read as "the
   // current AI opinion" -- see showConfirmPill below.
   const [aiCategoryId, setAiCategoryId] = useState<CategoryId | null>(null);
+  // Where the standing suggestion came from. The pill and the field above
+  // it behave identically either way -- this only decides what they
+  // claim.
+  const [guessFromShop, setGuessFromShop] = useState(false);
   // Permanent once true for this screen instance. Flips only inside
   // selectCategoryManually -- never from opening/closing the browse sheet
   // without picking. Seeded true when editing a listing that already has a
@@ -514,6 +519,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   }, [soleCategory, category]);
   const mismatchDomain = mismatchDomainId ? allDomains.find((d) => d.id === mismatchDomainId) : undefined;
 
+  // Used only when the classifier says it cannot tell -- see the hook.
+  const shopFallbackCategory = useShopFallbackCategory(attachToShop, domainId);
+
   // Leaf-only, parent-qualified category options for both the classify
   // call and CategorySuggestInput's typeahead -- one list, two consumers.
   // Leaves only: those are the only categories a listing can actually be
@@ -548,6 +556,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // explicit "I can't tell" from the qualifier -- the photos are
       // still worth keeping either way, the seller just picks the
       // category by hand (mandatory, no pill).
+      //
+      // Unless the seller's own storefront already answers it. Only on
+      // the "can't tell" branch, never on an error: an error shows its
+      // own message and a retry link, and quietly filling a field
+      // underneath one reads as the app having done something odd rather
+      // than something helpful.
+      if (outcome.ok && !category && shopFallbackCategory) {
+        setAiCategoryId(shopFallbackCategory.id);
+        setGuessFromShop(true);
+        setCategory(shopFallbackCategory.id);
+      }
       return;
     }
     // The classifier is telling us the photos belong to a different
@@ -565,6 +584,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // presented as a guess to confirm.
     if (!soleCategory) {
       setAiCategoryId(outcome.result.categoryId);
+      setGuessFromShop(false);
       setCategory(outcome.result.categoryId);
     }
     // A plain name for the item, which the AI suggestion pass then uses as
@@ -1939,9 +1959,19 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </>
             )}
 
+            {/* Three states, not two. "Double-check our AI's
+                classification" over a category the classifier never
+                returned is the same false claim the badge below it was
+                fixed not to make -- and on this path the honest line is
+                also the more useful one, since it says WHY the category
+                is what it is. */}
             {!classifying && !classifyError && (
               <Text style={[type.soft, { marginBottom: 10 }]}>
-                {category ? t('createListing.classifyAiGuessHint') : t('createListing.classifyNoGuessHint')}
+                {!category
+                  ? t('createListing.classifyNoGuessHint')
+                  : guessFromShop
+                    ? t('createListing.classifyShopGuessHint')
+                    : t('createListing.classifyAiGuessHint')}
               </Text>
             )}
 
@@ -1969,7 +1999,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               options={pickableCategoryOptions.map((o) => ({ id: o.id, label: o.name, parent: o.parent }))}
               onSelect={(id) => selectCategoryManually(id as CategoryId)}
               placeholder={t('createListing.classifySearchPlaceholder')}
-              aiGuess={showConfirmPill && cat ? { label: language === 'ar' ? cat.nameAr : cat.nameEn } : undefined}
+              aiGuess={
+                showConfirmPill && cat
+                  ? {
+                      label: language === 'ar' ? cat.nameAr : cat.nameEn,
+                      badge: guessFromShop ? t('createListing.classifyShopGuessBadge') : undefined,
+                    }
+                  : undefined
+              }
               testID="classify-category-search"
             />
 
@@ -1991,7 +2028,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
             <Pressy onPress={() => setBrowseModalOpen(true)} style={styles.browseCategoriesBtn}>
               <Icon name="grip" size={15} color={colors.ink} />
-              <Text style={styles.browseCategoriesBtnText}>{t('createListing.classifyBrowseButton')}</Text>
+              <Text style={styles.browseCategoriesBtnText}>
+                {t(guessFromShop ? 'createListing.classifyShopGuessBrowse' : 'createListing.classifyBrowseButton')}
+              </Text>
             </Pressy>
               </>
             )}

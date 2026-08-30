@@ -17,6 +17,7 @@ import { listingToInput } from '../../lib/batchListingInput';
 import { RootStackParamList } from '../../navigation/types';
 import { CategoryId, Listing } from '../../types';
 import { buildDomainCandidates } from '../../lib/domainCandidates';
+import { useShopFallbackCategory } from '../../hooks/useShopFallbackCategory';
 import { domainIdFromSentinel } from '../../lib/classifyPhotos';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BatchReview'>;
@@ -117,8 +118,11 @@ function ReviewRow({
 
           {classifyState.status === 'idle' && !categoryConfirmed && classifyState.result && !fixOpen && (
             <View>
+              {/* Which of the two it is matters: "AI guessed" over a
+                  category the classifier never returned is a claim the
+                  seller can catch being false. */}
               <Text style={[type.soft, styles.aiGuessLabel]}>
-                {t('batchReview.rowAiGuessed', {
+                {t(classifyState.source === 'shop' ? 'batchReview.rowShopGuessed' : 'batchReview.rowAiGuessed', {
                   category:
                     categoryOptions.find((o) => o.id === classifyState.result!.categoryId)?.name ||
                     classifyState.result.categoryId,
@@ -180,7 +184,7 @@ function ReviewRow({
 }
 
 export default function BatchReviewScreen({ navigation, route }: Props) {
-  const { batchId, domain: domainId } = route.params;
+  const { batchId, domain: domainId, shopChoice } = route.params;
   const { listings } = useAppStore();
   const { allCategories, childrenOf, categoryById, allDomains, domainOfCategory } = useSettings();
   const { t, language } = useLanguage();
@@ -196,19 +200,37 @@ export default function BatchReviewScreen({ navigation, route }: Props) {
   );
 
   // Narrowed to the batch's domain, same helper the single-item wizard
-  // uses. No sentinels here: the switch offer is a single-item affordance
-  // -- a batch is one domain by construction, and this screen already
-  // lets the seller fix any row's category by hand, so a per-row "switch
-  // the whole batch?" prompt would be noise. buildDomainCandidates only
-  // adds sentinels when it is given a domain, so they are filtered out.
-  const categoryOptions = useMemo(
-    () =>
-      buildDomainCandidates(domainId ?? null, leafCategories, allDomains, categoryById, domainOfCategory, language)
-        .filter((o) => !domainIdFromSentinel(o.id)),
+  // uses -- and, like there, two lists out of one. What a retry may ANSWER
+  // with keeps the sentinels, so the model can still say "this belongs to
+  // another section" rather than being forced into the least-bad answer
+  // from inside this one (see BatchPhotosScreen and BatchClassifyContext).
+  const classifyOptions = useMemo(
+    () => buildDomainCandidates(domainId ?? null, leafCategories, allDomains, categoryById, domainOfCategory, language),
     [domainId, leafCategories, allDomains, categoryById, domainOfCategory, language]
   );
+  // What a seller may PICK never includes one: a sentinel is a message to
+  // the classifier, not a category anything can be filed under.
+  const categoryOptions = useMemo(
+    () => classifyOptions.filter((o) => !domainIdFromSentinel(o.id)),
+    [classifyOptions]
+  );
 
-  const { classifyItem } = useBatchClassify(categoryOptions, language, t('createListing.classifyPhotoReadFailed'));
+  // The retry on a row has to answer exactly as the capture screen did,
+  // so it resolves the same storefront fallback from the same input: the
+  // shop answer itself, threaded through from the capture screen. An
+  // earlier version read it off the items' own shopId instead, which is a
+  // different predicate -- that one also carries "and the shop was
+  // verified at the moment each item was created" -- so a verification
+  // revoked mid-batch made a retry answer differently from the classify
+  // it was repeating.
+  const shopFallbackCategory = useShopFallbackCategory(!!shopChoice?.attachToShop, domainId ?? null);
+
+  const { classifyItem } = useBatchClassify(
+    classifyOptions,
+    language,
+    t('createListing.classifyPhotoReadFailed'),
+    shopFallbackCategory?.id ?? null
+  );
   const statesMap = useBatchClassifyStates();
 
   const analyzingCount = items.filter((l) => statesMap[l.id]?.status === 'analyzing').length;

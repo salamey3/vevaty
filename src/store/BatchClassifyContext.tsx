@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from 'react';
 import { useClassifyRun, ClassifyRunResult } from '../hooks/useClassifyRun';
-import { ClassifyCategoryOption } from '../lib/classifyPhotos';
+import { ClassifyCategoryOption, domainIdFromSentinel } from '../lib/classifyPhotos';
 
 // Ephemeral, cross-screen classify status for in-flight batch items (see
 // the batch-listings plan's "Cross-screen state" section). Named
@@ -28,9 +28,14 @@ export interface BatchItemClassifyState {
   status: BatchItemClassifyStatus;
   error: string | null;
   result: ClassifyRunResult | null;
+  // Where `result` came from. 'shop' means the classifier said it could
+  // not tell and the seller's own storefront answered instead (see
+  // useShopFallbackCategory) -- the row then says so rather than
+  // reporting a guess the AI never made.
+  source: 'ai' | 'shop';
 }
 
-const IDLE_STATE: BatchItemClassifyState = { status: 'idle', error: null, result: null };
+const IDLE_STATE: BatchItemClassifyState = { status: 'idle', error: null, result: null, source: 'ai' };
 
 let itemState: Record<string, BatchItemClassifyState> = {};
 const listeners = new Set<() => void>();
@@ -126,10 +131,16 @@ export function useBatchClassifyStates(): Record<string, BatchItemClassifyState>
 // shared store above, so every other mounted batch screen sees it
 // through the read hooks above regardless of which screen's
 // classifyItem call produced it.
+// `fallbackCategoryId` is what a storefront's own category answers with
+// when the classifier cannot tell -- see useShopFallbackCategory. Passed
+// in rather than resolved here so both batch screens that can start a
+// classify (capture, and the review screen's retry) hand over the same
+// one, and so this stays a plain runner with no opinion about shops.
 export function useBatchClassify(
   categoryOptions: ClassifyCategoryOption[],
   language: 'en' | 'ar',
-  photoReadFailedMessage: string
+  photoReadFailedMessage: string,
+  fallbackCategoryId?: string | null
 ) {
   const { run } = useClassifyRun(categoryOptions, language);
 
@@ -141,14 +152,42 @@ export function useBatchClassify(
           patchItem(listingId, { status: 'error', error: outcome.error });
           return;
         }
+        // The classifier answered from inside a closed in-domain list and
+        // said the item belongs to a different section entirely (see
+        // buildDomainCandidates). A batch is one section by construction,
+        // so there is no per-row switch to offer -- but the answer is not
+        // a category either, and it is emphatically not a "cannot tell".
+        // The row falls through to a manual pick, and the storefront
+        // fallback below is deliberately skipped: a car dealer's batch
+        // with a microwave in it must not have the microwave pre-filled
+        // as a car, one tap from being confirmed.
+        if (outcome.result && domainIdFromSentinel(outcome.result.categoryId)) {
+          patchItem(listingId, { status: 'idle', error: null, result: null, source: 'ai' });
+          return;
+        }
         // outcome.result === null here is the AI's own "can't tell" --
-        // not an error (status goes back to 'idle', error stays null),
-        // the review row just falls through to needing a manual pick,
-        // same as the single-item wizard's classifyNoGuessHint.
-        patchItem(listingId, { status: 'idle', error: null, result: outcome.result });
+        // not an error (status goes back to 'idle', error stays null).
+        // The storefront answers it if it can; otherwise the review row
+        // falls through to needing a manual pick, same as the
+        // single-item wizard's classifyNoGuessHint.
+        //
+        // itemName is deliberately empty on that path: a shop's category
+        // says what KIND of thing this is, not what this one is called,
+        // and a title seeded from it would be the same words on every
+        // item in the batch.
+        if (!outcome.result && fallbackCategoryId) {
+          patchItem(listingId, {
+            status: 'idle',
+            error: null,
+            result: { categoryId: fallbackCategoryId, itemName: '' },
+            source: 'shop',
+          });
+          return;
+        }
+        patchItem(listingId, { status: 'idle', error: null, result: outcome.result, source: 'ai' });
       });
     },
-    [run, photoReadFailedMessage]
+    [run, photoReadFailedMessage, fallbackCategoryId]
   );
 
   return { classifyItem };

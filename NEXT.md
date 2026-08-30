@@ -10,13 +10,8 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-Two smaller things left over, neither blocking:
+One smaller thing left over, not blocking:
 
-- A storefront's saved category is not used at posting time at all — see
-  the note in @DOMAINS.md on why the obvious uses were dropped. Filling
-  the category in when the classifier says it cannot tell is the one safe
-  use, and it needs doing in the batch flow at the same time or not at
-  all.
 - Tapping Change on the batch flow's domain line abandons an empty
   `in_progress` batch row. Harmless while nothing reads batches back;
   worth cleaning up alongside the "my batches" view that row's own

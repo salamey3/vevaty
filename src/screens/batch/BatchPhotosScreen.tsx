@@ -15,7 +15,7 @@ import { useLanguage } from '../../i18n/LanguageContext';
 import { useBatchClassify } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
 import { buildDomainCandidates } from '../../lib/domainCandidates';
-import { domainIdFromSentinel } from '../../lib/classifyPhotos';
+import { useShopFallbackCategory } from '../../hooks/useShopFallbackCategory';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BatchPhotos'>;
 
@@ -42,8 +42,22 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
   // Classification starts HERE, the moment an item crosses the photo
   // threshold -- not on the review screen -- so this is the list that has
   // to be domain-constrained for the batch flow to honour the gate at all.
-  // Sentinels are dropped: the switch offer is a single-item affordance
-  // (see BatchReviewScreen), and a batch is one domain by construction.
+  //
+  // Sentinels are KEPT, though a batch is one domain by construction and
+  // there is no per-row switch to offer. They are not here to offer one:
+  // without them the model has no way to say "this belongs somewhere
+  // else", so a stray item in an otherwise uniform batch comes back as
+  // the least-bad answer from inside the domain, or as a bare "cannot
+  // tell" indistinguishable from a blurry photo of exactly the right
+  // thing. That distinction is what keeps the storefront fallback off the
+  // one row it would be confidently wrong about -- see
+  // BatchClassifyContext.
+  // Resolved before the runner below is built, since it is one of its
+  // inputs. Same hook the single-item wizard uses: a merchant who
+  // photographs the same item through either flow must not be given two
+  // different answers.
+  const shopFallbackCategory = useShopFallbackCategory(!!shopChoice?.attachToShop, domainId ?? null);
+
   const { classifyItem } = useBatchClassify(
     useMemo(
       () =>
@@ -54,11 +68,12 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
           categoryById,
           domainOfCategory,
           language
-        ).filter((o) => !domainIdFromSentinel(o.id)),
+        ),
       [domainId, allCategories, childrenOf, allDomains, categoryById, domainOfCategory, language]
     ),
     language,
-    t('createListing.classifyPhotoReadFailed')
+    t('createListing.classifyPhotoReadFailed'),
+    shopFallbackCategory?.id ?? null
   );
 
   const shopId = shopChoice?.attachToShop && myShop?.verifiedAt ? myShop.id : null;
@@ -172,7 +187,8 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     setPhotoCameraVisible(true);
   };
 
-  const goToReview = () => navigation.replace('BatchReview', { batchId, domain: route.params.domain });
+  const goToReview = () =>
+    navigation.replace('BatchReview', { batchId, domain: route.params.domain, shopChoice });
 
   const advanceToNextItem = () => {
     if (!currentListingId || advancing) return;

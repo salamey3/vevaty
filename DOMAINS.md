@@ -125,17 +125,30 @@ cannot contradict each other because the category chips are narrowed to
 the chosen domain — the domain picks which categories are on offer, never
 the other way round.
 
-**The shop's category does nothing at posting time yet.** It narrows what
-the storefront settings will accept, and it still drives the storefront's
-own filters and its directory card, but the posting flow reads only the
-domain. Using it as a classifier constraint was considered and dropped: a
-phone shop listing an office chair would get a confident wrong answer
-instead of a right one, and the seller cannot see an error in a list they
-were never shown. Using it to settle the category outright would make it
-the wall the decision above says it must not be. The one safe use — filling
-the category in when the classifier says it cannot tell — was built and
-then removed, because the batch flow has no equivalent and the same
-merchant would have got two different answers from the same photo.
+**The shop's category answers only where the photos cannot.** It narrows
+what the storefront settings will accept, it drives the storefront's own
+filters and its directory card, and at posting time it does exactly one
+thing: when the classifier says it genuinely cannot tell, and the shop's
+category covers exactly one postable category inside the section, that is
+offered as the suggestion instead of a blank required field. Offered, and
+labelled as coming from the storefront rather than from the AI — both
+flows have the same confirm step over it, and neither claims a guess that
+was never made.
+
+Two uses were considered and dropped. As a classifier constraint: a phone
+shop listing an office chair would get a confident wrong answer instead of
+a right one, and the seller cannot see an error in a list they were never
+shown. To settle the category outright: that would make it the wall the
+decision above says it must not be.
+
+The one that was built came back only once the batch flow could tell
+"cannot tell" apart from "belongs to another section". It could not
+before — its candidate list dropped the domain sentinels — so a stray item
+in an otherwise uniform batch came back as a bare null, indistinguishable
+from a blurry photo of exactly the right thing, and the fallback would
+have pre-filled a microwave as a car one tap from confirmation. The batch
+now keeps the sentinels. It still offers no per-row switch (a batch is one
+section by construction); it uses them only to know when NOT to answer.
 
 **A domain with exactly ONE category asks no category question.** Found in
 testing: having picked Properties on the gate, the seller was then shown

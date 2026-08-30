@@ -68,7 +68,12 @@ export default function CategorySuggestInput({
   // revealed for the rest of this field's mount, matching manuallyChosen's
   // "any manual interaction permanently drops the AI-guess framing"
   // semantics one level up in CreateListingScreen.
-  aiGuess?: { label: string };
+  // `badge` overrides the "AI guessed" wording for a suggestion the
+  // classifier did not make -- a storefront's own category, say. Same
+  // control, same confirm step; only the claim above it changes, because
+  // "AI guessed" over an answer the AI never gave is a lie the seller can
+  // catch.
+  aiGuess?: { label: string; badge?: string };
   style?: ViewStyle | ViewStyle[];
   testID?: string;
 }) {
@@ -93,7 +98,7 @@ export default function CategorySuggestInput({
   if (showAiGuessBadge) {
     return (
       <Pressy onPress={() => setRevealSearch(true)} style={localStyles.aiGuessBox} testID={testID}>
-        <Text style={localStyles.aiGuessBadge}>{t('createListing.classifyAiGuessBadge')}</Text>
+        <Text style={localStyles.aiGuessBadge}>{aiGuess!.badge || t('createListing.classifyAiGuessBadge')}</Text>
         <Text style={localStyles.aiGuessValue} numberOfLines={1}>{aiGuess!.label}</Text>
       </Pressy>
     );

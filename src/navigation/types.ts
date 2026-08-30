@@ -33,7 +33,12 @@ export type RootStackParamList = {
   // durable record -- this param is just the read path, since the batch
   // screens are only ever reached from a live in-progress session.
   BatchPhotos: { batchId: string; domain?: string; shopChoice?: { attachToShop: boolean } };
-  BatchReview: { batchId: string; domain?: string };
+  // shopChoice rides along to BatchReview as well as BatchPhotos: its
+  // per-row retry re-runs the same classification, and the storefront
+  // fallback that classification may use has to be resolved from the same
+  // answer, not re-derived from whatever the items happen to look like by
+  // then (see BatchReviewScreen).
+  BatchReview: { batchId: string; domain?: string; shopChoice?: { attachToShop: boolean } };
   // Between BatchReview and BatchDetails -- see BatchVerificationShotsScreen
   // for why this is its own step (targeted spec-reading photos, mirroring
   // CreateListingScreen's single-item 'verify' step) rather than folded
