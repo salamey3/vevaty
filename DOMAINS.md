@@ -5,8 +5,8 @@ Classifieds and (later) Jobs & Services. Agreed 30 Aug 2026, before any of
 it was built, so that the reasoning survives the build rather than being
 reconstructed from the diff afterwards.
 
-Step 1 of the build order at the end is done. Everything else is still
-spec.
+Steps 1 and 2 of the build order at the end are done. Everything else is
+still spec.
 
 ## Why
 
@@ -49,7 +49,7 @@ within-Classifieds errors.
 | Structure | Domains are a layer **above** the category tree, not the top of it |
 | Auto Parts & Accessories | A second tile inside Vehicles |
 | Classifier | Hard-constrained to the chosen domain, with a one-tap switch when the photos disagree |
-| Storefronts | Skip the gate entirely; "Posting in Properties — change"; not shown to buyers |
+| Storefronts | Skip the gate entirely; "Posting in Properties — Change"; not shown to buyers |
 | Shop setting | A domain, optionally narrowed to one category |
 | Jobs & Services | Their own fourth domain, dormant until activated |
 | Per-domain home | Each domain gets its own collections, banners and feed |
@@ -78,6 +78,28 @@ gate shows three cards today and four the day Jobs & Services is switched
 on. Derived from the category rows, never stored — the same rule as
 leaf-ness, and for the same reason: a stored flag is a second source of
 truth that drifts.
+
+**The shop's domain is stored, not derived from its category.** Every
+top-level category belongs to exactly one domain, so a shop that has
+picked "Electronics" has already said "Classifieds" — the setting could
+have been read straight off the category it already had, with no new
+column. It is stored anyway, deliberately: a merchant has to be able to
+say "Vehicles" without committing to Cars *or* to Auto Parts. The two
+cannot contradict each other because the category chips are narrowed to
+the chosen domain — the domain picks which categories are on offer, never
+the other way round.
+
+**The shop's category does nothing at posting time yet.** It narrows what
+the storefront settings will accept, and it still drives the storefront's
+own filters and its directory card, but the posting flow reads only the
+domain. Using it as a classifier constraint was considered and dropped: a
+phone shop listing an office chair would get a confident wrong answer
+instead of a right one, and the seller cannot see an error in a list they
+were never shown. Using it to settle the category outright would make it
+the wall the decision above says it must not be. The one safe use — filling
+the category in when the classifier says it cannot tell — was built and
+then removed, because the batch flow has no equivalent and the same
+merchant would have got two different answers from the same photo.
 
 **A domain with exactly ONE category asks no category question.** Found in
 testing: having picked Properties on the gate, the seller was then shown
@@ -132,13 +154,16 @@ Each step ships something usable on its own.
    SettingsStore; a Domain picker on the admin category editor, shown
    only for top-level rows since a subcategory's own value would be
    ignored. Invisible to users -- nothing reads it yet.
-2. **Posting.** *Gate and constrained classifier done 30 Aug 2026; the
-   storefront skip is still to do.* The gate is an in-screen step on
+2. ~~**Posting.**~~ *Done 30 Aug 2026.* The gate is an in-screen step on
    SellHubScreen after the kind and shop questions; the domain reaches the
    single-item wizard as a route param and the batch flow through a
    `domain_id` on the batch row. Both classify call sites are narrowed to
    the domain's leaves, with sentinels raising the switch offer in the
-   single-item flow.
+   single-item flow. A storefront answers the gate once in its settings
+   (`shops.domain_id`, granted per column like everything else on that
+   table) and skips it while posting into itself; both flows show the
+   domain and a Change link that pops back to the hub with the gate
+   forced, so the skip never becomes a lock.
 3. **Browsing.** Per-domain homes, collections scoping, search scoping.
    The large one.
 4. **Jobs & Services.** Only when there is an actual intention to launch

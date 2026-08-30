@@ -441,6 +441,19 @@ export interface Shop {
   whatsapp: string | null;
   phone: string | null;
   primaryCategoryId: CategoryId | null;
+  // What this shop sells, as a domain -- the sell gate's own question,
+  // answered once here instead of on every listing the merchant posts.
+  // Null for a shop that has not answered it, which is what keeps the
+  // gate showing for a merchant who genuinely sells across domains.
+  //
+  // Deliberately a stored setting rather than derived from
+  // primaryCategoryId, even though every top-level category belongs to
+  // exactly one domain: a merchant can say "Vehicles" without committing
+  // to Cars or to Auto Parts. The two can never contradict each other
+  // because the category chips are narrowed to the chosen domain (see
+  // MyStorefrontScreen) -- the domain picks the categories, never the
+  // other way round.
+  domainId: string | null;
   // null = not yet verified -- the shop row exists (its owner created it)
   // but isn't publicly visible yet (see shops_select RLS: verified_at is
   // not null OR owner_id = auth.uid()). StorefrontScreen treats a

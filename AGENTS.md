@@ -36,8 +36,8 @@ autolinked and do not move the fingerprint. It is the `scripts` block.
 
 # Grant every new column, or writes fail silently
 
-`myazar.listings` and `myazar.profiles` are granted **per column**, not per
-table. A column added by a migration is invisible to `anon`/`authenticated`
+`myazar.listings`, `myazar.profiles` and `myazar.shops` are granted **per
+column**, not per table. A column added by a migration is invisible to `anon`/`authenticated`
 until it is granted explicitly, and PostgREST rejects the *whole* statement
 over one ungranted column — so a single missed grant silently discards
 every field of every write while the UI reports success.
@@ -56,6 +56,11 @@ verified user stayed unverified and could not post. The fix was a
 `SECURITY DEFINER` function (`myazar.upsert_own_profile`), which runs as the
 owner and sidesteps the caller's grants entirely. Reach for that pattern
 rather than widening grants.
+
+A quieter version of the same trap on the read side: a `select()` that
+names a column the caller has no grant on fails the *whole* query, so a
+screen that asks for a column it never uses is one missed grant away from
+rendering as not-found. Select what the screen reads, nothing more.
 
 Both failures are silent by construction, so when a write "works" but the
 row does not change, suspect grants before logic. `updateListing` now

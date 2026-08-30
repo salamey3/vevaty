@@ -41,6 +41,11 @@ function dbShopToLocal(row: any): Shop {
     whatsapp: row.whatsapp ?? null,
     phone: row.phone ?? null,
     primaryCategoryId: row.primary_category_id ?? null,
+    // Not selected by this screen's query -- a merchant's own posting
+    // setting is no business of a visitor's view, and myazar.shops is
+    // granted per column: asking for a column this page never reads is
+    // one missed grant away from every storefront reading as not-found.
+    domainId: null,
     verifiedAt: row.verified_at ? new Date(row.verified_at).getTime() : null,
     // Not selected by this screen's query -- see the query comment above.
     // Private bookkeeping for the owner, not something a public storefront

@@ -23,7 +23,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SellHub'>;
 // shown (ShopChoiceGate, extracted so both places render it identically),
 // just once, here, before either path continues -- see the batch-listings
 // plan's locked decision on this ("Option A").
-export default function SellHubScreen({ navigation }: Props) {
+export default function SellHubScreen({ navigation, route }: Props) {
   const { myShop, createBatch } = useAppStore();
   const { domains } = useSettings();
   const { t } = useLanguage();
@@ -58,6 +58,32 @@ export default function SellHubScreen({ navigation }: Props) {
     }
   };
 
+  // A storefront that has said what it sells has already answered the gate,
+  // so it is not asked again -- the merchant listing their fortieth
+  // apartment should not confirm that it is a property every time. The
+  // answer is still visible and still changeable inside the wizard
+  // ("Posting in Properties -- Change"), which is what keeps this a skip
+  // rather than a lock.
+  //
+  // Only a domain the gate would itself render counts: an admin who
+  // deactivates a domain, or every category inside it, must not leave a
+  // shop posting into something that no longer exists. Standalone listings
+  // are never skipped -- the shop's setting speaks for the shop.
+  const shopDomainId =
+    !route.params?.chooseDomain && myShop?.domainId && domains.some((d) => d.id === myShop.domainId)
+      ? myShop.domainId
+      : null;
+
+  const afterShopChoice = (kind: 'single' | 'batch', attachToShop: boolean) => {
+    setPendingKind(null);
+    if (attachToShop && shopDomainId) {
+      if (kind === 'single') startSingle(shopDomainId, true);
+      else void startBatch(shopDomainId, true);
+      return;
+    }
+    setPendingDomain({ kind, attachToShop });
+  };
+
   // The domain step comes last, after the kind and (for a storefront
   // owner) the shop question, so the seller answers the cheap questions
   // before the one that constrains everything downstream.
@@ -81,10 +107,7 @@ export default function SellHubScreen({ navigation }: Props) {
     return (
       <ShopChoiceGate
         onBack={() => setPendingKind(null)}
-        onChoose={(attach) => {
-          setPendingKind(null);
-          setPendingDomain({ kind: pendingKind, attachToShop: attach });
-        }}
+        onChoose={(attach) => afterShopChoice(pendingKind, attach)}
         title={t('createListing.shopChooserTitle')}
         storefrontTitle={t('createListing.shopChooserStorefrontTitle')}
         storefrontBody={t('createListing.shopChooserStorefrontBody', { name: myShop.nameEn })}

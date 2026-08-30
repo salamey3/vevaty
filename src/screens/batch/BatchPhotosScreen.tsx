@@ -199,6 +199,18 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
 
   const canShowFinishEarly = committedCount > 0 || !!currentListingId;
 
+  // Which domain this whole batch is being posted into, and the way out.
+  // Shown only while there is nothing at all to lose -- no committed items
+  // AND no photos taken for the current one. The domain is written on the
+  // batch row and constrains every item's classification, so it stops
+  // being a changeable answer the moment there is an item to be
+  // inconsistent with; and unlike the single-item wizard this screen has
+  // no unsaved-changes guard, so an "are you sure?" is not there to catch
+  // photos this would throw away. It matters most for a storefront, which
+  // skipped the gate entirely and would otherwise never see what it had
+  // been given.
+  const batchDomain = domainId ? allDomains.find((d) => d.id === domainId) : undefined;
+
   return (
     <Screen maxWidth={640}>
       <View style={styles.topBar}>
@@ -210,6 +222,20 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
       </View>
 
       <View style={styles.body}>
+        {!!batchDomain && !canShowFinishEarly && currentPhotos.length === 0 && (
+          <View style={styles.domainNotice}>
+            <Text style={styles.domainNoticeText} numberOfLines={1}>
+              {t('createListing.postingInDomain', {
+                domain: language === 'ar' ? batchDomain.nameAr : batchDomain.nameEn,
+              })}
+            </Text>
+            {/* popTo -- see CreateListingScreen's copy of this line. */}
+            <Pressy onPress={() => navigation.popTo('SellHub', { chooseDomain: true })}>
+              <Text style={styles.domainNoticeAction}>{t('createListing.postingInDomainChange')}</Text>
+            </Pressy>
+          </View>
+        )}
+
         <Text style={type.soft}>{t('batchPhotos.intro')}</Text>
 
         <View style={styles.photoGrid}>
@@ -298,6 +324,15 @@ const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 18, paddingTop: 6 },
+  // Same treatment as the single-item wizard's own domain line -- see
+  // CreateListingScreen's styles of the same name.
+  domainNotice: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+    backgroundColor: colors.primaryTint, borderRadius: radius.sm,
+    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12,
+  },
+  domainNoticeText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink },
+  domainNoticeAction: { fontSize: 13, fontWeight: '700', color: colors.primary, textDecorationLine: 'underline' },
   photoGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 10, marginTop: 14 },
   photoThumbWrap: { width: 84, height: 84 },
   photoThumb: { width: 84, height: 84, borderRadius: radius.sm },

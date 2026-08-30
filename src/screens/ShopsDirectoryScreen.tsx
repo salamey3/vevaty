@@ -37,6 +37,9 @@ function dbShopToLocal(row: any): Shop {
     whatsapp: null,
     phone: null,
     primaryCategoryId: row.primary_category_id ?? null,
+    // Not selected by this screen's query -- a merchant's own posting
+    // setting is no business of a directory card.
+    domainId: null,
     verifiedAt: row.verified_at ? new Date(row.verified_at).getTime() : null,
     verificationNote: null,
   };

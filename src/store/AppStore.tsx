@@ -469,6 +469,7 @@ function dbShopToLocal(row: any): Shop {
     whatsapp: row.whatsapp ?? null,
     phone: row.phone ?? null,
     primaryCategoryId: row.primary_category_id ?? null,
+    domainId: row.domain_id ?? null,
     verifiedAt: row.verified_at ? new Date(row.verified_at).getTime() : null,
     verificationNote: row.verification_note ?? null,
   };
@@ -579,7 +580,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       // it only affects the "My Storefront" entry point, not browsing.
       const { data: shopRow } = await supabase
         .from('shops')
-        .select('id, owner_id, slug, name_en, name_ar, tagline_en, tagline_ar, logo_url, cover_url, governorate, caza, address_line, whatsapp, phone, primary_category_id, verified_at, verification_note')
+        .select('id, owner_id, slug, name_en, name_ar, tagline_en, tagline_ar, logo_url, cover_url, governorate, caza, address_line, whatsapp, phone, primary_category_id, domain_id, verified_at, verification_note')
         .eq('owner_id', uid)
         .maybeSingle();
       setMyShop(shopRow ? dbShopToLocal(shopRow) : null);
@@ -1404,6 +1405,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             whatsapp: s.whatsapp,
             phone: s.phone,
             primary_category_id: s.primaryCategoryId,
+            domain_id: s.domainId,
           })
           .select()
           .single();
@@ -1443,6 +1445,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           whatsapp: s.whatsapp,
           phone: s.phone,
           primary_category_id: s.primaryCategoryId,
+          domain_id: s.domainId,
           // Editing counts as resubmitting for review -- clears a prior
           // decline note the same way saving a rejected listing clears
           // moderationReason (see updateListing above). verified_at itself

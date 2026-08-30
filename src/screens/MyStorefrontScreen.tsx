@@ -45,6 +45,7 @@ function emptyForm(): ShopInput {
     governorate: null, caza: null, addressLine: '',
     whatsapp: '', phone: '',
     primaryCategoryId: null,
+    domainId: null,
   };
 }
 
@@ -56,6 +57,7 @@ function formFromShop(shop: Shop): ShopInput {
     governorate: shop.governorate, caza: shop.caza, addressLine: shop.addressLine || '',
     whatsapp: shop.whatsapp || '', phone: shop.phone || '',
     primaryCategoryId: shop.primaryCategoryId,
+    domainId: shop.domainId,
   };
 }
 
@@ -73,7 +75,7 @@ function formFromShop(shop: Shop): ShopInput {
 export default function MyStorefrontScreen({ navigation, route }: Props) {
   const goBack = useGoBack();
   const { isVerified, authChecked, myShop, listings, createShop, updateShop } = useAppStore();
-  const { childrenOf, resolveAttributesForCategory } = useSettings();
+  const { childrenOf, resolveAttributesForCategory, domains, allDomains, domainOfCategory } = useSettings();
   const { t, language, isRTL } = useLanguage();
 
   // Gated on authChecked too -- isVerified STARTS false on every fresh page
@@ -112,7 +114,44 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const topCategories = useMemo(() => childrenOf(null), [childrenOf]);
+  // Narrowed to whatever the merchant said they sell. This is what keeps
+  // the two settings from ever contradicting each other: the domain picks
+  // which categories are on offer, never the other way round -- a shop
+  // cannot end up filed under Vehicles with its category on Electronics.
+  const topCategories = useMemo(
+    () =>
+      childrenOf(null, { includeInactive: true })
+        // An inactive category is not on offer, but one this shop is
+        // already filed under has to stay on the row -- otherwise its chip
+        // silently disappears and the merchant cannot see, let alone
+        // change, what they are set to.
+        .filter((c) => c.active || c.id === form.primaryCategoryId)
+        .filter((c) => !form.domainId || domainOfCategory(c.id)?.id === form.domainId),
+    [childrenOf, form.domainId, form.primaryCategoryId, domainOfCategory]
+  );
+
+  // Same rule one level up: `domains` holds only the ones the sell gate
+  // would render, so a shop filed under a domain that has since gone
+  // dormant would find no chip highlighted and no way back to a real
+  // answer. Its own domain is added back for exactly as long as it is
+  // selected.
+  const domainOptions = useMemo(() => {
+    if (!form.domainId || domains.some((d) => d.id === form.domainId)) return domains;
+    const stored = allDomains.find((d) => d.id === form.domainId);
+    return stored ? [...domains, stored] : domains;
+  }, [domains, allDomains, form.domainId]);
+
+  // Changing what you sell drops a category that no longer belongs to it,
+  // rather than leaving a now-invisible chip selected underneath.
+  const chooseDomain = (domainId: string | null) =>
+    setForm((f) => ({
+      ...f,
+      domainId,
+      primaryCategoryId:
+        f.primaryCategoryId && domainId && domainOfCategory(f.primaryCategoryId)?.id !== domainId
+          ? null
+          : f.primaryCategoryId,
+    }));
 
   // --- Saved filters (shop_collections) -----------------------------------
   // Authoring UI for the saved-filter chips StorefrontScreen's collections
@@ -566,6 +605,30 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
           style={[styles.input, styles.inputSpaced, styles.rtlInput]}
         />
 
+        <Text style={[styles.fieldLabel, isRTL && styles.rtlText]}>{t('myStorefront.domainLabel')}</Text>
+        <Text style={[styles.fieldHelp, isRTL && styles.rtlText]}>{t('myStorefront.domainHelp')}</Text>
+        <View style={styles.chipRow}>
+          <Pressy
+            onPress={() => chooseDomain(null)}
+            style={[styles.chip, form.domainId === null && styles.chipActive]}
+          >
+            <Text style={[styles.chipText, form.domainId === null && styles.chipTextActive]}>
+              {t('myStorefront.domainNone')}
+            </Text>
+          </Pressy>
+          {domainOptions.map((d) => (
+            <Pressy
+              key={d.id}
+              onPress={() => chooseDomain(d.id)}
+              style={[styles.chip, form.domainId === d.id && styles.chipActive]}
+            >
+              <Text style={[styles.chipText, form.domainId === d.id && styles.chipTextActive]}>
+                {language === 'ar' ? d.nameAr : d.nameEn}
+              </Text>
+            </Pressy>
+          ))}
+        </View>
+
         <Text style={[styles.fieldLabel, isRTL && styles.rtlText]}>{t('myStorefront.categoryLabel')}</Text>
         <View style={styles.chipRow}>
           <Pressy
@@ -779,6 +842,7 @@ const styles = StyleSheet.create({
   inputSpaced: { marginTop: 10 },
   rtlInput: { textAlign: 'right', writingDirection: 'rtl' },
   chipRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
+  fieldHelp: { fontSize: 12.5, color: colors.inkSoft, lineHeight: 17, marginTop: -6, marginBottom: 8 },
   chip: {
     height: 34, paddingHorizontal: 14, borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,

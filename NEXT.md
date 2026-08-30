@@ -4,12 +4,24 @@ Kept here rather than in anyone's head, so it survives closing a laptop.
 
 ## Next up
 
-**Listing domains — see @DOMAINS.md.** Splitting the app into Properties,
-Vehicles, Classifieds and (later) Jobs & Services, on both the posting and
-the browsing side. Decided 30 Aug 2026; that document holds the reasoning,
-the conflicts already reconciled, the known risk, and the build order.
-Step one is tagging the categories and adding the admin control, which is
-invisible to users and unblocks the rest.
+**Listing domains, step 3: browsing — see @DOMAINS.md.** Per-domain homes
+with their own collections, banners and feed; collections scoped to a
+domain instead of resolving globally; search scoped with a line pointing
+at matches elsewhere. The large one, and the last step before Jobs &
+Services. Steps 1 (domains as data) and 2 (posting, gate, constrained
+classifier, storefront skip) are done.
+
+Two smaller things left over from step 2, neither blocking:
+
+- A storefront's saved category is not used at posting time at all — see
+  the note in @DOMAINS.md on why the obvious uses were dropped. Filling
+  the category in when the classifier says it cannot tell is the one safe
+  use, and it needs doing in the batch flow at the same time or not at
+  all.
+- Tapping Change on the batch flow's domain line abandons an empty
+  `in_progress` batch row. Harmless while nothing reads batches back;
+  worth cleaning up alongside the "my batches" view that row's own
+  comment anticipates.
 
 ## After that
 

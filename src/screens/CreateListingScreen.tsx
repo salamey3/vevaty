@@ -1871,8 +1871,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                     domain: language === 'ar' ? activeDomain.nameAr : activeDomain.nameEn,
                   })}
                 </Text>
-                <Pressy onPress={() => navigation.replace('SellHub')}>
-                  <Text style={styles.domainNoticeAction}>{t('common.edit')}</Text>
+                {/* popTo, not replace or navigate: the hub this listing
+                    was started from is still underneath, and both of those
+                    would leave it there with its own params still saying
+                    "skip" -- one back press and the merchant is bounced
+                    into the domain they were trying to leave. popTo goes
+                    back to that same hub and hands it chooseDomain, so
+                    there is exactly one hub and it asks. (In React
+                    Navigation 7 plain navigate no longer pops to an
+                    existing route -- it pushes a second one.) */}
+                <Pressy onPress={() => navigation.popTo('SellHub', { chooseDomain: true })}>
+                  <Text style={styles.domainNoticeAction}>{t('createListing.postingInDomainChange')}</Text>
                 </Pressy>
               </View>
             )}

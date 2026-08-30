@@ -15,9 +15,15 @@ export type RootStackParamList = {
   // listing never needs to pass it.
   CreateListing: { initialCategory?: CategoryId; editListingId?: string; domain?: string; shopChoice?: { attachToShop: boolean } } | undefined;
   // "Sell on Vevaty" hub -- the new front door for posting (see
-  // src/screens/SellHubScreen.tsx). No params: it always operates on the
-  // signed-in seller's own myShop, same as MyStorefront.
-  SellHub: undefined;
+  // src/screens/SellHubScreen.tsx). It always operates on the signed-in
+  // seller's own myShop, same as MyStorefront.
+  //
+  // `chooseDomain` forces the sell gate to be asked even for a storefront
+  // that has said what it sells and would otherwise skip it. It is how the
+  // "Posting in Properties -- change" link gets back to a real choice:
+  // without it that link would run straight back through the skip and land
+  // the merchant on the same domain it was trying to leave.
+  SellHub: { chooseDomain?: boolean } | undefined;
   // Batch listings ("sell a bunch of items") -- see src/screens/batch/*.tsx.
   // shopChoice on BatchPhotos only: SellHubScreen resolves it once, before
   // the batch even exists, and the batch's own listings rows are the only
