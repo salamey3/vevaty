@@ -32,7 +32,11 @@ export type RootStackParamList = {
   // classifies. It is also written onto the batch row, which is the
   // durable record -- this param is just the read path, since the batch
   // screens are only ever reached from a live in-progress session.
-  BatchPhotos: { batchId: string; domain?: string; shopChoice?: { attachToShop: boolean } };
+  // No batchId: the batch row is created by this screen itself, the
+  // first time an item is actually captured (see BatchPhotosScreen's
+  // ensureBatch). Creating it on the way in left an empty in_progress row
+  // behind every time somebody opened the flow and changed their mind.
+  BatchPhotos: { domain?: string; shopChoice?: { attachToShop: boolean } };
   // shopChoice rides along to BatchReview as well as BatchPhotos: its
   // per-row retry re-runs the same classification, and the storefront
   // fallback that classification may use has to be resolved from the same

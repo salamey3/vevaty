@@ -10,12 +10,16 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-One smaller thing left over, not blocking:
+One thing worth fixing, found while clearing the last of those:
 
-- Tapping Change on the batch flow's domain line abandons an empty
-  `in_progress` batch row. Harmless while nothing reads batches back;
-  worth cleaning up alongside the "my batches" view that row's own
-  comment anticipates.
+- **`addListing` swallows a refused insert.** On a Supabase error it keeps
+  its optimistic local row and returns it, so the caller cannot tell a
+  saved listing from an unsaved one -- and every screen reads that same
+  local array, so the app looks entirely correct while the server has
+  nothing. The batch flow is where this bites hardest: a whole session of
+  items can appear to save. It is also exactly what a missed column grant
+  produces (see the grants note in @AGENTS.md), which is the failure this
+  repo has already been caught by twice. `updateListing` at least warns.
 
 ## After that
 

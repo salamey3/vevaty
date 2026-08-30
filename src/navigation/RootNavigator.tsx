@@ -71,10 +71,11 @@ const linking: LinkingOptions<RootStackParamList> = {
       // The hub gets its own link rather than taking over 'sell' -- an
       // existing bookmark/deep link to 'sell' keeps landing straight in
       // the single-item wizard, unbroken. The batch screens themselves
-      // aren't given linking entries: every one of them requires a live
-      // batchId from an in-progress session (created by SellHubScreen),
-      // so there's no meaningful bare URL to deep-link into mid-batch --
-      // they're still reachable via in-app navigation.navigate() as usual.
+      // aren't given linking entries: every one after the first requires a
+      // live batchId from an in-progress session (created by the capture
+      // screen, the first time an item is actually captured), so there's
+      // no meaningful bare URL to deep-link into mid-batch -- they're
+      // still reachable via in-app navigation.navigate() as usual.
       SellHub: 'sell/start',
       Auth: 'login',
       ChangePhone: 'change-phone',

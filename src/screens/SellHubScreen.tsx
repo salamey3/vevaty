@@ -1,7 +1,6 @@
 import React, { useState } from 'react';
 import { StyleSheet, Text, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
-import { Alert } from '../lib/alertShim';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -24,14 +23,13 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SellHub'>;
 // just once, here, before either path continues -- see the batch-listings
 // plan's locked decision on this ("Option A").
 export default function SellHubScreen({ navigation, route }: Props) {
-  const { myShop, createBatch } = useAppStore();
+  const { myShop } = useAppStore();
   const { domains } = useSettings();
   const { t } = useLanguage();
   const [pendingKind, setPendingKind] = useState<'single' | 'batch' | null>(null);
   // Set once the shop question (if any) is settled and we are waiting on
   // the domain pick. Holds the shop answer so it survives that step.
   const [pendingDomain, setPendingDomain] = useState<{ kind: 'single' | 'batch'; attachToShop?: boolean } | null>(null);
-  const [startingBatch, setStartingBatch] = useState(false);
 
   const startSingle = (domainId: string, attachToShop?: boolean) => {
     navigation.navigate('CreateListing', {
@@ -40,22 +38,18 @@ export default function SellHubScreen({ navigation, route }: Props) {
     });
   };
 
-  const startBatch = async (domainId: string, attachToShop?: boolean) => {
-    setStartingBatch(true);
-    try {
-      // Held on the batch row, not passed between screens -- the batch
-      // flow spans six of them and can be resumed later.
-      const batch = await createBatch(domainId);
-      navigation.navigate('BatchPhotos', {
-        batchId: batch.id,
-        domain: domainId,
-        shopChoice: attachToShop === undefined ? undefined : { attachToShop },
-      });
-    } catch (e: any) {
-      Alert.alert(t('sellHub.startBatchErrorTitle'), e?.message || t('sellHub.startBatchErrorBody'));
-    } finally {
-      setStartingBatch(false);
-    }
+  // No batch row is created here. It used to be, the moment this was
+  // tapped -- which meant every seller who opened the batch flow and
+  // thought better of it, or pressed back, or closed the app, left an
+  // in_progress batch behind with nothing in it. The row is created on
+  // the capture screen instead, when there is a first item to put in it:
+  // nothing exists until there is something to hold. See
+  // BatchPhotosScreen's ensureBatch.
+  const startBatch = (domainId: string, attachToShop?: boolean) => {
+    navigation.navigate('BatchPhotos', {
+      domain: domainId,
+      shopChoice: attachToShop === undefined ? undefined : { attachToShop },
+    });
   };
 
   // A storefront that has said what it sells has already answered the gate,
@@ -78,7 +72,7 @@ export default function SellHubScreen({ navigation, route }: Props) {
     setPendingKind(null);
     if (attachToShop && shopDomainId) {
       if (kind === 'single') startSingle(shopDomainId, true);
-      else void startBatch(shopDomainId, true);
+      else startBatch(shopDomainId, true);
       return;
     }
     setPendingDomain({ kind, attachToShop });
@@ -138,14 +132,14 @@ export default function SellHubScreen({ navigation, route }: Props) {
       </View>
 
       <View style={styles.cardsWrap}>
-        <Pressy onPress={onPickSingle} style={styles.card} disabled={startingBatch}>
+        <Pressy onPress={onPickSingle} style={styles.card}>
           <View style={styles.cardIcon}>
             <Icon name="image" size={22} color={colors.primary} />
           </View>
           <Text style={styles.cardTitle}>{t('sellHub.singleItemTitle')}</Text>
           <Text style={styles.cardBody}>{t('sellHub.singleItemBody')}</Text>
         </Pressy>
-        <Pressy onPress={onPickBatch} style={styles.card} disabled={startingBatch}>
+        <Pressy onPress={onPickBatch} style={styles.card}>
           <View style={styles.cardIcon}>
             <Icon name="grip" size={22} color={colors.primary} />
           </View>

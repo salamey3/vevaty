@@ -1,4 +1,4 @@
-import React, { useMemo, useState } from 'react';
+import React, { useCallback, useMemo, useRef, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -34,9 +34,12 @@ const BATCH_MAX_ITEMS = 10;
 // that item's background category classification starts right then, so
 // the seller can move straight on to the next item without waiting (see
 // the plan's "Why batch items don't need a new backend path" section).
+//
+// The batch row itself is created HERE too, on that same first crossing,
+// and not before -- see ensureBatch.
 export default function BatchPhotosScreen({ navigation, route }: Props) {
-  const { batchId, shopChoice, domain: domainId } = route.params;
-  const { addListing, updateListing, myShop } = useAppStore();
+  const { shopChoice, domain: domainId } = route.params;
+  const { addListing, updateListing, createBatch, myShop } = useAppStore();
   const { allCategories, childrenOf, categoryById, allDomains, domainOfCategory } = useSettings();
   const { t, language } = useLanguage();
   // Classification starts HERE, the moment an item crosses the photo
@@ -78,8 +81,47 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
 
   const shopId = shopChoice?.attachToShop && myShop?.verifiedAt ? myShop.id : null;
 
+  // The batch row, created on demand rather than on the way in. It used
+  // to be made the moment "Sell a bunch of items" was tapped, which left
+  // an empty in_progress row behind for every seller who opened the flow
+  // and changed their mind, pressed back, or closed the app -- and no
+  // amount of cleanup on the way out could catch the last of those.
+  // Nothing exists now until there is a first item to put in it.
+  //
+  // Held in a ref as well as state: the ref is what the photo-sync path
+  // reads (it must see the id the instant it is known, not on the next
+  // render), the state is what the render reads, and the in-flight promise
+  // is shared so two photos landing together cannot create two batches.
+  const batchIdRef = useRef<string | null>(null);
+  const creatingBatchRef = useRef<Promise<string> | null>(null);
+  const [batchId, setBatchId] = useState<string | null>(null);
+  const ensureBatch = useCallback((): Promise<string> => {
+    if (batchIdRef.current) return Promise.resolve(batchIdRef.current);
+    if (!creatingBatchRef.current) {
+      creatingBatchRef.current = createBatch(domainId ?? null)
+        .then((batch) => {
+          batchIdRef.current = batch.id;
+          setBatchId(batch.id);
+          return batch.id;
+        })
+        .catch((e) => {
+          // Cleared so a later photo tries again rather than being stuck
+          // behind one failed request for the rest of the session.
+          creatingBatchRef.current = null;
+          throw e;
+        });
+    }
+    return creatingBatchRef.current;
+  }, [createBatch, domainId]);
+
   const [committedCount, setCommittedCount] = useState(0);
   const [currentPhotos, setCurrentPhotos] = useState<string[]>([]);
+  const photosRef = useRef<string[]>([]);
+  // Set when the batch itself could not be created, which leaves the
+  // screen with photos on it and no row behind them. Every control that
+  // moves the flow forward is gated on having a row, so without this
+  // there is nothing on screen that offers to try again.
+  const [startError, setStartError] = useState<string | null>(null);
   const [currentListingId, setCurrentListingId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [photoCameraVisible, setPhotoCameraVisible] = useState(false);
@@ -103,7 +145,7 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
   // optional-chained) -- see ListingCard.tsx -- so this is safe, and the
   // window is short: BatchReviewScreen fills in the real category within
   // moments of this row's own classify call resolving.
-  const draftPayload = (photos: string[]) => ({
+  const draftPayload = (photos: string[], batch: string | null) => ({
     cat: '',
     condition: null,
     titleEn: '',
@@ -133,28 +175,73 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     shopId,
     stockQty: 1,
     variants: null,
-    batchId,
+    batchId: batch,
     status: 'draft' as const,
   });
+
+  // Committing this item: create the batch if it does not exist yet, then
+  // the item's own draft row. The batch is created here and only here, so
+  // the first photo of the first item is what brings a batch into
+  // existence at all.
+  //
+  // Not folded into setPhotosAndSync below, because it also has to be
+  // callable on its own: if this fails there is no row, and every control
+  // that could try again is disabled by the absence of one.
+  const commitItem = (photos: string[]) => {
+    if (committing || photos.length < ITEM_PHOTOS_MIN_FOR_AI) return;
+    setCommitting(true);
+    setStartError(null);
+    (async () => {
+      let batch: string;
+      try {
+        batch = await ensureBatch();
+      } catch (e: any) {
+        // The message, not just the shape of the failure: createBatch says
+        // "you need to be logged in" for a session that has quietly gone
+        // anonymous, and a seller told only "something went wrong" will
+        // retry that forever.
+        setStartError(e?.message || t('sellHub.startBatchErrorBody'));
+        Alert.alert(t('sellHub.startBatchErrorTitle'), e?.message || t('sellHub.startBatchErrorBody'));
+        return;
+      }
+      // Note this cannot report a rejected insert: addListing keeps its
+      // optimistic row and returns it whether or not the server took it
+      // (see AppStore). The catch below is for a thrown failure, not for
+      // a refused write -- that hole is real and older than this screen.
+      const listing = await addListing(draftPayload(photos, batch));
+      setCurrentListingId(listing.id);
+      // Photos taken WHILE this was in flight are on screen but were not
+      // in the row this just created -- and now that there is a row, the
+      // sync path below can only pick up the next change, not the ones
+      // already missed. Two round trips run before that row exists on the
+      // first item of a batch, which is long enough to take another
+      // picture in, so the row is reconciled against what is on screen
+      // now rather than against what was on screen when it started.
+      const latest = photosRef.current;
+      if (latest.length !== photos.length) {
+        updateListing(listing.id, draftPayload(latest, batch)).catch(() => {});
+      }
+      classifyItem(listing.id, latest.length >= ITEM_PHOTOS_MIN_FOR_AI ? latest : photos);
+    })()
+      .catch(() => {
+        Alert.alert(t('batchPhotos.commitErrorTitle'), t('batchPhotos.commitErrorBody'));
+      })
+      .finally(() => setCommitting(false));
+  };
 
   const setPhotosAndSync = (updater: (prev: string[]) => string[]) => {
     setCurrentPhotos((prev) => {
       const next = updater(prev);
+      // Read by commitItem above while its own writes are in flight, so it
+      // has to be the live value rather than the one this render closed
+      // over.
+      photosRef.current = next;
       if (currentListingId) {
         // Already a real row -- keep it in sync with whatever's on screen
         // right now, whichever direction the count moved (add or remove).
-        updateListing(currentListingId, draftPayload(next)).catch(() => {});
-      } else if (!committing && next.length >= ITEM_PHOTOS_MIN_FOR_AI) {
-        setCommitting(true);
-        addListing(draftPayload(next))
-          .then((listing) => {
-            setCurrentListingId(listing.id);
-            classifyItem(listing.id, next);
-          })
-          .catch(() => {
-            Alert.alert(t('batchPhotos.commitErrorTitle'), t('batchPhotos.commitErrorBody'));
-          })
-          .finally(() => setCommitting(false));
+        updateListing(currentListingId, draftPayload(next, batchIdRef.current)).catch(() => {});
+      } else {
+        commitItem(next);
       }
       return next;
     });
@@ -187,8 +274,13 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     setPhotoCameraVisible(true);
   };
 
-  const goToReview = () =>
+  const goToReview = () => {
+    // Unreachable without a batch: every path here requires at least one
+    // captured item, and an item cannot exist before the row that holds
+    // it. Guarded anyway rather than asserted -- this navigates.
+    if (!batchId) return;
     navigation.replace('BatchReview', { batchId, domain: route.params.domain, shopChoice });
+  };
 
   const advanceToNextItem = () => {
     if (!currentListingId || advancing) return;
@@ -272,6 +364,20 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
             <Text style={[type.tiny, styles.addPhotoLabel]}>{t('createListing.addFromGallery')}</Text>
           </Pressy>
         </View>
+
+        {/* The batch itself could not be created, so these photos have no
+            row behind them and nothing that moves the flow on is enabled.
+            Without this line the only way back in is to add or remove a
+            photo and hope -- which is a recovery by accident, not an
+            offer. */}
+        {!!startError && (
+          <View style={styles.startErrorBox}>
+            <Text style={styles.startErrorText}>{startError}</Text>
+            <Pressy onPress={() => commitItem(photosRef.current)} disabled={committing}>
+              <Text style={styles.startErrorRetry}>{t('batchPhotos.startRetry')}</Text>
+            </Pressy>
+          </View>
+        )}
 
         {!hasEnoughForAi && (
           <View style={styles.aiNotice}>
@@ -367,6 +473,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 9, marginTop: 16,
   },
   aiNoticeText: { ...type.tiny, textTransform: 'none', letterSpacing: 0, flex: 1, color: colors.inkSoft },
+  startErrorBox: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    backgroundColor: colors.warnBg, borderRadius: radius.sm,
+    paddingHorizontal: 12, paddingVertical: 10, marginTop: 16,
+  },
+  startErrorText: { flex: 1, fontSize: 12.5, lineHeight: 17, color: colors.ink },
+  startErrorRetry: { fontSize: 13, fontWeight: '700', color: colors.primary, textDecorationLine: 'underline' },
   nextBtn: { marginTop: 24 },
   finishEarlyLink: { alignItems: 'center', marginTop: 16, padding: 8 },
   finishEarlyLinkText: { fontSize: 13, fontWeight: '600', color: colors.inkSoft, textDecorationLine: 'underline' },

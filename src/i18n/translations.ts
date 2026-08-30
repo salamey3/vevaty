@@ -623,6 +623,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'batchPhotos.finishEarlyConfirmTitle': 'Finish adding items?',
     'batchPhotos.finishEarlyConfirmBody': "You've captured {count} item(s). You'll review and confirm each one next.",
     'batchPhotos.finishEarlyConfirmBtn': 'Review now',
+    'batchPhotos.startRetry': 'Try again',
     'batchPhotos.commitErrorTitle': "Couldn't save this item",
     'batchPhotos.commitErrorBody': 'Something went wrong saving these photos. Please try again.',
 
@@ -1388,6 +1389,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'batchPhotos.finishEarlyConfirmTitle': 'إنهاء إضافة القطع؟',
     'batchPhotos.finishEarlyConfirmBody': 'التقطت {count} قطعة. ستراجع وتؤكد كل واحدة في الخطوة التالية.',
     'batchPhotos.finishEarlyConfirmBtn': 'مراجعة الآن',
+    'batchPhotos.startRetry': 'حاول مرة أخرى',
     'batchPhotos.commitErrorTitle': 'تعذّر حفظ هذه القطعة',
     'batchPhotos.commitErrorBody': 'حدث خطأ أثناء حفظ هذه الصور. يرجى المحاولة مرة أخرى.',
 
