@@ -534,8 +534,8 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // (spec lines, AI-suggestion schema, payload, required-field
   // validation, the review-step summary) already reads from this list.
   const specAttrs = useMemo(
-    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues),
-    [resolvedAttrs, attrValues]
+    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues, condition),
+    [resolvedAttrs, attrValues, condition]
   );
   const hasSpecs = specAttrs.length > 0;
   // Category.stockMode -- see its own doc comment. 'unique' (everything

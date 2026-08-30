@@ -98,8 +98,8 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   // resolveVisibleAttrs does and why filtering here is the single choke
   // point for every downstream consumer (spec form, validation, payload).
   const specAttrs = useMemo(
-    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues),
-    [resolvedAttrs, attrValues]
+    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues, listing?.condition),
+    [resolvedAttrs, attrValues, listing?.condition]
   );
   const hasSpecs = specAttrs.length > 0;
 
