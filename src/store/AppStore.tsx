@@ -119,7 +119,7 @@ interface AppStoreValue {
   // Batch listings -- see createBatch/completeBatch's own doc comments
   // (below, in the provider body) for why these aren't cached state like
   // myShop.
-  createBatch: () => Promise<Batch>;
+  createBatch: (domainId?: string | null) => Promise<Batch>;
   completeBatch: (batchId: string) => Promise<void>;
   addListing: (l: ListingInput) => Promise<Listing>;
   updateListing: (id: string, l: ListingInput) => Promise<void>;
@@ -486,6 +486,7 @@ function dbBatchToLocal(row: any): Batch {
     status: row.status === 'submitted' ? 'submitted' : 'in_progress',
     itemCount: row.item_count ?? 0,
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+    domainId: row.domain_id || null,
   };
 }
 
@@ -1466,12 +1467,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // the batch screens tag each item's addListing call with and read back
   // by filtering AppStore's own `listings`, so there's nothing to hold in
   // AppStoreValue state for it.
-  const createBatch = useCallback(async (): Promise<Batch> => {
+  const createBatch = useCallback(async (domainId?: string | null): Promise<Batch> => {
     const uid = userIdRef.current;
     if (!uid) throw new Error('You need to be logged in to start a batch.');
     const { data, error } = await supabase
       .from('batches')
-      .insert({ seller_id: uid })
+      .insert({ seller_id: uid, domain_id: domainId ?? null })
       .select()
       .single();
     if (error || !data) throw new Error(error?.message || 'Could not start a new batch. Please try again.');

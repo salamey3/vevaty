@@ -9,7 +9,11 @@ export type RootStackParamList = {
   // shopChoiceResolved seeding. Omitted (undefined) for every other entry
   // point, which is what makes CreateListingScreen's own internal gate
   // fire exactly as it always has (e.g. a direct deep link).
-  CreateListing: { initialCategory?: CategoryId; editListingId?: string; shopChoice?: { attachToShop: boolean } } | undefined;
+  // `domain` is the pick from the sell gate (see SellHubScreen). It only
+  // matters until a category exists -- after that the domain is derived
+  // from the category via domainOfCategory -- so editing an existing
+  // listing never needs to pass it.
+  CreateListing: { initialCategory?: CategoryId; editListingId?: string; domain?: string; shopChoice?: { attachToShop: boolean } } | undefined;
   // "Sell on Vevaty" hub -- the new front door for posting (see
   // src/screens/SellHubScreen.tsx). No params: it always operates on the
   // signed-in seller's own myShop, same as MyStorefront.
@@ -18,8 +22,12 @@ export type RootStackParamList = {
   // shopChoice on BatchPhotos only: SellHubScreen resolves it once, before
   // the batch even exists, and the batch's own listings rows are the only
   // place it needs to be threaded through from there.
-  BatchPhotos: { batchId: string; shopChoice?: { attachToShop: boolean } };
-  BatchReview: { batchId: string };
+  // `domain` is the sell-gate pick, threaded to the one batch screen that
+  // classifies. It is also written onto the batch row, which is the
+  // durable record -- this param is just the read path, since the batch
+  // screens are only ever reached from a live in-progress session.
+  BatchPhotos: { batchId: string; domain?: string; shopChoice?: { attachToShop: boolean } };
+  BatchReview: { batchId: string; domain?: string };
   // Between BatchReview and BatchDetails -- see BatchVerificationShotsScreen
   // for why this is its own step (targeted spec-reading photos, mirroring
   // CreateListingScreen's single-item 'verify' step) rather than folded

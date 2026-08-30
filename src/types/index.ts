@@ -473,6 +473,12 @@ export interface Batch {
   status: 'in_progress' | 'submitted';
   itemCount: number;
   createdAt: number;
+  // The domain chosen on the sell gate, constraining what the classifier
+  // may return for every item in this batch. Held on the batch rather
+  // than passed between screens: the batch flow spans six of them and can
+  // be resumed later. Null for batches started before the gate existed --
+  // those fall back to the unconstrained category list.
+  domainId: string | null;
 }
 
 export interface Profile {

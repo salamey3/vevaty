@@ -14,6 +14,8 @@ import { useSettings } from '../../store/SettingsStore';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useBatchClassify } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
+import { buildDomainCandidates } from '../../lib/domainCandidates';
+import { domainIdFromSentinel } from '../../lib/classifyPhotos';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BatchPhotos'>;
 
@@ -33,24 +35,27 @@ const BATCH_MAX_ITEMS = 10;
 // the seller can move straight on to the next item without waiting (see
 // the plan's "Why batch items don't need a new backend path" section).
 export default function BatchPhotosScreen({ navigation, route }: Props) {
-  const { batchId, shopChoice } = route.params;
+  const { batchId, shopChoice, domain: domainId } = route.params;
   const { addListing, updateListing, myShop } = useAppStore();
-  const { allCategories, childrenOf, categoryById } = useSettings();
+  const { allCategories, childrenOf, categoryById, allDomains, domainOfCategory } = useSettings();
   const { t, language } = useLanguage();
+  // Classification starts HERE, the moment an item crosses the photo
+  // threshold -- not on the review screen -- so this is the list that has
+  // to be domain-constrained for the batch flow to honour the gate at all.
+  // Sentinels are dropped: the switch offer is a single-item affordance
+  // (see BatchReviewScreen), and a batch is one domain by construction.
   const { classifyItem } = useBatchClassify(
     useMemo(
       () =>
-        allCategories
-          .filter((c) => c.active && childrenOf(c.id).length === 0)
-          .map((c) => {
-            const parent = c.parentId ? categoryById(c.parentId) : undefined;
-            return {
-              id: c.id,
-              name: language === 'ar' ? c.nameAr : c.nameEn,
-              parent: parent ? (language === 'ar' ? parent.nameAr : parent.nameEn) : undefined,
-            };
-          }),
-      [allCategories, childrenOf, categoryById, language]
+        buildDomainCandidates(
+          domainId ?? null,
+          allCategories.filter((c) => c.active && childrenOf(c.id).length === 0),
+          allDomains,
+          categoryById,
+          domainOfCategory,
+          language
+        ).filter((o) => !domainIdFromSentinel(o.id)),
+      [domainId, allCategories, childrenOf, allDomains, categoryById, domainOfCategory, language]
     ),
     language,
     t('createListing.classifyPhotoReadFailed')
@@ -167,7 +172,7 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     setPhotoCameraVisible(true);
   };
 
-  const goToReview = () => navigation.replace('BatchReview', { batchId });
+  const goToReview = () => navigation.replace('BatchReview', { batchId, domain: route.params.domain });
 
   const advanceToNextItem = () => {
     if (!currentListingId || advancing) return;

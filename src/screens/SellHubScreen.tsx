@@ -6,8 +6,10 @@ import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import ShopChoiceGate from '../components/ShopChoiceGate';
+import DomainChoiceGate from '../components/DomainChoiceGate';
 import { colors, radius, type } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
+import { useSettings } from '../store/SettingsStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from '../navigation/types';
 
@@ -23,20 +25,30 @@ type Props = NativeStackScreenProps<RootStackParamList, 'SellHub'>;
 // plan's locked decision on this ("Option A").
 export default function SellHubScreen({ navigation }: Props) {
   const { myShop, createBatch } = useAppStore();
+  const { domains } = useSettings();
   const { t } = useLanguage();
   const [pendingKind, setPendingKind] = useState<'single' | 'batch' | null>(null);
+  // Set once the shop question (if any) is settled and we are waiting on
+  // the domain pick. Holds the shop answer so it survives that step.
+  const [pendingDomain, setPendingDomain] = useState<{ kind: 'single' | 'batch'; attachToShop?: boolean } | null>(null);
   const [startingBatch, setStartingBatch] = useState(false);
 
-  const startSingle = (attachToShop?: boolean) => {
-    navigation.navigate('CreateListing', attachToShop === undefined ? undefined : { shopChoice: { attachToShop } });
+  const startSingle = (domainId: string, attachToShop?: boolean) => {
+    navigation.navigate('CreateListing', {
+      domain: domainId,
+      ...(attachToShop === undefined ? {} : { shopChoice: { attachToShop } }),
+    });
   };
 
-  const startBatch = async (attachToShop?: boolean) => {
+  const startBatch = async (domainId: string, attachToShop?: boolean) => {
     setStartingBatch(true);
     try {
-      const batch = await createBatch();
+      // Held on the batch row, not passed between screens -- the batch
+      // flow spans six of them and can be resumed later.
+      const batch = await createBatch(domainId);
       navigation.navigate('BatchPhotos', {
         batchId: batch.id,
+        domain: domainId,
         shopChoice: attachToShop === undefined ? undefined : { attachToShop },
       });
     } catch (e: any) {
@@ -46,11 +58,33 @@ export default function SellHubScreen({ navigation }: Props) {
     }
   };
 
+  // The domain step comes last, after the kind and (for a storefront
+  // owner) the shop question, so the seller answers the cheap questions
+  // before the one that constrains everything downstream.
+  if (pendingDomain) {
+    return (
+      <DomainChoiceGate
+        domains={domains}
+        onBack={() => setPendingDomain(null)}
+        onChoose={(domainId) =>
+          pendingDomain.kind === 'single'
+            ? startSingle(domainId, pendingDomain.attachToShop)
+            : startBatch(domainId, pendingDomain.attachToShop)
+        }
+        title={t('sellHub.domainTitle')}
+        subtitle={t('sellHub.domainSubtitle')}
+      />
+    );
+  }
+
   if (myShop?.verifiedAt && pendingKind) {
     return (
       <ShopChoiceGate
         onBack={() => setPendingKind(null)}
-        onChoose={(attach) => (pendingKind === 'single' ? startSingle(attach) : startBatch(attach))}
+        onChoose={(attach) => {
+          setPendingKind(null);
+          setPendingDomain({ kind: pendingKind, attachToShop: attach });
+        }}
         title={t('createListing.shopChooserTitle')}
         storefrontTitle={t('createListing.shopChooserStorefrontTitle')}
         storefrontBody={t('createListing.shopChooserStorefrontBody', { name: myShop.nameEn })}
@@ -60,8 +94,10 @@ export default function SellHubScreen({ navigation }: Props) {
     );
   }
 
-  const onPickSingle = () => (myShop?.verifiedAt ? setPendingKind('single') : startSingle());
-  const onPickBatch = () => (myShop?.verifiedAt ? setPendingKind('batch') : startBatch());
+  const onPickSingle = () =>
+    myShop?.verifiedAt ? setPendingKind('single') : setPendingDomain({ kind: 'single' });
+  const onPickBatch = () =>
+    myShop?.verifiedAt ? setPendingKind('batch') : setPendingDomain({ kind: 'batch' });
 
   return (
     <Screen maxWidth={640}>

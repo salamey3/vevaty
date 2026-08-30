@@ -16,6 +16,8 @@ import { useBatchClassify, useBatchClassifyStates, useBatchItemClassifyState } f
 import { listingToInput } from '../../lib/batchListingInput';
 import { RootStackParamList } from '../../navigation/types';
 import { CategoryId, Listing } from '../../types';
+import { buildDomainCandidates } from '../../lib/domainCandidates';
+import { domainIdFromSentinel } from '../../lib/classifyPhotos';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'BatchReview'>;
 
@@ -178,9 +180,9 @@ function ReviewRow({
 }
 
 export default function BatchReviewScreen({ navigation, route }: Props) {
-  const { batchId } = route.params;
+  const { batchId, domain: domainId } = route.params;
   const { listings } = useAppStore();
-  const { allCategories, childrenOf, categoryById } = useSettings();
+  const { allCategories, childrenOf, categoryById, allDomains, domainOfCategory } = useSettings();
   const { t, language } = useLanguage();
 
   const items = useMemo(
@@ -188,19 +190,22 @@ export default function BatchReviewScreen({ navigation, route }: Props) {
     [listings, batchId]
   );
 
+  const leafCategories = useMemo(
+    () => allCategories.filter((c) => c.active && childrenOf(c.id).length === 0),
+    [allCategories, childrenOf]
+  );
+
+  // Narrowed to the batch's domain, same helper the single-item wizard
+  // uses. No sentinels here: the switch offer is a single-item affordance
+  // -- a batch is one domain by construction, and this screen already
+  // lets the seller fix any row's category by hand, so a per-row "switch
+  // the whole batch?" prompt would be noise. buildDomainCandidates only
+  // adds sentinels when it is given a domain, so they are filtered out.
   const categoryOptions = useMemo(
     () =>
-      allCategories
-        .filter((c) => c.active && childrenOf(c.id).length === 0)
-        .map((c) => {
-          const parent = c.parentId ? categoryById(c.parentId) : undefined;
-          return {
-            id: c.id,
-            name: language === 'ar' ? c.nameAr : c.nameEn,
-            parent: parent ? (language === 'ar' ? parent.nameAr : parent.nameEn) : undefined,
-          };
-        }),
-    [allCategories, childrenOf, categoryById, language]
+      buildDomainCandidates(domainId ?? null, leafCategories, allDomains, categoryById, domainOfCategory, language)
+        .filter((o) => !domainIdFromSentinel(o.id)),
+    [domainId, leafCategories, allDomains, categoryById, domainOfCategory, language]
   );
 
   const { classifyItem } = useBatchClassify(categoryOptions, language, t('createListing.classifyPhotoReadFailed'));

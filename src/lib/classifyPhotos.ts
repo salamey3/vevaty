@@ -11,6 +11,24 @@ import { AiSuggestPhoto } from './aiSuggest';
 // while the suggestion is slow research that runs behind them once the
 // category is known.
 
+// Prefix marking a candidate that is not a real category but a stand-in
+// for a whole other domain. The classifier only ever picks from the list
+// it is handed, so adding one of these per *other* domain is how a
+// domain-constrained call can still say "these photos are actually a
+// property" -- without the edge function knowing domains exist, and
+// without loosening the constraint. See DOMAINS.md.
+export const DOMAIN_SENTINEL_PREFIX = '__domain__';
+
+export function domainSentinelId(domainId: string): string {
+  return `${DOMAIN_SENTINEL_PREFIX}${domainId}`;
+}
+
+// The domain a sentinel stands for, or null for an ordinary category id.
+export function domainIdFromSentinel(categoryId: string | null): string | null {
+  if (!categoryId || !categoryId.startsWith(DOMAIN_SENTINEL_PREFIX)) return null;
+  return categoryId.slice(DOMAIN_SENTINEL_PREFIX.length) || null;
+}
+
 export interface ClassifyCategoryOption {
   id: string;
   name: string;
@@ -23,6 +41,9 @@ export interface ClassifyResult {
   // null when the AI could not place the item confidently -- an explicit
   // "I don't know" rather than a guess, so the app can drop the seller into
   // the normal category picker instead of filing it somewhere wrong.
+  //
+  // May also be a domain sentinel (see domainIdFromSentinel) when the call
+  // was domain-constrained and the photos plainly belong somewhere else.
   categoryId: string | null;
   itemName: string;
   confidence: 'low' | 'medium' | 'high';

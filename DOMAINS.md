@@ -81,12 +81,14 @@ truth that drifts.
 
 ## What this costs
 
-**The classify edge function changes shape.** It must accept a domain and
-return two things: the best category *within* that domain, and its own
-independent read of which domain the photos actually belong to. The
-mismatch between the two is what raises the switch offer. Note this is a
-Supabase edge function, so it deploys separately from the app — outside
-the ordinary patch flow.
+**~~The classify edge function changes shape.~~** *Turned out not to be
+needed.* The function already takes its candidate list from the caller and
+validates its own answer against it, so constraining the classifier is
+purely a matter of sending fewer categories. The second output — its read
+of which domain the photos really belong to — is obtained by appending one
+sentinel candidate per other domain, described in plain terms; picking one
+is the mismatch signal. The whole of step 2 therefore ships as an ordinary
+app patch, with no separate deploy.
 
 **Collections need domain scoping.** They resolve globally today. Editor's
 Picks and Hot Deals have to become per-domain, which means either a domain
@@ -118,9 +120,13 @@ Each step ships something usable on its own.
    SettingsStore; a Domain picker on the admin category editor, shown
    only for top-level rows since a subcategory's own value would be
    ignored. Invisible to users -- nothing reads it yet.
-2. **Posting.** The gate screen, the constrained classifier, the storefront
-   skip. This is where the accuracy win lands, and it can ship while
-   browsing is untouched.
+2. **Posting.** *Gate and constrained classifier done 30 Aug 2026; the
+   storefront skip is still to do.* The gate is an in-screen step on
+   SellHubScreen after the kind and shop questions; the domain reaches the
+   single-item wizard as a route param and the batch flow through a
+   `domain_id` on the batch row. Both classify call sites are narrowed to
+   the domain's leaves, with sentinels raising the switch offer in the
+   single-item flow.
 3. **Browsing.** Per-domain homes, collections scoping, search scoping.
    The large one.
 4. **Jobs & Services.** Only when there is an actual intention to launch

@@ -20,6 +20,8 @@ import { RootStackParamList } from '../navigation/types';
 import { AttributeValue, Category, CategoryId, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { resolveVisibleAttrs } from '../lib/attributeVisibility';
+import { buildDomainCandidates } from '../lib/domainCandidates';
+import { domainIdFromSentinel } from '../lib/classifyPhotos';
 import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey, requiresPaymentFrequency } from '../lib/rentTerms';
 import RentTermsFields from '../components/RentTermsFields';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -98,7 +100,7 @@ function spinLabelSuggestionsFor(isVehicle: boolean, isProperty: boolean, langua
 
 export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified, authChecked, myShop } = useAppStore();
-  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, allCategories, childrenOf } = useSettings();
+  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, domains, allDomains, domainOfCategory, allCategories, childrenOf } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
   const editingListing = editListingId ? listings.find((l) => l.id === editListingId) : undefined;
@@ -467,19 +469,43 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // filed under, so offering "Vehicles" alongside "Cars for Sale" would
   // just let the model (or the seller's search) answer with something the
   // form can't accept.
+  const leafCategories = useMemo(
+    () => allCategories.filter((c) => c.active && childrenOf(c.id).length === 0),
+    [allCategories, childrenOf]
+  );
+
+  // The domain the seller picked on the sell gate. Editing an existing
+  // listing derives it from that listing's category instead -- the gate is
+  // never shown again, and a category already answers the question.
+  // Set when the classifier answers with a domain sentinel -- the photos
+  // plainly belong somewhere else. Cleared by switching or by dismissing.
+  const [mismatchDomainId, setMismatchDomainId] = useState<string | null>(null);
+  const [domainId, setDomainId] = useState<string | null>(
+    route.params?.domain ?? (editingListing ? domainOfCategory(editingListing.cat)?.id ?? null : null)
+  );
+
+  const activeDomain = domainId ? allDomains.find((d) => d.id === domainId) : undefined;
+  const mismatchDomain = mismatchDomainId ? allDomains.find((d) => d.id === mismatchDomainId) : undefined;
+
+  // Leaf-only, parent-qualified category options for both the classify
+  // call and CategorySuggestInput's typeahead -- one list, two consumers.
+  // Leaves only: those are the only categories a listing can actually be
+  // filed under, so offering "Vehicles" alongside a postable leaf would
+  // just let the model (or the seller's search) answer with something the
+  // form can't accept.
+  //
+  // Narrowed to the chosen domain, with a sentinel per other domain so a
+  // wrong pick can still be detected -- see buildDomainCandidates.
   const classifyCategoryOptions = useMemo(
-    () =>
-      allCategories
-        .filter((c) => c.active && childrenOf(c.id).length === 0)
-        .map((c) => {
-          const parent = c.parentId ? categoryById(c.parentId) : undefined;
-          return {
-            id: c.id,
-            name: language === 'ar' ? c.nameAr : c.nameEn,
-            parent: parent ? (language === 'ar' ? parent.nameAr : parent.nameEn) : undefined,
-          };
-        }),
-    [allCategories, childrenOf, categoryById, language]
+    () => buildDomainCandidates(domainId, leafCategories, allDomains, categoryById, domainOfCategory, language),
+    [domainId, leafCategories, allDomains, categoryById, domainOfCategory, language]
+  );
+
+  // The typeahead and browse modal must never offer a sentinel: it is a
+  // message to the classifier, not a category anything can be filed under.
+  const pickableCategoryOptions = useMemo(
+    () => classifyCategoryOptions.filter((o) => !domainIdFromSentinel(o.id)),
+    [classifyCategoryOptions]
   );
 
   // The actual vision call + classifying/classifyError state now lives in
@@ -495,6 +521,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // explicit "I can't tell" from the qualifier -- the photos are
       // still worth keeping either way, the seller just picks the
       // category by hand (mandatory, no pill).
+      return;
+    }
+    // The classifier is telling us the photos belong to a different
+    // domain entirely (see buildDomainCandidates). Offer the switch rather
+    // than filing the listing somewhere it does not belong -- and do not
+    // touch the category, which would strand a sentinel id on the form.
+    const suggestedDomain = domainIdFromSentinel(outcome.result.categoryId);
+    if (suggestedDomain) {
+      setMismatchDomainId(suggestedDomain);
       return;
     }
     setAiCategoryId(outcome.result.categoryId);
@@ -1822,10 +1857,60 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               </View>
             )}
 
+            {/* Which domain this listing is being posted into, and the way
+                out. Shown whenever a domain is in force so a seller who
+                tapped the wrong card on the gate can see it before they
+                have filled anything in -- not only when the classifier
+                happens to notice. */}
+            {!!activeDomain && (
+              <View style={styles.domainNotice}>
+                <Text style={styles.domainNoticeText} numberOfLines={1}>
+                  {t('createListing.postingInDomain', {
+                    domain: language === 'ar' ? activeDomain.nameAr : activeDomain.nameEn,
+                  })}
+                </Text>
+                <Pressy onPress={() => navigation.replace('SellHub')}>
+                  <Text style={styles.domainNoticeAction}>{t('common.edit')}</Text>
+                </Pressy>
+              </View>
+            )}
+
+            {/* The classifier said, from inside a closed in-domain list,
+                that these photos belong to another domain -- see
+                buildDomainCandidates. One tap switches and keeps the
+                photos; the constraint is hard, not a trap. */}
+            {!!mismatchDomain && (
+              <View style={styles.mismatchBox}>
+                <Text style={styles.mismatchText}>
+                  {t('createListing.domainMismatch', {
+                    domain: language === 'ar' ? mismatchDomain.nameAr : mismatchDomain.nameEn,
+                  })}
+                </Text>
+                <View style={styles.mismatchActions}>
+                  <Pressy
+                    onPress={() => {
+                      setDomainId(mismatchDomain.id);
+                      setMismatchDomainId(null);
+                    }}
+                    style={styles.mismatchPrimary}
+                  >
+                    <Text style={styles.mismatchPrimaryText}>
+                      {t('createListing.domainMismatchSwitch', {
+                        domain: language === 'ar' ? mismatchDomain.nameAr : mismatchDomain.nameEn,
+                      })}
+                    </Text>
+                  </Pressy>
+                  <Pressy onPress={() => setMismatchDomainId(null)}>
+                    <Text style={styles.mismatchDismiss}>{t('createListing.domainMismatchKeep')}</Text>
+                  </Pressy>
+                </View>
+              </View>
+            )}
+
             <CategorySuggestInput
               query={categoryQuery}
               onChangeQuery={setCategoryQuery}
-              options={classifyCategoryOptions.map((o) => ({ id: o.id, label: o.name, parent: o.parent }))}
+              options={pickableCategoryOptions.map((o) => ({ id: o.id, label: o.name, parent: o.parent }))}
               onSelect={(id) => selectCategoryManually(id as CategoryId)}
               placeholder={t('createListing.classifySearchPlaceholder')}
               aiGuess={showConfirmPill && cat ? { label: language === 'ar' ? cat.nameAr : cat.nameEn } : undefined}
@@ -2947,6 +3032,27 @@ const styles = StyleSheet.create({
   aiCheckItem: { fontSize: 12.5, color: colors.accentInk, lineHeight: 18 },
   aiSourcesLabel: { ...type.tiny, textTransform: 'none', letterSpacing: 0, marginTop: 6 },
   aiSourceItem: { fontSize: 12, color: colors.ink, textDecorationLine: 'underline', marginTop: 2 },
+  domainNotice: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10,
+    backgroundColor: colors.primaryTint, borderRadius: radius.sm,
+    paddingHorizontal: 12, paddingVertical: 9, marginBottom: 12,
+  },
+  domainNoticeText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink },
+  domainNoticeAction: { fontSize: 13, fontWeight: '700', color: colors.primary, textDecorationLine: 'underline' },
+  // Gold rather than red: the seller has not done anything wrong, the
+  // classifier is offering a shortcut.
+  mismatchBox: {
+    backgroundColor: '#fdf4e3', borderWidth: 1, borderColor: colors.accent,
+    borderRadius: radius.sm, padding: 12, marginBottom: 12, gap: 10,
+  },
+  mismatchText: { fontSize: 13.5, color: colors.ink, lineHeight: 19 },
+  mismatchActions: { flexDirection: 'row', alignItems: 'center', gap: 14, flexWrap: 'wrap' },
+  mismatchPrimary: {
+    paddingHorizontal: 14, height: 36, borderRadius: radius.pill,
+    backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center',
+  },
+  mismatchPrimaryText: { fontSize: 13, fontWeight: '700', color: colors.white },
+  mismatchDismiss: { fontSize: 13, fontWeight: '600', color: colors.inkSoft, textDecorationLine: 'underline' },
   // The rent line on the review preview when a sale price is already
   // occupying the big number above it -- secondary, not competing.
   reviewRentLine: { fontSize: 15, fontWeight: '600', color: colors.inkSoft, marginTop: 2 },
