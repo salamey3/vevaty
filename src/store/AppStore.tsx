@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Listing, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
+import { Listing, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
@@ -917,6 +917,16 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     return results;
   }, []);
 
+  // Why a code and not just a message: the sentence a seller should read
+  // has to be translated, and the one PostgREST hands back cannot be --
+  // "permission denied for column batch_parked" under an Arabic title
+  // helps nobody, and is not what they need to know anyway (which is
+  // whether anything was saved and whether to press the button again).
+  // The code lets each screen say the right thing in the right language;
+  // the raw text goes to the console, where it is actually useful.
+  const listingSaveError = (code: ListingSaveErrorCode, technical?: string) =>
+    Object.assign(new Error(technical || code), { code });
+
   const addListing = useCallback(
     async (l: ListingInput) => {
       // "Save & exit" on an incomplete new listing (see
@@ -967,96 +977,127 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         batchParked: l.batchParked ?? false,
       };
 
-      if (uid) {
-        const { data, error } = await supabase
-          .from('listings')
-          .insert({
-            seller_id: uid,
-            category_id: l.cat,
-            title_en: l.titleEn,
-            title_ar: l.titleAr,
-            description_en: l.descriptionEn,
-            description_ar: l.descriptionAr,
-            price: l.price,
-            currency: 'USD',
-            rent_price: l.rentPrice ?? null,
-            rent_period: l.rentPeriod ?? null,
-            rent_payment_frequency: l.rentPaymentFrequency ?? null,
-            condition: l.condition ?? null,
-            district: l.district,
-            governorate: l.governorate,
-            caza: l.caza,
-            geoname_id: l.geonameId,
-            lat: l.lat,
-            lng: l.lng,
-            status: asDraft ? 'draft' : 'pending_review',
-            ai_generated: l.aiGenerated,
-            attributes: l.attributes || {},
-            contact_method: l.contactMethod || 'both',
-            shop_id: l.shopId,
-            stock_qty: l.stockQty ?? 1,
-            variants: l.variants ?? null,
-            batch_id: l.batchId ?? null,
-            batch_parked: l.batchParked ?? false,
+      // No session at all: there is nothing to write the listing to, and
+      // the caller has to hear that rather than be handed a listing that
+      // exists only in this phone's memory. Posting is gated behind
+      // isVerified upstream, so in practice this is unreachable -- which
+      // is exactly why it must not fail quietly if it ever is reached.
+      if (!uid) throw listingSaveError('not-signed-in');
+
+      const { data, error } = await supabase
+        .from('listings')
+        .insert({
+          seller_id: uid,
+          category_id: l.cat,
+          title_en: l.titleEn,
+          title_ar: l.titleAr,
+          description_en: l.descriptionEn,
+          description_ar: l.descriptionAr,
+          price: l.price,
+          currency: 'USD',
+          rent_price: l.rentPrice ?? null,
+          rent_period: l.rentPeriod ?? null,
+          rent_payment_frequency: l.rentPaymentFrequency ?? null,
+          condition: l.condition ?? null,
+          district: l.district,
+          governorate: l.governorate,
+          caza: l.caza,
+          geoname_id: l.geonameId,
+          lat: l.lat,
+          lng: l.lng,
+          status: asDraft ? 'draft' : 'pending_review',
+          ai_generated: l.aiGenerated,
+          attributes: l.attributes || {},
+          contact_method: l.contactMethod || 'both',
+          shop_id: l.shopId,
+          stock_qty: l.stockQty ?? 1,
+          variants: l.variants ?? null,
+          batch_id: l.batchId ?? null,
+          batch_parked: l.batchParked ?? false,
+        })
+        .select()
+        .single();
+      // The whole reason this function is written this way round.
+      //
+      // It used to read `if (!error && data) { ...everything... }` with
+      // no else: a refused insert was discarded, the optimistic row kept
+      // its made-up `l-<timestamp>` id, and it was pushed into local
+      // state and RETURNED as though it had been created. The seller saw
+      // a normal listing marked "pending review"; its photos were never
+      // uploaded (that happens below, inside the success path),
+      // moderation never ran so it could never publish, points were
+      // awarded for it, and the next sync -- a refresh, an app restart --
+      // replaced local state with the server's and it vanished. The bug
+      // report is "my listing disappeared", hours later, with nothing to
+      // connect it to.
+      //
+      // Nothing in the app could detect it either: every caller trusts a
+      // return value that was indistinguishable from a real one. And the
+      // ways this actually fails are all live here -- myazar.listings is
+      // granted per COLUMN and PostgREST rejects the whole statement over
+      // one ungranted column (this repo has been caught by that twice), a
+      // CHECK constraint a migration missed, an RLS denial, the network
+      // dropping mid-post.
+      if (error || !data) {
+        // Said out loud, the way updateListing's own failure is: this line
+        // names the ungranted column or the failing CHECK, and it is the
+        // only place that information exists at all.
+        console.warn('[AppStore] addListing insert refused:', error?.message);
+        throw listingSaveError('refused', error?.message);
+      }
+      newListing = {
+        ...newListing,
+        id: data.id,
+        createdAt: new Date(data.created_at).getTime(),
+        expiresAt: data.expires_at ? new Date(data.expires_at).getTime() : newListing.expiresAt,
+      };
+
+      // Upload to ChemiCloud in the background rather than making the
+      // seller wait on photo uploads before their listing appears —
+      // the local device photos already show fine in the meantime.
+      const listingId = data.id;
+      if (l.photos.length > 0) {
+        persistNewPhotos(listingId, l.photos, 'gallery')
+          .then(({ urls, coverThumbnailUrl }) => {
+            if (urls.length === 0) return;
+            setListings((prev) =>
+              prev.map((it) => (it.id === listingId ? { ...it, photos: urls, coverThumbnailUrl } : it))
+            );
           })
-          .select()
-          .single();
-        if (!error && data) {
-          newListing = {
-            ...newListing,
-            id: data.id,
-            createdAt: new Date(data.created_at).getTime(),
-            expiresAt: data.expires_at ? new Date(data.expires_at).getTime() : newListing.expiresAt,
-          };
+          .catch(() => {});
+      }
+      if (l.spinSets.length > 0) {
+        persistNewSpinSets(listingId, l.spinSets)
+          .then((hostedSets) => {
+            if (hostedSets.length === 0) return;
+            setListings((prev) => prev.map((it) => (it.id === listingId ? { ...it, spinSets: hostedSets } : it)));
+          })
+          .catch(() => {});
+      }
+      // The video went to Bunny while the seller was still filling in
+      // the rest of the form, so by now it exists but points at nothing.
+      // Linking it is what makes it visible to anyone else: the RLS
+      // select policy only exposes a video whose listing is live.
+      if (l.video?.guid) {
+        attachVideoToListing(l.video.guid, listingId).catch(() => {});
+      }
 
-          // Upload to ChemiCloud in the background rather than making the
-          // seller wait on photo uploads before their listing appears —
-          // the local device photos already show fine in the meantime.
-          const listingId = data.id;
-          if (l.photos.length > 0) {
-            persistNewPhotos(listingId, l.photos, 'gallery')
-              .then(({ urls, coverThumbnailUrl }) => {
-                if (urls.length === 0) return;
-                setListings((prev) =>
-                  prev.map((it) => (it.id === listingId ? { ...it, photos: urls, coverThumbnailUrl } : it))
-                );
-              })
-              .catch(() => {});
-          }
-          if (l.spinSets.length > 0) {
-            persistNewSpinSets(listingId, l.spinSets)
-              .then((hostedSets) => {
-                if (hostedSets.length === 0) return;
-                setListings((prev) => prev.map((it) => (it.id === listingId ? { ...it, spinSets: hostedSets } : it)));
-              })
-              .catch(() => {});
-          }
-          // The video went to Bunny while the seller was still filling in
-          // the rest of the form, so by now it exists but points at nothing.
-          // Linking it is what makes it visible to anyone else: the RLS
-          // select policy only exposes a video whose listing is live.
-          if (l.video?.guid) {
-            attachVideoToListing(l.video.guid, listingId).catch(() => {});
-          }
-
-          // Fire the AI moderation check in the background too -- the
-          // seller is already navigated to their "pending review" listing
-          // by the time this resolves (that's the whole point of the
-          // "instant-feeling" submit). It publishes itself (status ->
-          // active) on a pass, or leaves it flagged for a human on a
-          // fail/error -- see moderate-listing and AdminModerationScreen.
-          // Skipped entirely for a draft save -- there is nothing to
-          // moderate yet, and moderate-listing would just flag an
-          // incomplete listing that was never actually submitted.
-          if (!asDraft) {
-            Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
-              .then((results) => {
-                const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
-                return triggerListingModeration(listingId, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
-              })
-              .catch(() => {});
-          }
-        }
+      // Fire the AI moderation check in the background too -- the
+      // seller is already navigated to their "pending review" listing
+      // by the time this resolves (that's the whole point of the
+      // "instant-feeling" submit). It publishes itself (status ->
+      // active) on a pass, or leaves it flagged for a human on a
+      // fail/error -- see moderate-listing and AdminModerationScreen.
+      // Skipped entirely for a draft save -- there is nothing to
+      // moderate yet, and moderate-listing would just flag an
+      // incomplete listing that was never actually submitted.
+      if (!asDraft) {
+        Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+          .then((results) => {
+            const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
+            return triggerListingModeration(listingId, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
+          })
+          .catch(() => {});
       }
 
       setListings((prev) => [newListing, ...prev]);

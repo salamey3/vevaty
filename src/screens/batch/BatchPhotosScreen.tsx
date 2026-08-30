@@ -117,11 +117,12 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
   const [committedCount, setCommittedCount] = useState(0);
   const [currentPhotos, setCurrentPhotos] = useState<string[]>([]);
   const photosRef = useRef<string[]>([]);
-  // Set when the batch itself could not be created, which leaves the
-  // screen with photos on it and no row behind them. Every control that
-  // moves the flow forward is gated on having a row, so without this
-  // there is nothing on screen that offers to try again.
-  const [startError, setStartError] = useState<string | null>(null);
+  // Set when committing this item failed -- either the batch could not be
+  // created or the item's own row was refused. Both leave the screen with
+  // photos on it and nothing behind them, and every control that moves the
+  // flow forward is gated on having a row, so without this there is
+  // nothing on screen that offers to try again.
+  const [commitError, setCommitError] = useState<string | null>(null);
   const [currentListingId, setCurrentListingId] = useState<string | null>(null);
   const [committing, setCommitting] = useState(false);
   const [photoCameraVisible, setPhotoCameraVisible] = useState(false);
@@ -187,27 +188,29 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
   // Not folded into setPhotosAndSync below, because it also has to be
   // callable on its own: if this fails there is no row, and every control
   // that could try again is disabled by the absence of one.
+  // Both failures say the same thing in two places: an alert, which is
+  // seen once, and a line that stays on screen with the way back.
+  const fail = (title: string, message: string) => {
+    setCommitError(message);
+    Alert.alert(title, message);
+  };
+
   const commitItem = (photos: string[]) => {
     if (committing || photos.length < ITEM_PHOTOS_MIN_FOR_AI) return;
     setCommitting(true);
-    setStartError(null);
+    setCommitError(null);
     (async () => {
       let batch: string;
       try {
         batch = await ensureBatch();
       } catch (e: any) {
-        // The message, not just the shape of the failure: createBatch says
+        // The reason, not just the shape of the failure: createBatch says
         // "you need to be logged in" for a session that has quietly gone
         // anonymous, and a seller told only "something went wrong" will
         // retry that forever.
-        setStartError(e?.message || t('sellHub.startBatchErrorBody'));
-        Alert.alert(t('sellHub.startBatchErrorTitle'), e?.message || t('sellHub.startBatchErrorBody'));
+        fail(t('sellHub.startBatchErrorTitle'), e?.message || t('sellHub.startBatchErrorBody'));
         return;
       }
-      // Note this cannot report a rejected insert: addListing keeps its
-      // optimistic row and returns it whether or not the server took it
-      // (see AppStore). The catch below is for a thrown failure, not for
-      // a refused write -- that hole is real and older than this screen.
       const listing = await addListing(draftPayload(photos, batch));
       setCurrentListingId(listing.id);
       // Photos taken WHILE this was in flight are on screen but were not
@@ -223,8 +226,18 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
       }
       classifyItem(listing.id, latest.length >= ITEM_PHOTOS_MIN_FOR_AI ? latest : photos);
     })()
-      .catch(() => {
-        Alert.alert(t('batchPhotos.commitErrorTitle'), t('batchPhotos.commitErrorBody'));
+      .catch((e: any) => {
+        // addListing throws now where it used to hand back a row that
+        // existed nowhere. Reaching here leaves no listing, so the same
+        // "try again" line the batch-creation failure puts on screen is
+        // needed: Next item and Finish are both gated on having a row, so
+        // otherwise the only way out is to add or delete a photo and hope.
+        fail(
+          t('batchPhotos.commitErrorTitle'),
+          e?.code === 'not-signed-in'
+            ? t('createListing.postFailedSignedOut')
+            : t('batchPhotos.commitErrorBody')
+        );
       })
       .finally(() => setCommitting(false));
   };
@@ -365,16 +378,15 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
           </Pressy>
         </View>
 
-        {/* The batch itself could not be created, so these photos have no
-            row behind them and nothing that moves the flow on is enabled.
-            Without this line the only way back in is to add or remove a
-            photo and hope -- which is a recovery by accident, not an
-            offer. */}
-        {!!startError && (
-          <View style={styles.startErrorBox}>
-            <Text style={styles.startErrorText}>{startError}</Text>
+        {/* Nothing was saved, so these photos have no row behind them and
+            nothing that moves the flow on is enabled. Without this line the
+            only way back in is to add or remove a photo and hope -- which
+            is a recovery by accident, not an offer. */}
+        {!!commitError && (
+          <View style={styles.commitErrorBox}>
+            <Text style={styles.commitErrorText}>{commitError}</Text>
             <Pressy onPress={() => commitItem(photosRef.current)} disabled={committing}>
-              <Text style={styles.startErrorRetry}>{t('batchPhotos.startRetry')}</Text>
+              <Text style={styles.commitErrorRetry}>{t('batchPhotos.startRetry')}</Text>
             </Pressy>
           </View>
         )}
@@ -473,13 +485,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.sm, paddingHorizontal: 12, paddingVertical: 9, marginTop: 16,
   },
   aiNoticeText: { ...type.tiny, textTransform: 'none', letterSpacing: 0, flex: 1, color: colors.inkSoft },
-  startErrorBox: {
+  commitErrorBox: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     backgroundColor: colors.warnBg, borderRadius: radius.sm,
     paddingHorizontal: 12, paddingVertical: 10, marginTop: 16,
   },
-  startErrorText: { flex: 1, fontSize: 12.5, lineHeight: 17, color: colors.ink },
-  startErrorRetry: { fontSize: 13, fontWeight: '700', color: colors.primary, textDecorationLine: 'underline' },
+  commitErrorText: { flex: 1, fontSize: 12.5, lineHeight: 17, color: colors.ink },
+  commitErrorRetry: { fontSize: 13, fontWeight: '700', color: colors.primary, textDecorationLine: 'underline' },
   nextBtn: { marginTop: 24 },
   finishEarlyLink: { alignItems: 'center', marginTop: 16, padding: 8 },
   finishEarlyLinkText: { fontSize: 13, fontWeight: '600', color: colors.inkSoft, textDecorationLine: 'underline' },

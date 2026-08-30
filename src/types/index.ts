@@ -117,6 +117,12 @@ export interface Category {
 //                 New/Used is not a question anyone should be asked.
 export type ConditionMode = 'new_used' | 'offer_type' | 'rehome';
 
+// Why a listing could not be saved, in a form a screen can translate.
+// 'refused' is the database declining the row -- an ungranted column, a
+// failing CHECK, an RLS denial, a dropped connection. See AppStore's
+// addListing, which used to swallow all of them.
+export type ListingSaveErrorCode = 'not-signed-in' | 'refused';
+
 // The kind of input a category attribute's value should be collected
 // with. `select`/`multiselect` use `options`; `number` and `text` are
 // free entry; `boolean` is a yes/no switch.

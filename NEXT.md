@@ -10,16 +10,18 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-Two things worth fixing, both found while clearing the last of those:
+Two things worth fixing:
 
-- **`addListing` swallows a refused insert.** On a Supabase error it keeps
-  its optimistic local row and returns it, so the caller cannot tell a
-  saved listing from an unsaved one -- and every screen reads that same
-  local array, so the app looks entirely correct while the server has
-  nothing. The batch flow is where this bites hardest: a whole session of
-  items can appear to save. It is also exactly what a missed column grant
-  produces (see the grants note in @AGENTS.md), which is the failure this
-  repo has already been caught by twice. `updateListing` at least warns.
+- **`updateListing` swallows a refused update.** Same hole `addListing` had
+  until it was fixed: it applies the change to local state, `console.warn`s
+  a database error and returns as though it saved. Smaller blast radius --
+  the listing still exists -- but it has one live consequence worth naming:
+  "Save & exit" on an already-created draft goes through `updateListing`,
+  so it can never fail, the exit proceeds, and the edits are gone. The
+  other silent ones are `deleteListing`, `extendListing`, `republishListing`,
+  `hideListing` and `markListingSold`, which do not even read the error.
+  Fixing them means deciding what each call site should do when it fails,
+  which is why this is its own task rather than a sweep.
 - **The app has not had a native build since 26 Aug.** Nothing needs one
   right now -- the fingerprint was restored rather than rebuilt around, so
   updates reach it again (see @AGENTS.md, "What forces a new native

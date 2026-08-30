@@ -36,6 +36,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'unsavedChanges.title': 'Unsaved changes',
     'unsavedChanges.saveAndExit': 'Save & exit',
     'unsavedChanges.exitWithoutSaving': 'Exit without saving',
+    'createListing.postFailedTitle': "Couldn't post this listing",
+    'createListing.postFailedMessage':
+      'Nothing was saved, and everything you entered is still here. Check your connection and press Post again.',
+    'createListing.postFailedSignedOut':
+      'You have been signed out, so nothing was saved. Sign in again and everything you entered will still be here.',
     'unsavedChanges.saveFailedTitle': 'Could not save',
     'unsavedChanges.saveFailedMessage': 'Something went wrong saving your changes. Please try again.',
     'unsavedChanges.cannotSaveTitle': 'Missing information',
@@ -884,6 +889,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'unsavedChanges.title': 'تغييرات غير محفوظة',
     'unsavedChanges.saveAndExit': 'حفظ وخروج',
     'unsavedChanges.exitWithoutSaving': 'خروج بدون حفظ',
+    'createListing.postFailedTitle': 'تعذّر نشر هذا الإعلان',
+    'createListing.postFailedMessage':
+      'لم يُحفظ أي شيء، وكل ما أدخلته لا يزال هنا. تحقّق من اتصالك واضغط "نشر" مرة أخرى.',
+    'createListing.postFailedSignedOut':
+      'تم تسجيل خروجك، لذلك لم يُحفظ أي شيء. سجّل الدخول مجددًا وسيبقى كل ما أدخلته هنا.',
     'unsavedChanges.saveFailedTitle': 'تعذّر الحفظ',
     'unsavedChanges.saveFailedMessage': 'حدث خطأ أثناء حفظ التغييرات. يرجى المحاولة مرة أخرى.',
     'unsavedChanges.cannotSaveTitle': 'معلومات ناقصة',

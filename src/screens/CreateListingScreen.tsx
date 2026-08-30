@@ -1638,14 +1638,36 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     postingRef.current = true;
     setPosting(true);
     const payload = buildPayload();
-    if (isEditMode && editListingId) {
-      await updateListing(editListingId, payload);
+    try {
+      if (isEditMode && editListingId) {
+        await updateListing(editListingId, payload);
+        setPosting(false);
+        navigation.navigate('ListingDetail', { listingId: editListingId });
+      } else {
+        const listing = await addListing(payload);
+        setPosting(false);
+        navigation.replace('ListingDetail', { listingId: listing.id });
+      }
+    } catch (e: any) {
+      // addListing throws now when the row is refused, where it used to
+      // hand back a listing that existed nowhere but this phone. Without
+      // this the seller would be left on a dead Post button -- `posting`
+      // stuck true, and postingRef stuck true with it, which silently
+      // disables this screen's own unsaved-changes guard for the rest of
+      // its life. Everything they typed is still on screen; Post can just
+      // be pressed again.
       setPosting(false);
-      navigation.navigate('ListingDetail', { listingId: editListingId });
-    } else {
-      const listing = await addListing(payload);
-      setPosting(false);
-      navigation.replace('ListingDetail', { listingId: listing.id });
+      postingRef.current = false;
+      // The seller's own language, chosen by the error's code -- never
+      // e.message, which for a refused row is a PostgREST diagnostic in
+      // English and tells them nothing they can act on. The diagnostic is
+      // in the console, where it is useful. See AppStore's
+      // listingSaveError.
+      Alert.alert(
+        t('createListing.postFailedTitle'),
+        t(e?.code === 'not-signed-in' ? 'createListing.postFailedSignedOut' : 'createListing.postFailedMessage')
+      );
+      return;
     }
     // The beforeRemove listener has already synchronously seen this
     // navigation by the time either call above returns (React Navigation
