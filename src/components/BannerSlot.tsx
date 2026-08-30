@@ -74,8 +74,22 @@ function useImageAspect(uri: string | null): number | null {
 // is active there. Handles its own reroll-on-focus (see useBannerForSlot)
 // -- callers just drop <BannerSlot slot="..." /> where the design calls
 // for it and don't need to know about the shuffle bag at all.
-export default function BannerSlot({ slot, style }: { slot: BannerSlotKind; style?: ViewStyle }) {
-  const banner = useBannerForSlot(slot);
+export default function BannerSlot({
+  slot,
+  domain,
+  style,
+}: {
+  slot: BannerSlotKind;
+  // The listing section this placement sits inside: an id, null for a
+  // placement that belongs to none, or undefined while the page cannot
+  // tell yet (see useBannerForSlot -- undefined holds the roll rather
+  // than counting as none). Required rather than optional on purpose: a
+  // placement that forgot to say would quietly become an "all sections
+  // only" one, and nothing on screen would show that it had.
+  domain: string | null | undefined;
+  style?: ViewStyle;
+}) {
+  const banner = useBannerForSlot(slot, domain);
   return <BannerSlotView banner={banner} slot={slot} style={style} />;
 }
 

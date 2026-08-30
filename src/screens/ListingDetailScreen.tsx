@@ -55,7 +55,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
   const { listings, profile, deleteListing, hideListing, markListingSold, isVerified } = useAppStore();
-  const { categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory } = useSettings();
+  const { ready: settingsReady, categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory, domainOfCategory } = useSettings();
   const { collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -88,6 +88,18 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const listing = useMemo(() => listings.find((l) => l.id === route.params.listingId), [listings, route.params.listingId]);
   const cat = listing ? categoryById(listing.cat) : undefined;
   const catAncestors = listing ? ancestorsOf(listing.cat) : [];
+  // Which section this listing belongs to. The banner placements below
+  // use it: an advertiser who bought Properties wants the people reading
+  // an apartment listing, not only the people on the Properties home.
+  //
+  // undefined until the category tree has loaded, and deliberately not
+  // null: a section is derived from a category, the offline fallback
+  // holds only top-level rows, and on a cold-loaded shared link this is
+  // genuinely unknown for the first frames. Saying "no section" that
+  // early would spend the page's one impression on an untargeted banner
+  // before the targeted one was even eligible -- see useBannerForSlot.
+  const listingDomainId =
+    listing && settingsReady ? domainOfCategory(listing.cat)?.id ?? null : undefined;
   const specs = useMemo(() => {
     if (!listing) return [];
     return resolveAttributesForCategory(listing.cat).filter((a) => attrHasValue(listing.attributes[a.slug]));
@@ -1142,7 +1154,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
                   balanced -- sticky rather than trying to match the
                   info column's exact height (which varies listing to
                   listing; see BannerSlot's per-slot size table). */}
-              <BannerSlot slot="listing_detail_desktop_rail" style={styles.desktopRailBanner} />
+              <BannerSlot slot="listing_detail_desktop_rail" domain={listingDomainId} style={styles.desktopRailBanner} />
             </View>
             <View style={styles.desktopInfo}>
               {details}
@@ -1176,7 +1188,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
               than edge-to-edge, so it reads as part of the listing's own
               content column instead of a full-bleed strip tacked onto the
               bottom of the page. */}
-          <BannerSlot slot="listing_detail_mobile" style={styles.mobileBanner} />
+          <BannerSlot slot="listing_detail_mobile" domain={listingDomainId} style={styles.mobileBanner} />
           {relatedSection}
           {editorsPicksSection}
           {hotDealsSection}

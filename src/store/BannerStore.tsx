@@ -34,6 +34,7 @@ function dbToBanner(row: any): Banner {
     startDate: row.start_date,
     endDate: row.end_date,
     isActive: !!row.is_active,
+    domainId: row.domain_id ?? null,
     createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
   };
 }
@@ -45,6 +46,31 @@ function todayStr(): string {
 function isBannerActiveNow(b: Banner): boolean {
   const today = todayStr();
   return b.isActive && b.startDate <= today && today <= b.endDate;
+}
+
+// A slot is only half of a placement now: the same slot renders in every
+// section, and which banners are eligible there depends on which one. The
+// shuffle bag is keyed by the pair, so a visitor moving from Properties to
+// Vehicles does not inherit a cycle built from banners that are not even
+// eligible on the page they are now looking at.
+//
+// The anti-repeat memory (lastShownRef) is deliberately NOT keyed this
+// way -- it stays per slot. "Never the same creative twice in a row" is a
+// promise about one place on the screen, and a viewer does not know or
+// care that crossing from a property to a car swapped the pool behind it.
+// An untargeted banner sits in every section's bag for a slot, so keying
+// the memory per placement would let it come up twice running, which is
+// exactly the thing the bag exists to prevent.
+function placementKey(slot: BannerSlot, domainId: string | null): string {
+  return `${slot}::${domainId ?? ''}`;
+}
+
+// Null section = runs everywhere. A section set = runs only where that
+// section is known and matches, which is why a placement that knows no
+// section (the sidebar) shows untargeted banners only rather than
+// everything.
+function runsIn(b: Banner, domainId: string | null): boolean {
+  return b.domainId == null || b.domainId === domainId;
 }
 
 interface SlotSelectionState {
@@ -63,15 +89,17 @@ interface BannerStoreValue {
   addBanner: (input: Omit<Banner, 'id' | 'createdAt'>) => Promise<void>;
   updateBanner: (id: string, input: Omit<Banner, 'id' | 'createdAt'>) => Promise<void>;
   deleteBanner: (id: string) => Promise<void>;
-  // Re-rolls the shuffle bag for one slot and returns the banner it
-  // picked (or null if nothing is active there right now). Logs an
-  // impression for whatever it picks. Idempotent to call from more than
-  // one place in the same render pass -- see useBannerForSlot.
-  reroll: (slot: BannerSlot) => Banner | null;
+  // Re-rolls the shuffle bag for one placement (a slot inside a section --
+  // null section for a placement that belongs to none) and returns the
+  // banner it picked, or null if nothing is eligible there right now.
+  // Logs an impression for whatever it picks, so it is NOT idempotent:
+  // every call advances the bag and reports a view. Call it once per
+  // placement per focus -- see useBannerForSlot.
+  reroll: (slot: BannerSlot, domainId: string | null) => Banner | null;
   // The banner currently selected for a slot, without re-rolling --
   // callers that already triggered a reroll (via the hook below) read
   // this to render.
-  currentForSlot: (slot: BannerSlot) => Banner | null;
+  currentForSlot: (slot: BannerSlot, domainId: string | null) => Banner | null;
   logClick: (bannerId: string) => void;
   eventCounts: (bannerId: string) => { impressions: number; clicks: number };
 }
@@ -126,13 +154,15 @@ export function BannerStoreProvider({ children }: { children: React.ReactNode })
   }, [banners]);
 
   const reroll = useCallback(
-    (slot: BannerSlot): Banner | null => {
-      const active = activeBySlot[slot] ?? [];
+    (slot: BannerSlot, domainId: string | null): Banner | null => {
+      const active = (activeBySlot[slot] ?? []).filter((b) => runsIn(b, domainId));
+      const key = placementKey(slot, domainId);
       const activeIds = active.map((b) => b.id);
-      const prevBag = selectionRef.current[slot]?.bag ?? null;
+      const prevBag = selectionRef.current[key]?.bag ?? null;
+      // Per slot, not per placement -- see placementKey's comment.
       const lastShown = lastShownRef.current[slot] ?? null;
       const { id, state } = pickNextBanner(activeIds, prevBag, lastShown);
-      selectionRef.current[slot] = { bannerId: id, bag: state };
+      selectionRef.current[key] = { bannerId: id, bag: state };
       lastShownRef.current[slot] = id;
       forceTick((n) => n + 1);
       if (id) {
@@ -149,10 +179,20 @@ export function BannerStoreProvider({ children }: { children: React.ReactNode })
   );
 
   const currentForSlot = useCallback(
-    (slot: BannerSlot): Banner | null => {
-      const id = selectionRef.current[slot]?.bannerId;
+    (slot: BannerSlot, domainId: string | null): Banner | null => {
+      const id = selectionRef.current[placementKey(slot, domainId)]?.bannerId;
       if (!id) return null;
-      return banners.find((b) => b.id === id) ?? null;
+      const b = banners.find((x) => x.id === id) ?? null;
+      // Re-checked rather than trusted: the pick is held in a ref across
+      // renders, and an admin pausing a banner (or narrowing it to another
+      // section) mid-session would otherwise keep it on screen.
+      //
+      // The placement then stays empty until something rerolls it, rather
+      // than picking a replacement here: this runs during render, and
+      // rerolling from render would both advance the bag and POST an
+      // impression as a side effect of drawing. An empty slot until the
+      // next focus is the cheaper wrong answer.
+      return b && isBannerActiveNow(b) && runsIn(b, domainId) ? b : null;
     },
     [banners]
   );
@@ -190,6 +230,7 @@ export function BannerStoreProvider({ children }: { children: React.ReactNode })
         start_date: input.startDate,
         end_date: input.endDate,
         is_active: input.isActive,
+        domain_id: input.domainId,
       });
       if (error) throw error;
       await refresh();
@@ -211,6 +252,7 @@ export function BannerStoreProvider({ children }: { children: React.ReactNode })
           start_date: input.startDate,
           end_date: input.endDate,
           is_active: input.isActive,
+          domain_id: input.domainId,
           updated_at: new Date().toISOString(),
         })
         .eq('id', id);
@@ -256,12 +298,34 @@ export function useBanners() {
 // The persistent sidebar banner does NOT use this hook -- it isn't a
 // screen and is never unfocused/refocused in the way a stack screen is
 // (see TabBar.tsx's own focusedIndex effect for how it rerolls instead).
-export function useBannerForSlot(slot: BannerSlot): Banner | null {
+// `domainId` is the section the slot is rendering inside, where the page
+// knows one -- a section home, or a listing's own page. Omitted (the
+// sidebar) means no section is known, and only banners that target none
+// are eligible.
+// `domainId` is the section this placement sits inside: a section id, or
+// null for a placement that belongs to none (the sidebar). `undefined` is
+// a third, different answer -- "not known yet" -- and it holds everything
+// back rather than being treated as null.
+//
+// That distinction is load-bearing. A listing's section is derived from
+// its category, and the category tree arrives on its own network call: for
+// the first frames of a cold-loaded listing page it is genuinely unknown.
+// Reading that as "no section" would roll once against untargeted banners
+// only, POST an impression for whatever it picked, and then roll AGAIN the
+// moment the categories landed -- two impressions for one page view, the
+// first charged to a banner nobody bought that placement for, and a
+// section-targeted banner unable to win the roll on the page it was sold
+// against.
+export function useBannerForSlot(slot: BannerSlot, domainId: string | null | undefined): Banner | null {
   const { reroll, currentForSlot, loaded } = useBanners();
   const isFocused = useIsFocused();
+  const known = domainId !== undefined;
   useEffect(() => {
-    if (loaded && isFocused) reroll(slot);
+    // Rerolls when the section changes too, not only on focus: the same
+    // slot on the Properties home and on the Vehicles home is two
+    // different placements drawing from two different sets.
+    if (loaded && isFocused && known) reroll(slot, domainId ?? null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [slot, isFocused, loaded]);
-  return currentForSlot(slot);
+  }, [slot, domainId, known, isFocused, loaded]);
+  return known ? currentForSlot(slot, domainId ?? null) : null;
 }

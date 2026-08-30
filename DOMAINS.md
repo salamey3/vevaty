@@ -71,6 +71,7 @@ time, before any of it was built. The first table settled what domains
 | Search inside a section | Scoped, with a line handing the same words to the gate's search |
 | Gate content | Live counts on the tiles, and one newest-across-the-site row |
 | Banners | A banner gains an optional section; the five slots are unchanged |
+| Where a banner runs | Only where the section is known AND matches; the sidebar knows none |
 | Category tiles | A section shows its own top-level categories, and none when it has one |
 | Addresses | `/category/electronics` still resolves; each section gets its own too |
 
@@ -207,8 +208,14 @@ Each step ships something usable on its own.
    section's Just Listed is genuinely its newest and not the part of the
    site's newest that happens to belong to it. Search inside a section
    stays scoped and offers a count of what the same words find elsewhere,
-   which hands them to the gate's own search. Banners are the one decision
-   here still to build -- see @NEXT.md.
+   which hands them to the gate's own search. A banner carries an optional
+   section (`myazar.banners.domain_id`, table-granted, so no column grant):
+   null runs everywhere, set runs only where the section is known and
+   matches -- a section's home and the listings inside it, never the
+   sidebar, which belongs to no section. The shuffle bag is keyed by slot
+   AND section; its "never twice in a row" memory stays keyed by slot
+   alone, because that promise is about one place on the screen and a
+   viewer does not know the pool behind it changed.
 4. **Jobs & Services.** Only when there is an actual intention to launch
    them, and with real thinking about salary ranges and hourly pricing
    rather than a guess made now.

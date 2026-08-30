@@ -93,10 +93,14 @@ export default function TabBar({ state, navigation }: BottomTabBarProps) {
   // sees.
   const { reroll: rerollBanner, currentForSlot, loaded: bannersLoaded } = useBanners();
   useEffect(() => {
-    if (bannersLoaded && isDesktop) rerollBanner('sidebar_nav');
+    // null, not undefined: the sidebar belongs to no section -- it is the
+    // app's chrome, standing beside the gate as much as beside a section --
+    // so its section is known, and known to be none. Only banners that
+    // target no section are eligible here.
+    if (bannersLoaded && isDesktop) rerollBanner('sidebar_nav', null);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [bannersLoaded, isDesktop, focusedIndex]);
-  const sidebarBanner = currentForSlot('sidebar_nav');
+  const sidebarBanner = currentForSlot('sidebar_nav', null);
 
   // How tall the sidebar banner is allowed to get. navScroll (flex:1)
   // already occupies exactly the space between brandRow and the footer --

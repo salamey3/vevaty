@@ -103,6 +103,7 @@ interface FormState {
   startDate: string;
   endDate: string;
   isActive: boolean;
+  domainId: string | null;
 }
 
 function blankForm(): FormState {
@@ -116,6 +117,7 @@ function blankForm(): FormState {
     startDate: start,
     endDate: plus30DaysStr(start),
     isActive: true,
+    domainId: null,
   };
 }
 
@@ -129,6 +131,7 @@ function formFromBanner(b: Banner): FormState {
     startDate: b.startDate,
     endDate: b.endDate,
     isActive: b.isActive,
+    domainId: b.domainId,
   };
 }
 
@@ -202,7 +205,7 @@ export default function AdminBannersScreen() {
   const { banners, loaded, addBanner, updateBanner, deleteBanner, eventCounts } = useBanners();
   const { collections } = useCollections();
   const { listings: allListings } = useAppStore();
-  const { categoryById } = useSettings();
+  const { categoryById, domains, allDomains } = useSettings();
 
   const [selectedSlot, setSelectedSlot] = useState<BannerSlot>('sidebar_nav');
   const [editing, setEditing] = useState<'new' | string | null>(null);
@@ -213,6 +216,31 @@ export default function AdminBannersScreen() {
   const [listingQuery, setListingQuery] = useState('');
 
   const updateForm = (patch: Partial<FormState>) => setForm((f) => ({ ...f, ...patch }));
+
+  // The sidebar belongs to no section -- it is the app's chrome, present
+  // on the gate as much as anywhere -- so there is no section for a
+  // targeted banner to match there and the picker is not offered. Every
+  // other placement sits inside a known section: a section's own home, or
+  // a listing that belongs to one.
+  const sectionTargetable = selectedSlot !== 'sidebar_nav';
+  // The sections a banner can be sold against: the ones the buyer's gate
+  // actually renders, since a dormant section has no home to run on.
+  //
+  // Plus, if this banner is already targeted at one that has since gone
+  // dormant, that one too -- otherwise its chip simply vanishes, no chip
+  // reads as selected, and the obvious way to make the form look right
+  // again is to tap "All sections", which silently widens a banner from
+  // one section to every section with no warning and no undo.
+  const sectionOptions = useMemo(() => {
+    if (!form.domainId || domains.some((d) => d.id === form.domainId)) return domains;
+    const stored = allDomains.find((d) => d.id === form.domainId);
+    return stored ? [...domains, stored] : domains;
+  }, [domains, allDomains, form.domainId]);
+  // Named on every row, not only in the form: "which of these is the
+  // Properties one" is the question an admin actually arrives with, and a
+  // banner running everywhere should say so rather than say nothing.
+  const sectionLabel = (domainId: string | null) =>
+    domainId ? allDomains.find((d) => d.id === domainId)?.nameEn ?? domainId : 'All sections';
 
   const slotBanners = useMemo(
     () => banners.filter((b) => b.slot === selectedSlot).slice().sort((a, b) => b.createdAt - a.createdAt),
@@ -272,6 +300,11 @@ export default function AdminBannersScreen() {
         startDate: form.startDate,
         endDate: form.endDate,
         isActive: form.isActive,
+        // Forced back to "all sections" for a placement that has no
+        // section to match against -- see sectionTargetable. Saving a
+        // targeted sidebar banner would be saving one that can never
+        // appear, and silently.
+        domainId: sectionTargetable ? form.domainId : null,
       };
       if (editing === 'new') {
         await addBanner(payload);
@@ -340,6 +373,33 @@ export default function AdminBannersScreen() {
       ) : editing ? (
         <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
           <Text style={styles.fieldHint}>{SLOT_LABEL[selectedSlot]} · {SLOT_DIMENSIONS[selectedSlot]}</Text>
+
+          {sectionTargetable && (
+            <>
+              <Text style={styles.fieldLabel}>Section</Text>
+              <Text style={styles.fieldHint}>
+                Leave this on "All sections" and the banner runs everywhere this placement appears. Pick one and it
+                only runs inside that section -- on its home, and on the listings that belong to it.
+              </Text>
+              <View style={styles.chipRow}>
+                <Pressy
+                  onPress={() => updateForm({ domainId: null })}
+                  style={[styles.chip, form.domainId === null && styles.chipActive]}
+                >
+                  <Text style={[styles.chipText, form.domainId === null && styles.chipTextActive]}>All sections</Text>
+                </Pressy>
+                {sectionOptions.map((d) => (
+                  <Pressy
+                    key={d.id}
+                    onPress={() => updateForm({ domainId: d.id })}
+                    style={[styles.chip, form.domainId === d.id && styles.chipActive]}
+                  >
+                    <Text style={[styles.chipText, form.domainId === d.id && styles.chipTextActive]}>{d.nameEn}</Text>
+                  </Pressy>
+                ))}
+              </View>
+            </>
+          )}
 
           <BannerImageField label="English creative" url={form.imageUrlEn} onPicked={(u) => updateForm({ imageUrlEn: u })} onRemove={() => updateForm({ imageUrlEn: null })} />
           <BannerImageField label="Arabic creative" url={form.imageUrlAr} onPicked={(u) => updateForm({ imageUrlAr: u })} onRemove={() => updateForm({ imageUrlAr: null })} rtlPreviewText />
@@ -511,7 +571,9 @@ export default function AdminBannersScreen() {
                           <Text style={[styles.tagText, { color: statusColor.fg }]}>{STATUS_LABEL[status]}</Text>
                         </View>
                       </View>
-                      <Text style={styles.rowSub} numberOfLines={1}>{b.startDate} → {b.endDate}</Text>
+                      <Text style={styles.rowSub} numberOfLines={1}>
+                        {b.startDate} → {b.endDate} · {sectionLabel(b.domainId)}
+                      </Text>
                       <Text style={styles.rowSub} numberOfLines={1}>{counts.impressions} impressions · {counts.clicks} clicks</Text>
                     </View>
                     <View style={styles.rowControls}>

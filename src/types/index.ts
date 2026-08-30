@@ -673,5 +673,12 @@ export interface Banner {
   startDate: string; // 'YYYY-MM-DD'
   endDate: string; // 'YYYY-MM-DD'
   isActive: boolean;
+  // Which listing section this banner runs in, or null for all of them.
+  // The rule is one line: a banner with a section shows only where the
+  // section is known AND matches. So a Properties banner runs on the
+  // Properties home and on a property's own listing page, and never in
+  // the sidebar -- which belongs to no section and therefore shows only
+  // banners that belong to none either.
+  domainId: string | null;
   createdAt: number;
 }

@@ -7,15 +7,11 @@ Kept here rather than in anyone's head, so it survives closing a laptop.
 **Listing domains, step 4: Jobs & Services — see @DOMAINS.md.** Only when
 there is an actual intention to launch them, and with real thinking about
 salary ranges and hourly pricing rather than a guess made now. Steps 1
-(domains as data), 2 (posting) and 3 (browsing) are done.
+(domains as data), 2 (posting) and 3 (browsing, banners included) are all
+done — every decision in that document is now built.
 
-Three smaller things left over, none blocking:
+Two smaller things left over, neither blocking:
 
-- **Banners are not sectioned yet.** The decision was that a banner gains
-  an optional section — blank runs everywhere, set runs only inside that
-  one. The five slots are unchanged; it wants a `domain_id` on the banner
-  row, the admin picker, and the section threaded into the two home slots.
-  This is the one browsing decision not yet built.
 - **Three screens still push a duplicate tab navigator.**
   `ListingDetailScreen` (the category link, twice), `FavoritesScreen` (run
   a saved search) and `lib/bannerLink.ts` all call plain

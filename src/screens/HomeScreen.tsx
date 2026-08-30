@@ -126,7 +126,7 @@ export default function HomeScreen() {
   // grid -- confusing, and not where that belongs (ProfileScreen's "My
   // listings" already surfaces it clearly with a status badge).
   const listings = useMemo(() => allListings.filter((l) => l.status === 'active'), [allListings]);
-  const { categoryById, childrenOf, categoryMatches, usesOfferTypeCategory, resolveFilterFacetsForCategory, domains, domainById, categoriesInDomain, domainOfCategory } = useSettings();
+  const { categoryById, childrenOf, categoryMatches, usesOfferTypeCategory, resolveFilterFacetsForCategory, domains, domainById, categoriesInDomain, domainOfCategory, ready: settingsReady } = useSettings();
   const { saveSearch } = useSavedSearches();
   const { t, language, isRTL } = useLanguage();
   const goHome = useGoHome();
@@ -205,7 +205,18 @@ export default function HomeScreen() {
   // to exactly one section and storing it twice is a second source of
   // truth that drifts (the same rule as leaf-ness and domain visibility --
   // see DOMAINS.md).
-  const domainId = params?.domain ?? (params?.cat ? domainOfCategory(params.cat)?.id ?? null : null);
+  // undefined -- not null -- while a section derived from a category is
+  // still unknown, which it is until the category tree has loaded. Every
+  // reader below treats undefined and null alike (an unscoped screen is
+  // the honest pre-load state), except the banner placements, where the
+  // difference is a wasted impression -- see useBannerForSlot.
+  const domainId: string | null | undefined = params?.domain
+    ? params.domain
+    : params?.cat
+      ? settingsReady
+        ? domainOfCategory(params.cat)?.id ?? null
+        : undefined
+      : null;
   const activeDomain = domainId ? domainById(domainId) : undefined;
   const domainName = activeDomain ? (language === 'ar' ? activeDomain.nameAr : activeDomain.nameEn) : '';
   // The section's own top-level categories -- what its tiles, chips and
@@ -964,11 +975,11 @@ export default function HomeScreen() {
               onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
             />
             {includeBanners && collection.kind === 'curated' && (
-              <BannerSlot slot="home_after_editors_picks" style={styles.homeBanner} />
+              <BannerSlot slot="home_after_editors_picks" domain={domainId} style={styles.homeBanner} />
             )}
           </React.Fragment>
         ))}
-        {includeBanners && <BannerSlot slot="home_after_just_listed" style={styles.homeBanner} />}
+        {includeBanners && <BannerSlot slot="home_after_just_listed" domain={domainId} style={styles.homeBanner} />}
       </>
     ) : null;
   // No banners: this is the copy prepended into desktop's "all
