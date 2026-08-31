@@ -39,6 +39,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
+import { listingActionMessage } from '../lib/listingActionMessage';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingPriceLines, priceLineText } from '../lib/priceDisplay';
 import { rentPaymentFrequencyLabelKey } from '../lib/rentTerms';
@@ -239,9 +240,14 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       await deleteListing(listing.id);
       navigation.popToTop();
     } catch (e: any) {
+      // The confirm dialog deliberately STAYS open. deleteError has exactly
+      // one render site -- this dialog's own message line -- so closing it
+      // here (which is what this did while deleteListing could never
+      // actually throw) threw the message away with it: the sheet shut,
+      // the listing sat there, and nothing said why. MyListingsScreen's
+      // own delete keeps its dialog up for the same reason.
       setDeleting(false);
-      setConfirmingDelete(false);
-      setDeleteError(e?.message || t('listingDetail.deleteFailed'));
+      setDeleteError(listingActionMessage(e, t, 'listingDetail.deleteFailed'));
     }
   };
 
@@ -256,7 +262,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     try {
       await hideListing(listing.id);
     } catch (e: any) {
-      setHideError(e?.message || t('myListings.hideFailed'));
+      setHideError(listingActionMessage(e, t, 'myListings.hideFailed'));
     } finally {
       setHiding(false);
     }
@@ -270,7 +276,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     try {
       await markListingSold(listing.id, soldVia);
     } catch (e: any) {
-      setSoldError(e?.message || t('myListings.markSoldFailed'));
+      setSoldError(listingActionMessage(e, t, 'myListings.markSoldFailed'));
     } finally {
       setMarkingSold(false);
     }

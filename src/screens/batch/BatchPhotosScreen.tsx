@@ -1,8 +1,9 @@
-import React, { useCallback, useMemo, useRef, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { Image, StyleSheet, Text, View } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Alert } from '../../lib/alertShim';
+import { listingActionMessage } from '../../lib/listingActionMessage';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
 import Button from '../../components/Button';
@@ -124,7 +125,18 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
   // nothing on screen that offers to try again.
   const [commitError, setCommitError] = useState<string | null>(null);
   const [currentListingId, setCurrentListingId] = useState<string | null>(null);
+  // The same value as a ref, because the photo sync below settles after a
+  // network round trip and has to know whether the item it belongs to is
+  // still the one on screen. State read in a closure would be whatever it
+  // was when the sync started, which is exactly the wrong answer.
+  const currentListingIdRef = useRef<string | null>(null);
   const [committing, setCommitting] = useState(false);
+  // How many photo syncs are in flight for the item on screen. Leaving
+  // the item while one is running is what let a failure land on the next
+  // item's blank screen, so Next item and Finish early both wait for it
+  // -- it is one small write, not a build. The back arrow does not wait;
+  // it disowns the item instead (see the unmount cleanup below).
+  const [syncing, setSyncing] = useState(0);
   const [photoCameraVisible, setPhotoCameraVisible] = useState(false);
   const [advancing, setAdvancing] = useState(false);
 
@@ -195,6 +207,40 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     Alert.alert(title, message);
   };
 
+  // Keeping an already-created row's photo list level with what is on
+  // screen. Both callers used to end in `.catch(() => {})`, which was
+  // survivable only because updateListing never rejected -- it warned and
+  // returned as though it had saved. Now that it throws, silence here
+  // would be the expensive kind: the row keeps the photo list it was
+  // created with, the seller sees the one they actually took, and the
+  // difference only surfaces after the whole batch is posted.
+  const syncPhotos = (listingId: string, photos: string[]) => {
+    setSyncing((n) => n + 1);
+    return updateListing(listingId, draftPayload(photos, batchIdRef.current))
+      // Both arms check they still own the screen first. commitError is a
+      // single box shared by every item, so a sync that settles after the
+      // seller has moved on would otherwise either put an error on an
+      // item it has nothing to do with -- pointing at a Try again that
+      // can do nothing about it -- or, resolving late, wipe a live error
+      // belonging to the item now in front of them and leave that item
+      // with photos, no row, and no way forward.
+      .then(() => {
+        // Clearing on success matters as much as setting on failure: the
+        // box tells the seller to tap Try again before moving on, so one
+        // left standing after the next photo already went through sends
+        // them to press a button that has nothing to retry.
+        if (currentListingIdRef.current === listingId) setCommitError(null);
+      })
+      .catch((e: any) => {
+        if (currentListingIdRef.current !== listingId) {
+          console.warn('[BatchPhotos] photo sync failed for an item already left behind:', listingId, e?.message);
+          return;
+        }
+        fail(t('batchPhotos.syncErrorTitle'), listingActionMessage(e, t, 'batchPhotos.syncErrorBody'));
+      })
+      .finally(() => setSyncing((n) => n - 1));
+  };
+
   const commitItem = (photos: string[]) => {
     if (committing || photos.length < ITEM_PHOTOS_MIN_FOR_AI) return;
     setCommitting(true);
@@ -213,6 +259,7 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
       }
       const listing = await addListing(draftPayload(photos, batch));
       setCurrentListingId(listing.id);
+      currentListingIdRef.current = listing.id;
       // Photos taken WHILE this was in flight are on screen but were not
       // in the row this just created -- and now that there is a row, the
       // sync path below can only pick up the next change, not the ones
@@ -222,7 +269,7 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
       // now rather than against what was on screen when it started.
       const latest = photosRef.current;
       if (latest.length !== photos.length) {
-        updateListing(listing.id, draftPayload(latest, batch)).catch(() => {});
+        syncPhotos(listing.id, latest);
       }
       classifyItem(listing.id, latest.length >= ITEM_PHOTOS_MIN_FOR_AI ? latest : photos);
     })()
@@ -232,12 +279,7 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
         // "try again" line the batch-creation failure puts on screen is
         // needed: Next item and Finish are both gated on having a row, so
         // otherwise the only way out is to add or delete a photo and hope.
-        fail(
-          t('batchPhotos.commitErrorTitle'),
-          e?.code === 'not-signed-in'
-            ? t('createListing.postFailedSignedOut')
-            : t('batchPhotos.commitErrorBody')
-        );
+        fail(t('batchPhotos.commitErrorTitle'), listingActionMessage(e, t, 'batchPhotos.commitErrorBody'));
       })
       .finally(() => setCommitting(false));
   };
@@ -252,7 +294,7 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
       if (currentListingId) {
         // Already a real row -- keep it in sync with whatever's on screen
         // right now, whichever direction the count moved (add or remove).
-        updateListing(currentListingId, draftPayload(next, batchIdRef.current)).catch(() => {});
+        syncPhotos(currentListingId, next);
       } else {
         commitItem(next);
       }
@@ -292,11 +334,29 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     // captured item, and an item cannot exist before the row that holds
     // it. Guarded anyway rather than asserted -- this navigates.
     if (!batchId) return;
+    // Disown the item before leaving. This replaces the screen, so a
+    // photo sync still in flight would otherwise settle with the ref
+    // still naming an item nobody is looking at, pass the ownership
+    // check, and put "tap Try again before moving on" on top of the
+    // review screen -- which has no Try again, and no way back to the
+    // item, since replace() dropped this screen from the stack.
+    currentListingIdRef.current = null;
     navigation.replace('BatchReview', { batchId, domain: route.params.domain, shopChoice });
   };
 
+  // The back arrow, and any other teardown: whatever is in flight stops
+  // speaking for a screen that is gone. Its failure is still recorded in
+  // the console, which is the only place it can usefully go once there is
+  // nothing on screen to attach it to.
+  useEffect(
+    () => () => {
+      currentListingIdRef.current = null;
+    },
+    []
+  );
+
   const advanceToNextItem = () => {
-    if (!currentListingId || advancing) return;
+    if (!currentListingId || advancing || syncing > 0) return;
     const nextCount = committedCount + 1;
     if (nextCount >= BATCH_MAX_ITEMS) {
       goToReview();
@@ -305,11 +365,23 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
     setAdvancing(true);
     setCommittedCount(nextCount);
     setCurrentPhotos([]);
+    // Both of these belong to the item being left behind. photosRef is
+    // what the error box's Try again hands to commitItem, and
+    // currentListingId is what decides which branch that takes -- so a
+    // box left standing here would have offered to "retry" the previous
+    // item's photos as a BRAND NEW listing under the next item.
+    photosRef.current = [];
+    setCommitError(null);
     setCurrentListingId(null);
+    currentListingIdRef.current = null;
     setAdvancing(false);
   };
 
   const finishEarly = () => {
+    // Same wait as Next item: leaving mid-sync is how a photo goes
+    // missing quietly, and this exit is the one that cannot be walked
+    // back.
+    if (syncing > 0) return;
     const totalSoFar = currentListingId ? committedCount + 1 : committedCount;
     if (totalSoFar === 0) return;
     Alert.alert(t('batchPhotos.finishEarlyConfirmTitle'), t('batchPhotos.finishEarlyConfirmBody', { count: totalSoFar }), [
@@ -385,7 +457,18 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
         {!!commitError && (
           <View style={styles.commitErrorBox}>
             <Text style={styles.commitErrorText}>{commitError}</Text>
-            <Pressy onPress={() => commitItem(photosRef.current)} disabled={committing}>
+            {/* Which failure this is deciding what "try again" means. If a
+                row already exists, the thing that failed was keeping its
+                photos level with the screen, and commitItem would insert
+                a SECOND listing for the same item rather than retry --
+                reachable today too, since fail() also runs on anything
+                that throws after addListing has already returned. */}
+            <Pressy
+              onPress={() =>
+                currentListingId ? syncPhotos(currentListingId, photosRef.current) : commitItem(photosRef.current)
+              }
+              disabled={committing}
+            >
               <Text style={styles.commitErrorRetry}>{t('batchPhotos.startRetry')}</Text>
             </Pressy>
           </View>
@@ -416,13 +499,13 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
               : t('batchPhotos.nextItemBtn')
           }
           onPress={advanceToNextItem}
-          disabled={!currentListingId || committing}
-          loading={committing}
+          disabled={!currentListingId || committing || syncing > 0}
+          loading={committing || syncing > 0}
           style={styles.nextBtn}
         />
 
         {canShowFinishEarly && (
-          <Pressy onPress={finishEarly} style={styles.finishEarlyLink}>
+          <Pressy onPress={finishEarly} disabled={syncing > 0} style={styles.finishEarlyLink}>
             <Text style={styles.finishEarlyLinkText}>{t('batchPhotos.finishEarlyLink')}</Text>
           </Pressy>
         )}

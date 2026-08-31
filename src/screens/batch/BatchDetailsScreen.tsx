@@ -11,7 +11,9 @@ import StockIntakeForm from '../../components/StockIntakeForm';
 import { colors, radius, type } from '../../theme/theme';
 import { useAppStore } from '../../store/AppStore';
 import { useSettings } from '../../store/SettingsStore';
+import { Alert } from '../../lib/alertShim';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { listingActionMessage } from '../../lib/listingActionMessage';
 import { listingToInput } from '../../lib/batchListingInput';
 import { attrHasValue, formatAttrValue } from '../../lib/attributeFormat';
 import { useAiSpecSuggestion } from '../../hooks/useAiSpecSuggestion';
@@ -347,21 +349,59 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
         })
       );
       setIndex((i) => i + 1);
+    } catch (e: any) {
+      // Deliberately does NOT advance. This screen's whole job is one
+      // item at a time, and moving to the next one on a write that was
+      // refused would leave the seller no way back to the details they
+      // just typed -- they are still on screen here, and Continue can be
+      // pressed again.
+      Alert.alert(t('batchDetails.saveErrorTitle'), listingActionMessage(e, t, 'batchDetails.saveErrorBody'));
     } finally {
       setSaving(false);
     }
   };
 
+  // Both of these hold `saving` for the round trip, the same flag
+  // Continue already uses. They used to change local state first and
+  // fire the write after, so there was nothing to wait for; now there is,
+  // and without the flag the item stays on screen with Continue live
+  // while its own row is mid-delete -- tap it and saveAndAdvance writes
+  // to the row being removed and bumps the index, which then lands on
+  // the wrong item when activeItems shrinks underneath it. Discard was
+  // also tappable twice.
   const parkAsDraft = async () => {
+    // Checked BEFORE the sheet closes: closing it first made a tap that
+    // was going to be ignored look exactly like one that worked.
+    if (saving) return;
     setActionSheetOpen(false);
-    await updateListing(listing.id, listingToInput(listing, { batchParked: true })).catch(() => {});
-    // No index bump needed -- activeItems shrinks by one and the item
-    // that was next slides into this same index automatically.
+    setSaving(true);
+    try {
+      await updateListing(listing.id, listingToInput(listing, { batchParked: true }));
+      // No index bump needed -- activeItems shrinks by one and the item
+      // that was next slides into this same index automatically.
+    } catch (e: any) {
+      // Swallowed before. The item stays in the batch and will be posted
+      // with the rest, which is the opposite of what "save for later"
+      // was asked to do, so silence here is the expensive kind.
+      Alert.alert(t('batchDetails.parkErrorTitle'), listingActionMessage(e, t, 'batchDetails.parkErrorBody'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   const discardItem = async () => {
+    // Checked BEFORE the sheet closes: closing it first made a tap that
+    // was going to be ignored look exactly like one that worked.
+    if (saving) return;
     setActionSheetOpen(false);
-    await deleteListing(listing.id).catch(() => {});
+    setSaving(true);
+    try {
+      await deleteListing(listing.id);
+    } catch (e: any) {
+      Alert.alert(t('batchDetails.discardErrorTitle'), listingActionMessage(e, t, 'batchDetails.discardErrorBody'));
+    } finally {
+      setSaving(false);
+    }
   };
 
   return (
@@ -463,9 +503,9 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
           />
         )}
 
-        <Button label={t('common.continue')} onPress={saveAndAdvance} disabled={!canContinue} loading={saving} style={styles.continueBtn} />
+        <Button label={t('common.continue')} onPress={saveAndAdvance} disabled={!canContinue || saving} loading={saving} style={styles.continueBtn} />
 
-        <Pressy onPress={() => setActionSheetOpen(true)} style={styles.saveDraftLink}>
+        <Pressy onPress={() => setActionSheetOpen(true)} disabled={saving} style={styles.saveDraftLink}>
           <Text style={styles.saveDraftLinkText}>{t('batchDetails.saveAsDraftLink')}</Text>
         </Pressy>
       </ScrollView>

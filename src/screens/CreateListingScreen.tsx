@@ -26,6 +26,7 @@ import { domainIdFromSentinel } from '../lib/classifyPhotos';
 import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey, requiresPaymentFrequency } from '../lib/rentTerms';
 import RentTermsFields from '../components/RentTermsFields';
 import { useLanguage } from '../i18n/LanguageContext';
+import { listingActionMessage } from '../lib/listingActionMessage';
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { mirrorRow } from '../lib/mirrorRow';
@@ -1663,10 +1664,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // English and tells them nothing they can act on. The diagnostic is
       // in the console, where it is useful. See AppStore's
       // listingSaveError.
-      Alert.alert(
-        t('createListing.postFailedTitle'),
-        t(e?.code === 'not-signed-in' ? 'createListing.postFailedSignedOut' : 'createListing.postFailedMessage')
-      );
+      Alert.alert(t('createListing.postFailedTitle'), listingActionMessage(e, t, 'createListing.postFailedMessage'));
       return;
     }
     // The beforeRemove listener has already synchronously seen this

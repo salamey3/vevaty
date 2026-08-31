@@ -121,7 +121,17 @@ export type ConditionMode = 'new_used' | 'offer_type' | 'rehome';
 // 'refused' is the database declining the row -- an ungranted column, a
 // failing CHECK, an RLS denial, a dropped connection. See AppStore's
 // addListing, which used to swallow all of them.
-export type ListingSaveErrorCode = 'not-signed-in' | 'refused';
+export type ListingSaveErrorCode =
+  | 'not-signed-in'
+  | 'refused'
+  // The write was accepted and changed nothing that matters, because a
+  // database trigger quietly put the status back. enforce_listing_moderation_gate
+  // does exactly this to a seller trying to publish something that has
+  // never passed moderation: it rewrites new.status to old.status and
+  // returns success, so there is no error to read and a row IS returned.
+  // Distinguished from 'refused' because "try again" is the wrong advice
+  // -- trying again does the same nothing, forever.
+  | 'needs-review';
 
 // The kind of input a category attribute's value should be collected
 // with. `select`/`multiselect` use `options`; `number` and `text` are

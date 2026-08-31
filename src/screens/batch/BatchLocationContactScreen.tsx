@@ -3,6 +3,7 @@ import { ScrollView, StyleSheet, Text, View } from 'react-native';
 import * as Location from 'expo-location';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Alert } from '../../lib/alertShim';
+import { listingActionMessage } from '../../lib/listingActionMessage';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
 import Button from '../../components/Button';
@@ -77,7 +78,11 @@ export default function BatchLocationContactScreen({ navigation, route }: Props)
     const trimmedDistrict = district.trim() || 'Lebanon';
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
     try {
-      await Promise.all(
+      // allSettled for the same reason BatchFinalReviewScreen uses it:
+      // Promise.all reports the first rejection and lets the rest finish
+      // writing anyway, so "could not be saved to these items" would be
+      // said about a batch where most of them were.
+      const results = await Promise.allSettled(
         activeItems.map((listing) =>
           updateListing(
             listing.id,
@@ -93,7 +98,32 @@ export default function BatchLocationContactScreen({ navigation, route }: Props)
           )
         )
       );
+      const rejected = results.find((r) => r.status === 'rejected');
+      if (rejected) {
+        const failed = results.filter((r) => r.status === 'rejected').length;
+        // Pressing Continue again is safe and is the fix: re-applying the
+        // same location to an item that already took it is an ordinary
+        // update with no status move behind it.
+        Alert.alert(
+          t('batchLocationContact.saveErrorTitle'),
+          failed === activeItems.length
+            ? listingActionMessage((rejected as PromiseRejectedResult).reason, t, 'batchLocationContact.saveErrorBody')
+            : t('batchLocationContact.savePartialBody', { failed, total: activeItems.length })
+        );
+        return;
+      }
       navigation.replace('BatchFinalReview', { batchId });
+    } catch (e: any) {
+      // There was no catch here at all. updateListing never threw, so the
+      // only way this could reject was a crash -- and then the screen
+      // stopped its spinner and did nothing, with no message and no
+      // navigation, which reads as a dead Continue button. Now that a
+      // refused write throws, the seller is told and the location they
+      // typed is still on screen to try again with.
+      Alert.alert(
+        t('batchLocationContact.saveErrorTitle'),
+        listingActionMessage(e, t, 'batchLocationContact.saveErrorBody')
+      );
     } finally {
       setPosting(false);
     }

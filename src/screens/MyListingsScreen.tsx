@@ -11,6 +11,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import { useNavigation } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { listingActionMessage } from '../lib/listingActionMessage';
 import { listingTitle } from '../lib/listingText';
 import { useGoBack } from '../hooks/useGoBack';
 
@@ -54,8 +55,8 @@ export default function MyListingsScreen() {
     setRowErrors((e) => ({ ...e, [id]: '' }));
     try {
       await extendListing(id);
-    } catch {
-      setRowErrors((e) => ({ ...e, [id]: t('profile.extendFailed') }));
+    } catch (err: any) {
+      setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'profile.extendFailed') }));
     } finally {
       setBusyId(null);
     }
@@ -66,8 +67,8 @@ export default function MyListingsScreen() {
     setRowErrors((e) => ({ ...e, [id]: '' }));
     try {
       await republishListing(id);
-    } catch {
-      setRowErrors((e) => ({ ...e, [id]: t('profile.republishFailed') }));
+    } catch (err: any) {
+      setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'profile.republishFailed') }));
     } finally {
       setBusyId(null);
     }
@@ -78,8 +79,8 @@ export default function MyListingsScreen() {
     setRowErrors((e) => ({ ...e, [id]: '' }));
     try {
       await hideListing(id);
-    } catch {
-      setRowErrors((e) => ({ ...e, [id]: t('myListings.hideFailed') }));
+    } catch (err: any) {
+      setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'myListings.hideFailed') }));
     } finally {
       setBusyId(null);
     }
@@ -91,8 +92,8 @@ export default function MyListingsScreen() {
     setRowErrors((e) => ({ ...e, [id]: '' }));
     try {
       await markListingSold(id, soldVia);
-    } catch {
-      setRowErrors((e) => ({ ...e, [id]: t('myListings.markSoldFailed') }));
+    } catch (err: any) {
+      setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'myListings.markSoldFailed') }));
     } finally {
       setBusyId(null);
     }
@@ -106,7 +107,10 @@ export default function MyListingsScreen() {
       await deleteListing(confirmDeleteId);
       setConfirmDeleteId(null);
     } catch (e: any) {
-      setDeleteError(e?.message || t('listingDetail.deleteFailed'));
+      // Never e.message -- see listingActionMessage. A refused delete used
+      // to print PostgREST's own English diagnostic into the seller's
+      // confirmation sheet.
+      setDeleteError(listingActionMessage(e, t, 'listingDetail.deleteFailed'));
     } finally {
       setDeleting(false);
     }

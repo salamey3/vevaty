@@ -44,7 +44,13 @@ export default function BatchFinalReviewScreen({ navigation, route }: Props) {
     if (activeItems.length === 0 || posting) return;
     setPosting(true);
     try {
-      await Promise.all(
+      // allSettled, not all: these are one write per item, and Promise.all
+      // reports only the first rejection while the rest carry on posting
+      // anyway. A seller told "could not post" about a batch where nine of
+      // ten items went live has been told something worse than nothing.
+      // Now that a refused write actually throws, that distinction is the
+      // difference between a usable message and a misleading one.
+      const results = await Promise.allSettled(
         activeItems.map((listing) =>
           // status: undefined (not 'draft') is what turns this into a real
           // submit -- see listingToInput's own doc comment on why the
@@ -52,6 +58,22 @@ export default function BatchFinalReviewScreen({ navigation, route }: Props) {
           updateListing(listing.id, listingToInput(listing, { status: undefined }))
         )
       );
+      const failed = results.filter((r) => r.status === 'rejected').length;
+      if (failed > 0) {
+        // The batch is deliberately NOT completed and the screen is not
+        // left: pressing Post again is the fix, and it is safe to press.
+        // An item that did post is no longer a draft, so its second pass
+        // is an ordinary update -- no second moderation kick-off, no
+        // second award of posting points (see updateListing's
+        // submittingDraft).
+        Alert.alert(
+          t('batchFinalReview.postErrorTitle'),
+          failed === activeItems.length
+            ? t('batchFinalReview.postErrorBody')
+            : t('batchFinalReview.postPartialBody', { failed, total: activeItems.length })
+        );
+        return;
+      }
       await completeBatch(batchId).catch(() => {});
       resetBatchClassifyState();
       Alert.alert(

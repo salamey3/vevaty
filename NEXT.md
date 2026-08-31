@@ -10,18 +10,8 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-Two things worth fixing:
+One thing worth fixing:
 
-- **`updateListing` swallows a refused update.** Same hole `addListing` had
-  until it was fixed: it applies the change to local state, `console.warn`s
-  a database error and returns as though it saved. Smaller blast radius --
-  the listing still exists -- but it has one live consequence worth naming:
-  "Save & exit" on an already-created draft goes through `updateListing`,
-  so it can never fail, the exit proceeds, and the edits are gone. The
-  other silent ones are `deleteListing`, `extendListing`, `republishListing`,
-  `hideListing` and `markListingSold`, which do not even read the error.
-  Fixing them means deciding what each call site should do when it fails,
-  which is why this is its own task rather than a sweep.
 - **The app has not had a native build since 26 Aug.** Nothing needs one
   right now -- the fingerprint was restored rather than rebuilt around, so
   updates reach it again (see @AGENTS.md, "What forces a new native
@@ -54,6 +44,18 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**The six silent listing writes**, 31 Aug 2026. `updateListing`,
+`deleteListing`, `extendListing`, `republishListing`, `hideListing` and
+`markListingSold` all reported success whatever the database said, and
+each rewrote the screen before asking. They now check three separate
+ways a write can quietly do nothing (see @AGENTS.md, "Three ways a write
+reports success and changes nothing"), throw a translatable code, and
+either wait for the answer or put the screen back. Every call site was
+decided on its own rather than swept: two batch steps had no error
+handling at all and would have gone dead-quiet, five discarded the error
+deliberately, and the batch photo retry link would have inserted a second
+listing for the same item.
 
 **Listing domains**, 30 Aug 2026. The largest change the app has had: it is
 now split into Properties, Vehicles and Classifieds (and a dormant Jobs &

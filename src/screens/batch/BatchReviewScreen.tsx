@@ -11,7 +11,9 @@ import CategoryPickerModal from '../../components/CategoryPickerModal';
 import { colors, radius, type } from '../../theme/theme';
 import { useAppStore } from '../../store/AppStore';
 import { useSettings } from '../../store/SettingsStore';
+import { Alert } from '../../lib/alertShim';
 import { useLanguage } from '../../i18n/LanguageContext';
+import { listingActionMessage } from '../../lib/listingActionMessage';
 import { useBatchClassify, useBatchClassifyStates, useBatchItemClassifyState } from '../../store/BatchClassifyContext';
 import { listingToInput } from '../../lib/batchListingInput';
 import { RootStackParamList } from '../../navigation/types';
@@ -87,7 +89,13 @@ function ReviewRow({
     updateListing(
       listing.id,
       listingToInput(listing, { cat: id, condition: conditionStillValid ? listing.condition : null })
-    ).catch(() => {});
+    ).catch((e: any) =>
+      // updateListing rolls its optimistic change back when the write is
+      // refused, so without this the row would simply snap back to the
+      // old category with no explanation -- which reads as the tap not
+      // registering, and invites the seller to try the same thing again.
+      Alert.alert(t('batchReview.saveErrorTitle'), listingActionMessage(e, t, 'batchReview.saveErrorBody'))
+    );
     setFixOpen(false);
     setCategoryQuery('');
   };
@@ -182,7 +190,9 @@ function ReviewRow({
       <ConditionPicker
         value={listing.condition}
         onChange={(c) =>
-          updateListing(listing.id, listingToInput(listing, { condition: c as Listing['condition'] })).catch(() => {})
+          updateListing(listing.id, listingToInput(listing, { condition: c as Listing['condition'] })).catch((e: any) =>
+            Alert.alert(t('batchReview.saveErrorTitle'), listingActionMessage(e, t, 'batchReview.saveErrorBody'))
+          )
         }
         label={
           conditionMode === 'offer_type'

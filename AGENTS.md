@@ -82,8 +82,44 @@ screen that asks for a column it never uses is one missed grant away from
 rendering as not-found. Select what the screen reads, nothing more.
 
 Both failures are silent by construction, so when a write "works" but the
-row does not change, suspect grants before logic. `updateListing` now
-`console.warn`s its Supabase error; it used to discard it.
+row does not change, suspect grants before logic.
+
+# Three ways a write reports success and changes nothing
+
+Reading the error is necessary and not sufficient. A Supabase write has
+three separate ways to do nothing while looking fine, and each needs its
+own check:
+
+1. **It errored and nobody looked.** `const { error } = await ...` and
+   then no `if (error)`. Every listing write in `AppStore` did this until
+   30-31 Aug: `addListing` handed back a row that existed nowhere,
+   `updateListing` warned and returned as though it had saved, and the
+   five status actions did not read the error at all. Worse, each one
+   rewrote local state *first*, so a refused write left the seller
+   looking at a listing that was hidden, sold or deleted on their screen
+   alone.
+2. **It matched no row.** An `UPDATE ... WHERE` that touches nothing is
+   not an error, it is a silent success. `.select('id')` and check the
+   result is non-empty; a seller can always read their own row back
+   (`status = 'active' OR seller_id = auth.uid()`), so an empty result
+   really does mean nothing was written.
+3. **A trigger put it back.** `enforce_listing_moderation_gate` is a
+   `BEFORE UPDATE` trigger that rewrites `new.status` to `old.status`
+   rather than raising — the statement succeeds, a row is returned, and
+   the status is unchanged. Only reading the status back catches it. See
+   `updateOwnListingRow`'s `expectStatus`.
+
+The seller-facing half matters as much: throw a **code**, never a
+message. PostgREST's text is an English diagnostic naming a column, which
+is unreadable under an Arabic interface and is not what the seller needs
+to know anyway (whether anything saved, and whether pressing the button
+again will help). `src/lib/listingActionMessage.ts` turns the code into
+the right sentence; the diagnostic goes to `console.warn`, where it names
+the column or constraint that refused.
+
+And when a screen updates local state optimistically, the failure path
+has to put it back — see `updateListing`'s sequence guard for why a plain
+restore is not enough once two writes can be in flight on one row.
 
 # Listing money and condition are not what their names suggest
 
