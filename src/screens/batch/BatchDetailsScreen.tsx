@@ -77,8 +77,20 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     () => (listing?.cat ? resolveAttributesForCategory(listing.cat) : []),
     [listing?.cat, resolveAttributesForCategory]
   );
-  const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
-  const hasStockStep = cat?.stockMode === 'multiple';
+  // Same gate as CreateListingScreen's -- see its comment. Read here off
+  // the listing's own shopId rather than a form toggle: the batch flow
+  // settles the storefront question once at the start (BatchPhotosScreen's
+  // shopChoice) and writes shopId only for a VERIFIED shop, so a non-null
+  // shopId already means exactly "posting into a verified storefront".
+  // listing?.shopId, not listing.shopId: `activeItems[index] ?? null` is
+  // typed as always-present but is genuinely null between parking the
+  // last item and the effect above navigating away, which is why every
+  // other read in this file is optional too.
+  const hasStockStep = cat?.stockMode === 'multiple' && !!listing?.shopId;
+  const variantAttr = useMemo(
+    () => (hasStockStep ? resolvedAttrs.find((a) => a.isVariant) || null : null),
+    [resolvedAttrs, hasStockStep]
+  );
   const isVehicleCategory = listing?.cat ? categoryMatches(listing.cat, 'vehicles') : false;
   // Whether this category's `condition` carries Sale/Rent/Both rather than
   // New/Used -- Properties and Vehicles today, read from a database flag.
@@ -104,8 +116,13 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   // resolveVisibleAttrs does and why filtering here is the single choke
   // point for every downstream consumer (spec form, validation, payload).
   const specAttrs = useMemo(
-    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues, listing?.condition),
-    [resolvedAttrs, attrValues, listing?.condition]
+    () =>
+      resolveVisibleAttrs(
+        hasStockStep ? resolvedAttrs.filter((a) => !a.isVariant) : resolvedAttrs,
+        attrValues,
+        listing?.condition
+      ),
+    [resolvedAttrs, attrValues, listing?.condition, hasStockStep]
   );
   const hasSpecs = specAttrs.length > 0;
 
@@ -190,7 +207,15 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
 
     const listingId = listing.id;
     const listingCat = listing.cat;
-    const attrsForCat = resolveAttributesForCategory(listing.cat).filter((a) => !a.isVariant);
+    // Same gate as specAttrs above, not an unconditional filter. This is
+    // the list the AI is offered, told the known values of, and has its
+    // answer applied through -- so filtering the variant attribute out of
+    // it when the stock step is NOT showing left a private seller's Size
+    // as the one required field on the screen the model was never asked
+    // about and never filled in, while every other spec beside it was.
+    const attrsForCat = hasStockStep
+      ? resolveAttributesForCategory(listing.cat).filter((a) => !a.isVariant)
+      : resolveAttributesForCategory(listing.cat);
     const categoryName = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : '';
     // Already-known specs (from classify or a prior edit) as confirmed
     // ground truth, same convention as CreateListingScreen's own
@@ -295,7 +320,11 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   };
 
   const buildStock = (): { stockQty: number; variants: ListingVariant[] | null } => {
-    if (!hasStockStep) return { stockQty: 1, variants: null };
+    // Preserve rather than reset, matching CreateListingScreen's own
+    // buildStock: the gate here reads listing.shopId and so cannot flip
+    // mid-item, but "the step was not shown" must never be a way to
+    // silently zero a number somebody entered.
+    if (!hasStockStep) return { stockQty: listing?.stockQty ?? 1, variants: listing?.variants ?? null };
     if (variantAttr) {
       // Only options with actual stock become a variant row -- matches
       // CreateListingScreen's own buildStock exactly (see its comment on

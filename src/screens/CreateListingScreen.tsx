@@ -27,6 +27,7 @@ import { RentPaymentFrequency, RentPeriod, rentPerPeriodLabelKey, requiresPaymen
 import RentTermsFields from '../components/RentTermsFields';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingActionMessage } from '../lib/listingActionMessage';
+import { conditionOptionsFor, conditionFieldLabel, conditionStepLabel } from '../lib/conditionModes';
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { mirrorRow } from '../lib/mirrorRow';
@@ -191,6 +192,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   const [plainStockQty, setPlainStockQty] = useState<string>(
     editingListing && !editingListing.variants ? String(editingListing.stockQty ?? '') : ''
   );
+  // Whether the seller has actually answered the stock question, as
+  // opposed to the step merely having been on screen. Both intake fields
+  // start empty and Continue never required them, so "untouched" and
+  // "deliberately zero" produced the same numbers -- which is how a stock
+  // step appearing behind an edit could take a listing from one unit to
+  // none without anybody typing anything. Everything stock-related below
+  // asks this before it writes.
+  const [stockTouched, setStockTouched] = useState(false);
   // The seller writes title/description once, in whatever language the app
   // is currently set to -- that's the "source" language. The translate step
   // suggests the other language automatically instead of asking the seller
@@ -611,11 +620,43 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
   const cat = categoryById(category || '');
   const resolvedAttrs = useMemo(() => (category ? resolveAttributesForCategory(category) : []), [category, resolveAttributesForCategory]);
+  // Category.stockMode -- see its own doc comment. 'unique' (everything
+  // until this feature existed, and still the vast majority of
+  // categories) never shows a Stock step at all.
+  //
+  // The second half is the point: stockMode is a property of the
+  // CATEGORY, and the categories that carry stock are the ones private
+  // sellers use most. Clothing set to 'multiple' would put a per-size
+  // stock table in front of someone selling one used jacket, to say
+  // "one, medium".
+  //
+  // Gated on this listing actually going INTO a verified storefront, not
+  // merely on the seller having one -- otherwise a shop owner selling one
+  // of their own jackets standalone gets a per-size stock table, and
+  // leaving it untouched posts the listing at zero stock with an OUT OF
+  // STOCK ribbon on it.
+  //
+  // Safe to depend on attachToShop because a NEW listing settles that
+  // question before the wizard starts (the chooser screen -- see
+  // shouldAskShopChoice), so it cannot change mid-flow. The one place it
+  // can change is the edit-mode correction toggle on the Details step,
+  // and that is covered twice over: the step list reshaping under the
+  // seller is reconciled by kind rather than index (see below), and
+  // buildStock refuses to invent numbers for a step nobody filled in.
+  const hasStockStep = cat?.stockMode === 'multiple' && attachToShop && !!myShop?.verifiedAt;
   // The one attribute (if any) this category uses to break stock into
   // variants -- see the isVariant field's own doc comment. Kept out of
-  // specAttrs/hasSpecs below: it never shows as a normal spec field, only
-  // in the dedicated Stock step.
-  const variantAttr = useMemo(() => resolvedAttrs.find((a) => a.isVariant) || null, [resolvedAttrs]);
+  // specAttrs/hasSpecs below ONLY when the Stock step will actually ask
+  // for it. Without that condition a private seller is never asked their
+  // size at all: the field is excluded from the specs as a variant, and
+  // the step that was supposed to collect it never appears. Falling back
+  // to an ordinary spec writes the identical value (a list of option
+  // values under the attribute's own slug), so every filter and spec
+  // display reads a shop's listing and an individual's the same way.
+  const variantAttr = useMemo(
+    () => (hasStockStep ? resolvedAttrs.find((a) => a.isVariant) || null : null),
+    [resolvedAttrs, hasStockStep]
+  );
   // resolveVisibleAttrs additionally drops any attribute whose
   // dependsOnSlug/dependsOnValues isn't currently satisfied (e.g.
   // Bedrooms once Property Type = Land) -- see its own doc comment. This
@@ -623,14 +664,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // (spec lines, AI-suggestion schema, payload, required-field
   // validation, the review-step summary) already reads from this list.
   const specAttrs = useMemo(
-    () => resolveVisibleAttrs(resolvedAttrs.filter((a) => !a.isVariant), attrValues, condition),
-    [resolvedAttrs, attrValues, condition]
+    () => resolveVisibleAttrs(hasStockStep ? resolvedAttrs.filter((a) => !a.isVariant) : resolvedAttrs, attrValues, condition),
+    [resolvedAttrs, attrValues, condition, hasStockStep]
   );
   const hasSpecs = specAttrs.length > 0;
-  // Category.stockMode -- see its own doc comment. 'unique' (everything
-  // until this feature existed, and still the vast majority of
-  // categories) never shows a Stock step at all.
-  const hasStockStep = cat?.stockMode === 'multiple';
   // Whether there's at least one gallery photo -- the strongest signal the
   // AI vision suggestion (see applyAiSuggestion below) can work from. Kept
   // separate from hasEnoughPhotosForAi below: this one still means "there's
@@ -684,25 +721,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // Properties (see condition state's own doc comment) -- same control,
   // same required slot, a different option set and label depending on
   // whether the resolved category is Properties.
-  const conditionOptions = useMemo(() => {
-    if (conditionMode === 'offer_type') {
-      return [
-        { value: 'sale', label: t('createListing.condition.sale') },
-        { value: 'rent', label: t('createListing.condition.rent') },
-        { value: 'both', label: t('createListing.condition.both') },
-      ];
-    }
-    if (conditionMode === 'rehome') {
-      return [
-        { value: 'sale', label: t('createListing.condition.sale') },
-        { value: 'free', label: t('createListing.condition.free') },
-      ];
-    }
-    return [
-      { value: 'new', label: t('createListing.condition.new') },
-      { value: 'used', label: t('createListing.condition.used') },
-    ];
-  }, [conditionMode, t]);
+  const conditionOptions = useMemo(() => conditionOptionsFor(conditionMode, t), [conditionMode, t]);
   // What the Details step asks for money-wise. Something listed for rent
   // has no sale price to give, and one listed for sale has no rent terms
   // -- asking for both regardless is what made a rental read as though it
@@ -829,13 +848,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // With one possible category the step no longer asks a category
     // question at all (see soleCategory) -- naming it "Category" would
     // label the screen after the one thing it does not contain.
-    classify: soleCategory
-      ? conditionMode === 'offer_type'
-        ? t('createListing.stepSaleOrRent')
-        : conditionMode === 'rehome'
-          ? t('createListing.stepRehome')
-          : t('createListing.stepCondition')
-      : t('createListing.stepCategory'),
+    classify: soleCategory ? conditionStepLabel(conditionMode, t) : t('createListing.stepCategory'),
     photos: t('createListing.stepPhotos'),
     verify: t('createListing.stepVerify'),
     spin: t('createListing.stepSpin'),
@@ -847,6 +860,57 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   };
   const STEPS = stepKinds.map((k) => STEP_LABELS[k]);
   const currentKind = stepKinds[Math.min(step, stepKinds.length - 1)];
+
+  // `step` is an index into a list that can change shape while the seller
+  // is standing on it -- a category pick adds or drops the specs, verify
+  // and 3D steps, and myShop arriving from the network can add the stock
+  // step. An index survives that badly: inserting a step ahead of the
+  // seller silently slides them one forward, which is how tapping a
+  // toggle on the Details step could land them on Translate having never
+  // passed the Details step's own Continue gate, title and all. So the
+  // KIND is what is held steady, and the index is recomputed to match it.
+  // Stock belongs to a category, because the attribute it is broken down
+  // by does. Nothing reset it when the category changed mid-edit, so a
+  // Clothing listing re-filed as Shoes kept { s: '4', m: '2' } behind an
+  // EU 36-46 table: the seller saw every row blank, and saving either
+  // wrote the old sizes under the new slug or, once they typed into one
+  // row, mapped every shoe option to a miss and posted the listing at
+  // zero. Keyed off `category` rather than the attribute's slug on
+  // purpose -- the attribute is null for a moment while the category's
+  // rows load, and resetting on that would wipe the values seeded from
+  // the listing being edited.
+  const stockCategoryRef = useRef(category);
+  useEffect(() => {
+    if (stockCategoryRef.current === category) return;
+    stockCategoryRef.current = category;
+    setVariantStock({});
+    setPlainStockQty('');
+    setStockTouched(false);
+  }, [category]);
+
+  const stepKindsRef = useRef(stepKinds);
+  const currentKindRef = useRef(currentKind);
+  useEffect(() => {
+    const previousKinds = stepKindsRef.current;
+    const previousKind = currentKindRef.current;
+    stepKindsRef.current = stepKinds;
+    currentKindRef.current = currentKind;
+    // Only when the LIST changed. Tapping Continue changes the current
+    // kind too, and reconciling on that alone would keep putting the
+    // seller back where they were -- forward navigation would not work at
+    // all. stepKinds is a useMemo, so its identity changes exactly when
+    // its own inputs do.
+    if (previousKinds === stepKinds || previousKind === currentKind) return;
+    const moved = stepKinds.indexOf(previousKind);
+    // And only when the step they were on still EXISTS somewhere else. If
+    // it is genuinely gone -- the category no longer has specs, say --
+    // the clamped index above is already the right answer and this stays
+    // out of the way.
+    if (moved >= 0 && moved !== step) {
+      currentKindRef.current = previousKind;
+      setStep(moved);
+    }
+  }, [currentKind, stepKinds, step]);
 
   const targetLangName = t(targetLang === 'ar' ? 'language.arabic' : 'language.english');
 
@@ -1544,7 +1608,31 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // filter/spec-display path (HomeScreen, StorefrontScreen, ListingCard,
   // formatAttrValue) working for it with zero special-casing.
   const buildStock = (): { stockQty: number; variants: ListingVariant[] | null; variantValues: string[] } => {
-    if (!hasStockStep) return { stockQty: 1, variants: null, variantValues: [] };
+    if (!hasStockStep || !stockTouched) {
+      // "Not shown" and "shown but never filled in" both have to mean
+      // "leave it alone", never "reset it". updateListing writes stock_qty
+      // and variants unconditionally, so returning the default here
+      // rewrote a shop's whole size table to a single unit any time the
+      // gate read false -- before myShop finished loading, or permanently
+      // once a storefront's verification lapsed -- and returning zero for
+      // an untouched step did the same thing from the other direction.
+      // Editing a listing to fix a typo is not a request to clear its
+      // stock.
+      // Only while this is still the SAME category. Stock is shaped by the
+      // category's own variant attribute, so once the seller moves a
+      // listing from Clothing to Shoes the stored S/M/L variants describe
+      // an attribute that no longer exists here -- preserving them would
+      // write 's' and 'm' under the shoe size slug and put bogus entries
+      // in the buyer's size filter for Shoes.
+      if (editingListing && editingListing.cat === category) {
+        return {
+          stockQty: editingListing.stockQty,
+          variants: editingListing.variants,
+          variantValues: (editingListing.variants ?? []).map((v) => Object.values(v.attributes)[0]).filter(Boolean),
+        };
+      }
+      return { stockQty: 1, variants: null, variantValues: [] };
+    }
     if (variantAttr) {
       const variants: ListingVariant[] = variantAttr.options
         .map((o) => ({ id: `v-${o.value}`, attributes: { [variantAttr.slug]: o.value }, stockQty: Number(variantStock[o.value]) || 0 }))
@@ -1573,8 +1661,22 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       if (attrHasValue(v)) attributes[a.slug] = v as AttributeValue;
     });
     const stock = buildStock();
-    if (variantAttr && stock.variantValues.length > 0) {
-      attributes[variantAttr.slug] = stock.variantValues;
+    if (variantAttr) {
+      if (stock.variantValues.length > 0) {
+        attributes[variantAttr.slug] = stock.variantValues;
+      } else if (!stockTouched && attrHasValue(attrValues[variantAttr.slug])) {
+        // The stock step is showing but nobody has answered it, and a
+        // size is already on file -- entered as a plain spec before the
+        // step appeared, or carried in from the listing being edited.
+        // Keeping it is what stops the size vanishing from a listing
+        // whose seller never opened the stock table.
+        //
+        // Deliberately NOT done once the seller HAS touched the step: a
+        // shop clearing every quantity to retire a line means the sizes
+        // are gone, and writing them back would leave the listing at zero
+        // stock while still answering a buyer's "Size: M" filter.
+        attributes[variantAttr.slug] = attrValues[variantAttr.slug] as AttributeValue;
+      }
     }
     const trimmedDistrict = district.trim() || 'Lebanon';
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
@@ -2090,13 +2192,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <ConditionPicker
               value={condition}
               onChange={(v) => setCondition(v as typeof condition)}
-              label={
-                conditionMode === 'offer_type'
-                  ? t('createListing.saleRentLabel')
-                  : conditionMode === 'rehome'
-                    ? t('createListing.rehomeLabel')
-                    : t('createListing.conditionLabel')
-              }
+              label={conditionFieldLabel(conditionMode, t)}
               options={conditionOptions}
             />
             )}
@@ -2347,9 +2443,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             <StockIntakeForm
               variantAttr={variantAttr}
               variantStock={variantStock}
-              onChangeVariantStock={(optionValue, qty) => setVariantStock((prev) => ({ ...prev, [optionValue]: qty }))}
+              onChangeVariantStock={(optionValue, qty) => {
+                setStockTouched(true);
+                setVariantStock((prev) => ({ ...prev, [optionValue]: qty }));
+              }}
               plainStockQty={plainStockQty}
-              onChangePlainStockQty={setPlainStockQty}
+              onChangePlainStockQty={(qty) => {
+                setStockTouched(true);
+                setPlainStockQty(qty);
+              }}
               language={language}
               onFocus={onInputFocus}
               variantIntro={

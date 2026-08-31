@@ -24,13 +24,7 @@ One thing worth fixing:
 
 Categories still short of specs, in the order they are worth doing.
 
-1. **Fashion & Beauty.** Nine categories, five attribute rows — and the
-   size-variant machinery (`Category.stockMode: 'multiple'` +
-   `CategoryAttribute.isVariant`) is built and entirely unused. Clothing
-   is its natural home, which is what puts it first: a feature already
-   paid for.
-
-2. **Auto Parts & Accessories.** Four categories, zero attributes. Not on
+1. **Auto Parts & Accessories.** Four categories, zero attributes. Not on
    this list before because it only became a top-level during the Vehicles
    work — and it sits inside Vehicles, the section a buyer enters
    expecting what Vehicles now has.
@@ -44,6 +38,18 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Fashion & Beauty**, 31 Aug 2026. The gendered Clothing and Accessories
+pairs merged into one each with gender as a spec — the third time that
+call has been made, after Properties and Vehicles — and Shoes and Bags
+added, neither of which existed anywhere in the tree. Shoes needed its own
+category rather than a corner of Clothing for a concrete reason: a
+category carries exactly one size-variant attribute, and EU 36–46 cannot
+share a list with S/M/L. Eight leaves, all specced, in both languages.
+Wear grading (`graded`) replaced New/Used for the whole section and the
+duplicate Condition spec on Watches was deleted. The size-variant
+machinery is finally in use, but only for verified storefronts — see
+@AGENTS.md, "Stock and sizes belong to shops, not to categories".
 
 **The six silent listing writes**, 31 Aug 2026. `updateListing`,
 `deleteListing`, `extendListing`, `republishListing`, `hideListing` and

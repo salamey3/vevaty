@@ -9,6 +9,7 @@ import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunn
 import { uriToCompressedBase64 } from '../lib/imageToBase64';
 import { triggerListingModeration } from '../lib/moderateListing';
 import { slugify } from '../lib/slugify';
+import { ALL_CONDITION_VALUES } from '../lib/conditionModes';
 
 // Photos sent to the moderate-listing AI check -- capped the same way the
 // other vision calls (Magic Listing/AI suggest) cap theirs, since the model
@@ -235,16 +236,17 @@ function spinSetsFromRows(photoRows: any[], spinSetRows: any[]): SpinSet[] {
 // dbListingToLocal entirely. Normalizing every cached listing here, right
 // after reading it back out of AsyncStorage, is the one place that
 // guarantees every downstream consumer can trust these arrays exist.
+// Which values a database row's `condition` is allowed to be, checked by
+// both read paths below. ALL_CONDITION_VALUES is DERIVED from the pickers
+// that produce them (src/lib/conditionModes.ts) rather than being a list
+// typed out here -- which is what it used to be, and it drifted: 'free'
+// was added to the type, the CHECK constraint and every screen, and
+// silently became null on the way back out, so a pet given away read as
+// "Free" to the seller who posted it and as "$0" to everybody else, for
+// as long as the app stayed open.
+
 // 15 days -- kept as one constant since both the client's optimistic local
 // value and the server's DB column default (`now() + interval '15 days'`)
-// Every value `listings.condition` may hold. Both read paths below filter
-// against this ONE list rather than repeating the values, because they had
-// already drifted once: 'free' was added to the type, the CHECK constraint
-// and every screen, and silently became null on the way back out of the
-// database -- so a pet given away read as "Free" to the seller who posted
-// it and as "$0" to everybody else, for as long as the app stayed open.
-const CONDITION_VALUES = ['new', 'used', 'sale', 'rent', 'both', 'free'];
-
 // need to agree, and extendListing/republishListing recompute it too.
 const LISTING_LIFETIME_MS = 15 * 24 * 60 * 60 * 1000;
 
@@ -393,7 +395,7 @@ function normalizeListing(l: any): Listing {
     // seller's pick genuinely never made it to the DB (see
     // dbListingToLocal's own condition mapping).
     condition:
-      CONDITION_VALUES.includes(l?.condition) ? (l.condition as Listing['condition']) : null,
+      ALL_CONDITION_VALUES.includes(l?.condition) ? (l.condition as Listing['condition']) : null,
     // Rent pricing (usesOfferType categories only) -- same defensive story: a
     // listing cached by a build that predates these fields has none of
     // them, which reads correctly as "no rent terms on file", exactly
@@ -516,7 +518,7 @@ function dbListingToLocal(row: any): Listing {
     // actually seller-facing) used-condition scale. See the Listing
     // type's own doc comment.
     condition:
-      CONDITION_VALUES.includes(row.condition) ? (row.condition as Listing['condition']) : null,
+      ALL_CONDITION_VALUES.includes(row.condition) ? (row.condition as Listing['condition']) : null,
     batchId: row.batch_id ?? null,
     batchParked: !!row.batch_parked,
   };

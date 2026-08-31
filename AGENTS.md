@@ -136,7 +136,7 @@ logs as a ~99% discount. Rentals are therefore excluded from price-drop
 collections — see `CollectionsStore`. Any future feature that reads a price
 delta needs the same guard.
 
-`listings.condition` carries three meanings in one column and one UI slot,
+`listings.condition` carries four meanings in one column and one UI slot,
 and which one applies is `categories.condition_mode`:
 
 | mode | values | where |
@@ -144,20 +144,95 @@ and which one applies is `categories.condition_mode`:
 | `new_used` | `new` / `used` | the default, most of the catalogue |
 | `offer_type` | `sale` / `rent` / `both` | Properties, Vehicles |
 | `rehome` | `sale` / `free` | live animals |
+| `graded` | `new` / `like_new` / `good` / `fair` | Fashion & Beauty |
 
 The mode is resolved by walking UP from the category, nearest first
 (`conditionModeForCategory`) — so Pets can hold live animals on `rehome`
-beside pet supplies on the default, under one parent. `sale` is shared by
-two modes on purpose: "for sale" means the same thing whichever it is.
+beside pet supplies on the default, under one parent, and Fashion sets
+`graded` once on the section. The overlaps are deliberate: `sale` is
+shared by two modes and `new` by two others, because "for sale" and
+"brand new" mean the same thing whichever scale is asking. That is also
+why "did the category change invalidate this answer?" must be asked with
+`conditionValidUnder` rather than by eye.
 
-That warning used to read "if a third meaning ever appears, stop adding
-branches and make it a per-category definition instead". A third one
-appeared; this is that definition. A fourth should extend the enum, not
-add a flag beside it — two booleans able to disagree about the same field
-is the thing this replaced.
+**Never hand-write the value list.** Every list — the create-form pills,
+the batch row pills, the cross-category clear, the browse filter, the card
+badge, and the whitelist that decides which values survive a round trip
+out of the database — derives from one table in
+`src/lib/conditionModes.ts`. They used to be six separate nested
+ternaries, which is exactly how `rehome` shipped broken: two of them were
+never updated, so a listing saved as `free` came back as null and a pet
+given away read as "$0" to everyone but its seller. Adding a fifth mode
+is one edit to that table plus its labels.
+
+That table used to carry a warning: "if a third meaning ever appears, stop
+adding branches and make it a per-category definition instead". A third
+appeared, and this enum is that definition. A fourth has now appeared too,
+and the honest note is that the enum is still the right shape but the
+*consumers* were the problem — hence the single table above. A fifth
+should extend the enum, never add a flag beside it: two booleans able to
+disagree about the same field is the thing this replaced.
 
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.
+
+# Stock and sizes belong to shops, not to categories
+
+`categories.stock_mode = 'multiple'` plus one `is_variant` multiselect
+attribute is what turns the create form's Stock step into a per-size
+table (`Listing.variants`, with `stockQty` as their sum). Both are
+properties of the CATEGORY — but the categories that carry stock are also
+the ones private sellers use most, so Clothing set to `multiple` would
+put a stock table in front of someone selling one used jacket to say
+"one, medium".
+
+So the step is additionally gated on this listing actually going **into**
+a verified storefront: `attachToShop && myShop?.verifiedAt` in
+`CreateListingScreen`, and a non-null `listing.shopId` in the batch flow,
+which means the same thing because an unverified shop's listing is saved
+with no `shopId` at all. Gating on merely *having* a shop is not enough —
+a shop owner selling one of their own jackets standalone would get a
+per-size table, and an untouched table posts at zero stock with an OUT OF
+STOCK ribbon on the card. When the step
+does not appear, the variant attribute falls back into the ordinary spec
+list rather than vanishing — otherwise the seller is never asked their
+size by anything. Both paths write the identical value (the option values
+under the attribute's own slug), so filters and spec displays cannot tell
+a shop's listing from an individual's.
+
+Two traps this walked into first, both worth knowing before gating any
+other step:
+
+- **A step's presence must not depend on an index.** `attachToShop`'s
+  correction toggle lives on the Details step, *after* Stock, so flipping
+  it rebuilds the step list under the seller. `step` is a plain integer,
+  so inserting or removing a step ahead of them slid them silently onto a
+  different one, skipping its Continue gate — reachable all the way to
+  posting a listing with an empty title. `CreateListingScreen` now
+  reconciles on the step KIND rather than the index whenever the list
+  changes shape, and only when the list itself changed (reconciling on
+  the kind alone blocks forward navigation entirely).
+- **A step nobody filled in must not reset what it would have
+  collected** — and "not shown" and "shown but untouched" are the same
+  thing here. `buildStock` returned the default whenever the gate read
+  false and zero whenever the fields were blank, while `updateListing`
+  writes `stock_qty`/`variants` unconditionally. Between them, an edit
+  made before `myShop` loaded, an edit after a verification lapsed, and
+  an edit that simply tapped through the step all rewrote a shop's whole
+  size table. It now writes numbers only once `stockTouched` is true, and
+  preserves the listing's existing values otherwise.
+- **Stock belongs to a category, not to a wizard session.** The intake
+  state is keyed to `category` and cleared when it changes, and the
+  preserve branch only returns the edited listing's stock while it is
+  still in the same category — otherwise re-filing a Clothing listing as
+  Shoes wrote `s` and `m` under the shoe size slug, and put sizes that
+  belong to no option row into the buyer's filter.
+- **`stock_mode` no longer means "somebody entered this number".**
+  Clothing and Shoes are `multiple` for everyone, so a display gated on
+  `stockMode === 'multiple'` alone says "1 in stock" under a private
+  seller's single used jacket. `ListingDetailScreen` gates on
+  `listing.shopId` as well; anything new that reads `stockQty` should
+  too.
 
 # navigate() does not go back -- it pushes
 

@@ -22,6 +22,7 @@ const CONDITION_MODES: { value: ConditionMode | null; label: string }[] = [
   { value: 'new_used', label: 'New / Used' },
   { value: 'offer_type', label: 'Sale / rent' },
   { value: 'rehome', label: 'For sale / free' },
+  { value: 'graded', label: 'New / like new / good / fair' },
 ];
 import { RootStackParamList } from '../../navigation/types';
 

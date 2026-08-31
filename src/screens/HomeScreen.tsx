@@ -60,6 +60,7 @@ import { useIsDesktop, useGridColumns } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { haversineKm, LatLng } from '../lib/geo';
 import { matchesConditionFilter } from '../lib/rentTerms';
+import { conditionFilterOptionsFor, CONDITION_FILTER_TITLE_KEY } from '../lib/conditionModes';
 import { findPlaceByFreeText } from '../data/lebanonPlaces';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 
@@ -441,22 +442,7 @@ export default function HomeScreen() {
   // like a real absence.
   const conditionScopeMode = effectiveCategoryId ? conditionModeForCategory(effectiveCategoryId) : 'new_used';
   const conditionOptions: FilterOption[] = useMemo(
-    () =>
-      conditionScopeMode === 'offer_type'
-        ? [
-            { key: 'sale', label: t('home.filters.conditionSale') },
-            { key: 'rent', label: t('home.filters.conditionRent') },
-            { key: 'both', label: t('home.filters.conditionBoth') },
-          ]
-        : conditionScopeMode === 'rehome'
-        ? [
-            { key: 'sale', label: t('home.filters.conditionSale') },
-            { key: 'free', label: t('home.filters.conditionFree') },
-          ]
-        : [
-            { key: 'new', label: t('home.filters.conditionNew') },
-            { key: 'used', label: t('home.filters.conditionUsed') },
-          ],
+    () => conditionFilterOptionsFor(conditionScopeMode, t).map((o) => ({ key: o.value, label: o.label })),
     [conditionScopeMode, t]
   );
 
@@ -752,13 +738,7 @@ export default function HomeScreen() {
           same way price/distance are, and worth seeing before drilling
           into subcategory/area. */}
       <FilterSection
-        title={
-          conditionScopeMode === 'offer_type'
-            ? t('home.filters.saleRentTitle')
-            : conditionScopeMode === 'rehome'
-              ? t('home.filters.rehomeTitle')
-              : t('home.filters.condition')
-        }
+        title={t(CONDITION_FILTER_TITLE_KEY[conditionScopeMode])}
         options={conditionOptions}
         selected={selection.condition}
         onToggle={toggleCondition}

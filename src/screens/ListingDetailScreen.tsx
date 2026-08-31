@@ -599,15 +599,21 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           {t('listingDetail.rentPaymentLabel')}: {t(rentPaymentFrequencyLabelKey(listing.rentPaymentFrequency))}
         </Text>
       )}
-      {/* Only for a 'multiple' stock-mode category -- every 'unique'-mode
-          listing (still the vast majority) is one specific item and this
-          line would just be noise ("1 in stock" on an apartment). Which
-          sizes/variants are actually available already shows in the specs
+      {/* A 'multiple' stock-mode category AND a listing actually posted
+          into a storefront. The category alone used to be enough, and
+          stopped being so the moment Clothing and Shoes were switched to
+          'multiple': those are categories private sellers use most, and
+          a stock step they never saw leaves stockQty at 1, so someone
+          selling one used jacket got "1 in stock" under it. shopId is
+          non-null only for a verified storefront (see
+          CreateListingScreen's buildPayload), which is exactly the set of
+          listings whose stock number was really entered by someone.
+          Which sizes/variants are available already shows in the specs
           list below via the ordinary multiselect spec row (its value is
           kept in sync with stock at post time -- see CreateListingScreen's
           buildStock) -- this is just the total count, the one thing that
           isn't visible there. */}
-      {cat?.stockMode === 'multiple' && (
+      {cat?.stockMode === 'multiple' && !!listing.shopId && (
         <Text style={[styles.stockText, listing.stockQty === 0 && styles.stockTextEmpty]}>
           {listing.stockQty > 0 ? t('listingDetail.inStock', { count: listing.stockQty }) : t('listingDetail.outOfStock')}
         </Text>

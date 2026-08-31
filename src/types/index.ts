@@ -115,7 +115,19 @@ export interface Category {
 //   offer_type -- For sale / For rent / Both. Properties and Vehicles.
 //   rehome     -- For sale / Free to a good home. Live animals, where
 //                 New/Used is not a question anyone should be asked.
-export type ConditionMode = 'new_used' | 'offer_type' | 'rehome';
+//   graded     -- New / Like new / Good / Fair. Second-hand fashion,
+//                 where "Used" collapses a mint designer bag and a worn
+//                 one into the same word and buyers filter on the
+//                 difference before anything else.
+//
+// The values each mode offers, and the labels for them, live in ONE place
+// -- src/lib/conditionModes.ts. They used to be re-typed as a nested
+// ternary at every site that needed them (the create form, the batch
+// review rows, the browse filter, the card badge, the whitelist that
+// decides which values survive a round trip through the database), which
+// is how 'free' shipped invisible: two of those lists were never updated
+// and quietly dropped it on the way back out.
+export type ConditionMode = 'new_used' | 'offer_type' | 'rehome' | 'graded';
 
 // Why a listing could not be saved, in a form a screen can translate.
 // 'refused' is the database declining the row -- an ungranted column, a
@@ -303,7 +315,10 @@ export interface Listing {
   // existed -- see normalizeListing/dbListingToLocal's defensive-default
   // story for the same reasoning applied elsewhere on this type. A null
   // condition simply shows no badge on ListingCard rather than guessing.
-  condition: 'new' | 'used' | 'sale' | 'rent' | 'both' | 'free' | null;
+  // 'new' is deliberately shared between new_used and graded rather than
+  // given a graded twin: brand new is the same fact under either scale,
+  // and two values meaning it would split every filter spanning both.
+  condition: 'new' | 'used' | 'sale' | 'rent' | 'both' | 'free' | 'like_new' | 'good' | 'fair' | null;
   district: string;
   // Lebanese governorate/caza (district), resolved via the map picker or
   // town-name autocomplete against the lebanonPlaces dataset (see

@@ -14,6 +14,7 @@ import { useSettings } from '../../store/SettingsStore';
 import { Alert } from '../../lib/alertShim';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { listingActionMessage } from '../../lib/listingActionMessage';
+import { conditionOptionsFor, conditionFieldLabel, conditionValidUnder } from '../../lib/conditionModes';
 import { useBatchClassify, useBatchClassifyStates, useBatchItemClassifyState } from '../../store/BatchClassifyContext';
 import { listingToInput } from '../../lib/batchListingInput';
 import { RootStackParamList } from '../../navigation/types';
@@ -48,25 +49,7 @@ function ReviewRow({
   const usesOfferType = listing.cat ? usesOfferTypeCategory(listing.cat) : false;
   const conditionMode = listing.cat ? conditionModeForCategory(listing.cat) : 'new_used';
   const asksCondition = listing.cat ? !isServiceCategory(listing.cat) : true;
-  const conditionOptions = useMemo(() => {
-    if (conditionMode === 'offer_type') {
-      return [
-        { value: 'sale', label: t('createListing.condition.sale') },
-        { value: 'rent', label: t('createListing.condition.rent') },
-        { value: 'both', label: t('createListing.condition.both') },
-      ];
-    }
-    if (conditionMode === 'rehome') {
-      return [
-        { value: 'sale', label: t('createListing.condition.sale') },
-        { value: 'free', label: t('createListing.condition.free') },
-      ];
-    }
-    return [
-      { value: 'new', label: t('createListing.condition.new') },
-      { value: 'used', label: t('createListing.condition.used') },
-    ];
-  }, [conditionMode, t]);
+  const conditionOptions = useMemo(() => conditionOptionsFor(conditionMode, t), [conditionMode, t]);
 
   const setCategory = (id: CategoryId) => {
     // Same cross-boundary clear as CreateListingScreen's own effect: a
@@ -75,17 +58,13 @@ function ReviewRow({
     // Properties boundary, so it's cleared rather than left stranded,
     // matching none of the now-shown pills.
     // Checked against the option set the new category actually shows,
-    // rather than by re-listing the values: 'sale' belongs to two of the
-    // three modes, so a hand-written list would clear a pick that was
-    // still perfectly valid.
+    // rather than by re-listing the values: the modes overlap -- 'sale'
+    // belongs to two of them and 'new' to two others -- so a hand-written
+    // list clears picks that were still perfectly valid, and forgets the
+    // ones a new mode adds. conditionValidUnder reads the same table the
+    // pills are built from.
     const nextMode = conditionModeForCategory(id);
-    const nextValues =
-      nextMode === 'offer_type'
-        ? ['sale', 'rent', 'both']
-        : nextMode === 'rehome'
-          ? ['sale', 'free']
-          : ['new', 'used'];
-    const conditionStillValid = !!listing.condition && nextValues.includes(listing.condition);
+    const conditionStillValid = conditionValidUnder(nextMode, listing.condition);
     updateListing(
       listing.id,
       listingToInput(listing, { cat: id, condition: conditionStillValid ? listing.condition : null })
@@ -195,11 +174,7 @@ function ReviewRow({
           )
         }
         label={
-          conditionMode === 'offer_type'
-            ? t('createListing.saleRentLabel')
-            : conditionMode === 'rehome'
-              ? t('createListing.rehomeLabel')
-              : t('createListing.conditionLabel')
+          conditionFieldLabel(conditionMode, t)
         }
         options={conditionOptions}
       />

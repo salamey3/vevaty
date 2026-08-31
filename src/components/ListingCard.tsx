@@ -17,6 +17,7 @@ import { relativeTimeFrom } from '../lib/relativeTime';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingPriceLines } from '../lib/priceDisplay';
 import { conditionShownInPrice } from '../lib/rentTerms';
+import { conditionCardLabel } from '../lib/conditionModes';
 import { RootStackParamList } from '../navigation/types';
 
 // How long the cursor has to sit still on a card before its preview
@@ -34,32 +35,17 @@ const HOVER_PREVIEW_DELAY_MS = 180;
 // every row needs to shout, per the approved Collections mockup.
 export type CornerBadge = { icon: IconName; color: string } | { text: string; color: string };
 
-// listing.condition is either the universal New/Used pick or, for
-// Properties, the Sale/Rent/Both pick reusing the same column -- see
-// Listing.condition's own doc comment in src/types/index.ts.
+// listing.condition is the universal pick, whatever question the
+// category makes it ask -- New/Used, Sale/Rent/Both, sale-or-rehome, or a
+// wear grade. See Listing.condition and ConditionMode in src/types.
 //
-// In practice the card only reaches the New/Used arms now: properties
-// carry their offer in the price lines instead and render no pill at all
-// (see the call site). The sale/rent/both arms are kept so this stays a
-// total function over the union -- the pill is one styling decision away
-// from coming back, and a silent fall-through to "Used" is exactly the
-// bug this lookup replaced.
-function conditionTagLabel(condition: NonNullable<Listing['condition']>, t: (key: string) => string): string {
-  switch (condition) {
-    case 'new':
-      return t('listingCard.conditionNew');
-    case 'used':
-      return t('listingCard.conditionUsed');
-    case 'sale':
-      return t('listingCard.conditionSale');
-    case 'rent':
-      return t('listingCard.conditionRent');
-    case 'both':
-      return t('listingCard.conditionBoth');
-    case 'free':
-      return t('listingCard.conditionFree');
-  }
-}
+// In practice the card only reaches the New/Used and graded arms now:
+// properties carry their offer in the price lines instead and render no
+// pill at all (see the call site). The lookup covers the whole union
+// regardless -- the pill is one styling decision away from coming back,
+// and a silent fall-through to "Used" is exactly the bug it replaced.
+// It lives in src/lib/conditionModes.ts with every other per-value list,
+// so a new mode cannot light up a picker and leave this behind.
 
 export default function ListingCard({
   listing,
@@ -364,7 +350,7 @@ export default function ListingCard({
               )}
               {priceLines.primary.amount}
             </Text>
-            {/* New/Used only. Any pick the price lines already state -- a
+            {/* New/Used and wear grades. Any pick the price lines already state -- a
                 property's Sale/Rent/Both, an animal's Free is already
                 spelled out by the price lines themselves, and repeating it
                 as a pill cost enough width to truncate the price it sat
@@ -377,7 +363,7 @@ export default function ListingCard({
                 those simply show no tag rather than guessing. */}
             {listing.condition && !conditionShownInPrice(listing.condition) && (
               <View style={styles.tag}>
-                <Text style={styles.tagText}>{conditionTagLabel(listing.condition, t)}</Text>
+                <Text style={styles.tagText}>{conditionCardLabel(listing.condition, t)}</Text>
               </View>
             )}
           </View>
