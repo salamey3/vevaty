@@ -12,14 +12,20 @@ done — every decision in that document is now built.
 
 Two things worth fixing:
 
-- **The listing lifecycle is half built.** The expiry engine is in (see
-  @LIFECYCLE.md) and `listing_contact_events` is recording phone reveals,
-  but the pieces that actually catch a dead lead are not: the buyer-side
-  "did you reach the seller?" prompt, the passive "no longer available?"
-  flag, and the `kind = 'system'` message posted into the buyer's own chat
-  thread. The buyer prompt is the one worth doing first -- it is the only
-  signal that catches a seller who renews out of habit while the item is
-  long gone.
+- **The listing lifecycle has two pieces left.** The expiry engine, the
+  contact log and the buyer-side "did you reach the seller?" prompt are
+  all in (see @LIFECYCLE.md). Still to build: a passive "no longer
+  available?" flag for buyers who never made contact at all, and the
+  `kind = 'system'` message posted into the buyer's own chat thread, which
+  is the chat-side equivalent of the prompt. Neither is urgent -- the
+  prompt covers the case that actually loses buyers.
+
+- **Nothing has confirmed the VV001 path by hand.** When a seller taps
+  Restore on an auto-hidden listing that has not passed moderation, they
+  should read "This listing has to be reviewed before it can go back on
+  the site", not "please try again". Everything says PostgREST surfaces
+  the custom SQLSTATE as `error.code`, but it was never exercised against
+  the real endpoint. One tap confirms it.
 
 - **The app has not had a native build since 26 Aug.** Nothing needs one
   right now -- the fingerprint was restored rather than rebuilt around, so
@@ -47,6 +53,15 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**"Did you reach the seller?"**, 31 Aug 2026. The piece that actually
+catches a dead lead. A day after a buyer reaches for a seller's number,
+they are asked how it went -- on the section home and on the listing
+itself -- and two independent phone-verified buyers saying "they said
+it's sold" hides the listing, with the seller told why and one tap to
+restore. Every guard is in the database, because it is the one write in
+the app where one user's word affects another user's listing. See
+@LIFECYCLE.md.
 
 **Listing lifecycle**, 31 Aug 2026. Expiry became a per-category setting
 resolved nearest-ancestor-first -- a phone gets 7 days, an apartment 45, a
