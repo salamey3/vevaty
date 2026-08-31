@@ -42,13 +42,16 @@ type FormState = {
   descriptionExampleEn: string;
   descriptionExampleAr: string;
   stockMode: 'unique' | 'multiple';
+  // Kept as the typed string rather than a number so the field can be
+  // emptied back to "inherit" without the blank reading as zero.
+  listingLifetimeDays: string;
 };
 
 function blankForm(): FormState {
   return {
     id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: false, shotListEn: '', shotListAr: '',
     isService: false, conditionMode: null, domainId: null, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
-    stockMode: 'unique',
+    stockMode: 'unique', listingLifetimeDays: '',
   };
 }
 
@@ -69,7 +72,24 @@ function formFor(c: Category): FormState {
     descriptionExampleEn: c.descriptionExampleEn || '',
     descriptionExampleAr: c.descriptionExampleAr || '',
     stockMode: c.stockMode,
+    listingLifetimeDays: c.listingLifetimeDays == null ? '' : String(c.listingLifetimeDays),
   };
+}
+
+// Blank means INHERIT, which is null. Anything else has to be a real
+// number in range -- and crucially, out-of-range is NOT quietly turned
+// into null, because null is itself a legal value with a completely
+// different meaning. Typing 600 into a category that says 60 would
+// otherwise have written "inherit", left the field showing 600, and
+// reported "Saved": every listing in that category silently switching to
+// the 14-day fallback, with the admin's own screen confirming the wrong
+// thing. The autosave guard refuses to save at all while this is invalid.
+function parsedLifetime(f: FormState): { value: number | null; valid: boolean } {
+  const raw = f.listingLifetimeDays.trim();
+  if (!raw) return { value: null, valid: true };
+  const n = Number(raw);
+  if (!Number.isFinite(n) || n < 1 || n > 365) return { value: null, valid: false };
+  return { value: Math.round(n), valid: true };
 }
 
 function slugify(s: string) {
@@ -139,11 +159,18 @@ export default function AdminCategoriesScreen() {
     descriptionExampleEn: f.descriptionExampleEn.trim() || null,
     descriptionExampleAr: f.descriptionExampleAr.trim() || null,
     stockMode: f.stockMode,
+    listingLifetimeDays: parsedLifetime(f).value,
   });
 
   const doAutosave = async (id: string, f: FormState) => {
     if (!f.nameEn.trim() || !f.nameAr.trim()) {
       // Don't autosave a half-typed name -- wait until both are filled in.
+      setAutosaveState('idle');
+      return;
+    }
+    // Same idea, and it matters more here: saving an out-of-range lifetime
+    // would write null, which reads as "inherit" and is a real setting.
+    if (!parsedLifetime(f).valid) {
       setAutosaveState('idle');
       return;
     }
@@ -393,6 +420,28 @@ Inherit takes whatever the category above says, and is right for almost every ro
           </Pressy>
         ))}
       </View>
+
+      <Text style={styles.fieldLabel}>Listing lifetime (days)</Text>
+      <Text style={styles.fieldHint}>
+        How long a listing here stays live before it expires. Leave blank to inherit from the category above --
+        which is right for almost every row. Only about a dozen categories set their own, because the honest
+        answer is how long that kind of thing actually takes to sell: a phone is gone in a week, an apartment
+        takes months, a ticket dies the day the event does. With nothing set anywhere up the chain it is 14 days.
+        See LIFECYCLE.md for why each value is what it is.
+      </Text>
+      <TextInput
+        value={form.listingLifetimeDays}
+        onChangeText={(v) => updateForm({ listingLifetimeDays: v.replace(/[^0-9]/g, '').slice(0, 3) })}
+        keyboardType="number-pad"
+        placeholder="Inherit"
+        placeholderTextColor={colors.inkSoft}
+        style={styles.input}
+      />
+      {!parsedLifetime(form).valid && (
+        <Text style={styles.fieldError}>
+          Between 1 and 365, or blank to inherit. Nothing is being saved while this says otherwise.
+        </Text>
+      )}
 
       {/* Only meaningful on a top-level category: domain_id is set there
           and inherited by everything beneath it, so a subcategory showing
@@ -653,6 +702,7 @@ const styles = StyleSheet.create({
   domainPillText: { fontSize: 13, fontWeight: '600', color: colors.ink },
   domainPillTextActive: { color: colors.white },
   fieldHint: { ...type.tiny, textTransform: 'none', letterSpacing: 0, color: colors.inkSoft, marginBottom: 6 },
+  fieldError: { ...type.tiny, textTransform: 'none', letterSpacing: 0, color: colors.danger, marginTop: 4, marginBottom: 6 },
   input: {
     backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.sm, paddingHorizontal: 14, height: 44, fontSize: 14, color: colors.ink,

@@ -12,6 +12,7 @@ import { useNavigation } from '@react-navigation/native';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingActionMessage } from '../lib/listingActionMessage';
+import { useSettings } from '../store/SettingsStore';
 import { listingTitle } from '../lib/listingText';
 import { useGoBack } from '../hooks/useGoBack';
 
@@ -41,6 +42,11 @@ export default function MyListingsScreen() {
   const { t, language } = useLanguage();
   const { listings, profile, extendListing, republishListing, deleteListing, hideListing, markListingSold } =
     useAppStore();
+  // The Extend button used to promise "another 15 days" to everyone. A
+  // lifetime is per-category now, so a ticket's button has to say 3 and a
+  // property's 45 -- a button that names the wrong number is worse than
+  // one that names none.
+  const { lifetimeDaysForCategory } = useSettings();
   const myListings = useMemo(() => listings.filter((l) => l.sellerId === profile.id), [listings, profile.id]);
 
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -217,7 +223,9 @@ export default function MyListingsScreen() {
                       disabled={busyId === l.id}
                     >
                       <Text style={styles.rowActionBtnText}>
-                        {busyId === l.id ? t('common.loading') : t('profile.extendListing')}
+                        {busyId === l.id
+                          ? t('common.loading')
+                          : t('profile.extendListing', { n: lifetimeDaysForCategory(l.cat) })}
                       </Text>
                     </Pressy>
                   )}

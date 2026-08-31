@@ -176,6 +176,37 @@ disagree about the same field is the thing this replaced.
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.
 
+# Listing expiry is per category, and the database owns it
+
+How long a listing lives is `categories.listing_lifetime_days` — nullable,
+resolved nearest-ancestor-first, exactly like `condition_mode`. About a
+dozen categories set it; the other eighty-odd inherit, and 14 days is the
+fallback. **@LIFECYCLE.md has the reasoning for every number**, and for the
+two options that were rejected first.
+
+The client does not compute expiry. `myazar.category_lifetime_days()`
+resolves it, `trg_set_listing_expiry` applies it on insert, and
+`extend_own_listing` / `republish_own_listing` apply it on renewal and
+return the row they wrote. `lifetimeDaysForCategory` in SettingsStore is a
+display copy for "expires in N days" and the Extend button's label —
+nothing more. `DEFAULT_LISTING_LIFETIME_DAYS` and the SQL function's own
+`return 14` are one answer written twice; change both or neither.
+
+Two rules that are easy to break by accident:
+
+- **Buyer interest never extends a listing.** `listing_contact_events`
+  records that a buyer revealed a seller's phone number — the only
+  observable moment in a phone-only conversation — but it is evidence of
+  demand, not evidence the seller is still there. Only seller actions reset
+  the clock.
+- **Redeploying an edge function turns `verify_jwt` back ON.** Both
+  cron-invoked functions are called by pg_net with an `x-cron-secret`
+  header; that alone gets a 401 the moment verify_jwt flips, and nothing
+  fails loudly — the job just stops working. Both cron commands now send an
+  `apikey`/`Authorization` pair as well, so they survive it either way. If
+  you deploy `send-expiry-reminders` or `purge-removed-listings`, fire the
+  job once by hand and check `net._http_response` for a 200.
+
 # Stock and sizes belong to shops, not to categories
 
 `categories.stock_mode = 'multiple'` plus one `is_variant` multiselect

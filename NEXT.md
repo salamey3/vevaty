@@ -10,7 +10,16 @@ salary ranges and hourly pricing rather than a guess made now. Steps 1
 (domains as data), 2 (posting) and 3 (browsing, banners included) are all
 done — every decision in that document is now built.
 
-One thing worth fixing:
+Two things worth fixing:
+
+- **The listing lifecycle is half built.** The expiry engine is in (see
+  @LIFECYCLE.md) and `listing_contact_events` is recording phone reveals,
+  but the pieces that actually catch a dead lead are not: the buyer-side
+  "did you reach the seller?" prompt, the passive "no longer available?"
+  flag, and the `kind = 'system'` message posted into the buyer's own chat
+  thread. The buyer prompt is the one worth doing first -- it is the only
+  signal that catches a seller who renews out of habit while the item is
+  long gone.
 
 - **The app has not had a native build since 26 Aug.** Nothing needs one
   right now -- the fingerprint was restored rather than rebuilt around, so
@@ -38,6 +47,17 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Listing lifecycle**, 31 Aug 2026. Expiry became a per-category setting
+resolved nearest-ancestor-first -- a phone gets 7 days, an apartment 45, a
+ticket 3 -- and the database took ownership of it: a trigger on insert, and
+RPCs for extend and republish that resolve the same function and hand back
+the row they wrote, replacing two hand-written "now + 15 days" in the
+client. Verified storefronts are exempt from per-item reminders. And
+`listing_contact_events` now records the one observable moment in a
+phone-only conversation: the buyer revealing the seller's number. The
+reasoning for every number, and for the two approaches rejected first, is
+in @LIFECYCLE.md.
 
 **Fashion & Beauty**, 31 Aug 2026. The gendered Clothing and Accessories
 pairs merged into one each with gender as a spec — the third time that

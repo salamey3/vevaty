@@ -2,6 +2,7 @@ import React, { createContext, useContext, useEffect, useMemo, useState, useCall
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { Listing, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
+import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
@@ -245,10 +246,15 @@ function spinSetsFromRows(photoRows: any[], spinSetRows: any[]): SpinSet[] {
 // "Free" to the seller who posted it and as "$0" to everybody else, for
 // as long as the app stayed open.
 
-// 15 days -- kept as one constant since both the client's optimistic local
-// value and the server's DB column default (`now() + interval '15 days'`)
-// need to agree, and extendListing/republishListing recompute it too.
-const LISTING_LIFETIME_MS = 15 * 24 * 60 * 60 * 1000;
+// A FALLBACK, not the rule. How long a listing lives is a property of its
+// category now (see LIFECYCLE.md), resolved nearest-ancestor-first, and
+// the database is what applies it: a BEFORE INSERT trigger sets
+// expires_at, and extend/republish go through RPCs that resolve it
+// server-side. This constant is only reached where a row arrives with no
+// expiry at all -- a cached listing written before the column existed --
+// and it is deliberately the same number the database falls back to, so
+// the two halves of that answer cannot disagree.
+const LISTING_LIFETIME_MS = DEFAULT_LISTING_LIFETIME_DAYS * 24 * 60 * 60 * 1000;
 
 // Why a code and not just a message: the sentence a seller should read
 // has to be translated, and the one PostgREST hands back cannot be --
@@ -448,7 +454,12 @@ function dbListingToLocal(row: any): Listing {
   const spinSets = spinSetsFromRows(rows, Array.isArray(row.spinSets) ? row.spinSets : []);
   return {
     id: row.id,
-    cat: row.category_id,
+    // null means "not classified yet" -- a batch draft whose photos are
+    // still being taken. Mapped to '' at this boundary so nothing
+    // downstream has to learn a third state: every read site already
+    // treats an unknown category defensively (categoryById returning
+    // undefined, cat?.icon optional-chained).
+    cat: row.category_id ?? '',
     titleEn: row.title_en ?? '',
     titleAr: row.title_ar ?? '',
     descriptionEn: row.description_en ?? '',
@@ -1052,7 +1063,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         .from('listings')
         .insert({
           seller_id: uid,
-          category_id: l.cat,
+          // '' is not a category and never was -- it is the batch flow
+          // saying "not classified yet". Sent as null, which the column
+          // now allows; sending '' failed the foreign key and, until
+          // addListing started throwing, failed it silently. See
+          // LIFECYCLE.md.
+          category_id: l.cat || null,
           title_en: l.titleEn,
           title_ar: l.titleAr,
           description_en: l.descriptionEn,
@@ -1287,7 +1303,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const { data: updated, error: updateError } = await supabase
         .from('listings')
         .update({
-          category_id: l.cat,
+          category_id: l.cat || null,
           title_en: l.titleEn,
           title_ar: l.titleAr,
           description_en: l.descriptionEn,
@@ -1444,40 +1460,62 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setListings((prev) => prev.filter((l) => l.id !== id));
   }, []);
 
-  // Resets the 15-day clock to "another 15 days from right now" -- offered
-  // on Profile once a still-active listing is within a day of expiring
-  // (see ProfileScreen). Also clears expiry_reminder_sent_at so a fresh
-  // reminder can fire again next time this listing approaches expiry.
-  const extendListing = useCallback(async (id: string) => {
-    const newExpiresAt = Date.now() + LISTING_LIFETIME_MS;
-    await updateOwnListingRow(
-      id,
-      userIdRef.current,
-      { expires_at: new Date(newExpiresAt).toISOString(), expiry_reminder_sent_at: null },
-      'extendListing'
-    );
-    setListings((prev) =>
-      prev.map((it) => (it.id === id ? { ...it, expiresAt: newExpiresAt, expiryReminderSentAt: null } : it))
-    );
-  }, []);
+  // Both of these moved to the server, and for one reason: how long a
+  // listing lives is now a property of its category, and these were the
+  // two places the client computed "now + 15 days" by hand. A client that
+  // decides expiry is a client that drifts from the database the first
+  // time either changes -- and there are two of them already, the app and
+  // the website. The RPC resolves the category's lifetime the same way
+  // the insert trigger does, and hands back the row it actually wrote, so
+  // local state stops guessing at a date it did not choose.
+  //
+  // Same three failure checks as every other write here (see
+  // updateOwnListingRow): the error nobody read, the update that matched
+  // no row, and the status a trigger quietly put back.
+  const renewListing = useCallback(
+    async (id: string, rpc: 'extend_own_listing' | 'republish_own_listing', expectStatus?: string) => {
+      const uid = userIdRef.current;
+      if (!uid) throw listingSaveError('not-signed-in');
+      const { data, error } = await supabase.rpc(rpc, { p_listing_id: id });
+      const row = Array.isArray(data) ? data[0] : data;
+      if (error || !row) {
+        console.warn(`[AppStore] ${rpc} refused:`, error?.message || 'no row matched');
+        throw listingSaveError('refused', error?.message);
+      }
+      // Applied BEFORE the status check below, deliberately. When the
+      // moderation gate refuses the status it still commits the new
+      // expiry and the cleared reminder flag -- the UPDATE ran, only
+      // `status` was rewritten -- so throwing without taking these would
+      // leave the screen a full lifetime behind the database until the
+      // next sync. row.status is whatever actually landed, gate included.
+      const expiresAt = row.expires_at ? new Date(row.expires_at).getTime() : Date.now() + LISTING_LIFETIME_MS;
+      setListings((prev) =>
+        prev.map((it) =>
+          it.id === id
+            ? { ...it, status: row.status as Listing['status'], expiresAt, expiryReminderSentAt: null }
+            : it
+        )
+      );
+      if (expectStatus && row.status !== expectStatus) {
+        console.warn(`[AppStore] ${rpc} was reverted by the database: asked for`, expectStatus, 'got', row.status);
+        throw listingSaveError('needs-review', `status stayed ${row.status}`);
+      }
+    },
+    []
+  );
 
-  // Brings an 'expired' ("Unpublished" in the UI -- see ProfileScreen)
-  // listing back to 'active' with a fresh 15-day clock.
-  const republishListing = useCallback(async (id: string) => {
-    const newExpiresAt = Date.now() + LISTING_LIFETIME_MS;
-    await updateOwnListingRow(
-      id,
-      userIdRef.current,
-      { status: 'active', expires_at: new Date(newExpiresAt).toISOString(), expiry_reminder_sent_at: null },
-      'republishListing',
-      'active'
-    );
-    setListings((prev) =>
-      prev.map((it) =>
-        it.id === id ? { ...it, status: 'active', expiresAt: newExpiresAt, expiryReminderSentAt: null } : it
-      )
-    );
-  }, []);
+  // Resets the clock to a fresh full lifetime for this listing's category
+  // -- offered on MyListingsScreen once a still-active listing is within a
+  // day of expiring. Also clears expiry_reminder_sent_at so a fresh
+  // reminder can fire again next time it approaches expiry.
+  const extendListing = useCallback((id: string) => renewListing(id, 'extend_own_listing'), [renewListing]);
+
+  // Brings an 'expired' ("Unpublished" in the UI) listing back to
+  // 'active' with a fresh clock.
+  const republishListing = useCallback(
+    (id: string) => renewListing(id, 'republish_own_listing', 'active'),
+    [renewListing]
+  );
 
   const hideListing = useCallback(async (id: string) => {
     await updateOwnListingRow(id, userIdRef.current, { status: 'draft' }, 'hideListing', 'draft');

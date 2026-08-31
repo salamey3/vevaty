@@ -75,6 +75,19 @@ export interface Category {
   // Read it through conditionModeForCategory in SettingsStore, never off
   // the row, or a subcategory will answer for itself alone.
   conditionMode: ConditionMode | null;
+  // How many days a listing here stays active before it expires. Null
+  // inherits from the nearest ancestor that names one, and 14 if none
+  // does -- the same nullable-inherits shape as conditionMode, and for
+  // the same reason: ninety-odd categories, of which about a dozen have
+  // an answer that differs from their parent's. Read it through
+  // lifetimeDaysForCategory in SettingsStore, never off the row.
+  //
+  // The DATABASE is authoritative: a BEFORE INSERT trigger sets
+  // expires_at from this, and extend/republish go through RPCs that
+  // resolve it server-side. This copy exists so the app can say "expires
+  // in N days" without a round trip, not so it can decide anything.
+  // See LIFECYCLE.md for why each value is what it is.
+  listingLifetimeDays: number | null;
   // Which domain this category belongs to (see ListingDomain). Set on
   // top-level rows and inherited by their descendants, exactly as
   // isService and conditionMode are -- read it through
@@ -384,11 +397,13 @@ export interface Listing {
   // Set by a human moderator on rejection; shown to the seller so they know
   // what to fix before resubmitting. Null otherwise.
   moderationReason: string | null;
-  // 15 days after posting by default (DB column default), reset to
-  // now+15d by extendListing/republishListing. expiryReminderSentAt is set
-  // once the day-15 WhatsApp reminder has actually gone out (see the
-  // send-expiry-reminders edge function) so it's never sent twice for the
-  // same expiry window.
+  // When this listing stops being visible. How long that is depends on
+  // its CATEGORY -- 7 days for a phone, 45 for an apartment, 3 for a
+  // ticket -- resolved nearest-ancestor-first and applied by the
+  // database, never by a client: a trigger sets it on insert and
+  // recomputes it if the category changes or the listing leaves draft,
+  // and extend/republish go through RPCs that resolve the same function.
+  // See LIFECYCLE.md for the numbers and the reasoning behind them.
   expiresAt: number;
   expiryReminderSentAt: number | null;
   // Phase 4 item 14 -- which of the contact CTAs (chat / phone+WhatsApp)

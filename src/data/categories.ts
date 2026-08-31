@@ -50,6 +50,11 @@ function topLevel(
     active,
     isService,
     conditionMode,
+    // Offline/first-paint fallback only, same story as the rest of this
+    // builder: null means "inherit", and with no ancestor to inherit from
+    // the resolver lands on DEFAULT_LISTING_LIFETIME_DAYS -- which is what
+    // an unloaded category should read as anyway.
+    listingLifetimeDays: null,
     domainId,
     titleExampleEn: null,
     titleExampleAr: null,
@@ -75,6 +80,13 @@ export const DEFAULT_DOMAINS: ListingDomain[] = [
   { id: 'classifieds', nameEn: 'Classifieds', nameAr: 'إعلانات مبوبة', icon: 'grip', sortOrder: 2, active: true },
   { id: 'jobs-services', nameEn: 'Jobs & Services', nameAr: 'وظائف وخدمات', icon: 'briefcase', sortOrder: 3, active: true },
 ];
+
+// The fallback lifetime for a category that names none, and for every
+// ancestor above it that names none either. Kept beside the category data
+// because it is a property OF the category tree, and deliberately equal to
+// myazar.category_lifetime_days' own fallback in the database -- the two
+// are one answer written twice, and they must not drift. See LIFECYCLE.md.
+export const DEFAULT_LISTING_LIFETIME_DAYS = 14;
 
 export const DEFAULT_CATEGORIES: Category[] = [
   topLevel('vehicles', 'Vehicles', 'مركبات', 'car', 0, false,

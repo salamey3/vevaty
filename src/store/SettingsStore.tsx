@@ -4,7 +4,10 @@ import { supabase, ensureSession } from '../lib/supabase';
 import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
 import { AttributeOption, AttributeType, Category, CategoryAttribute, ConditionMode, FilterFacet, ListingDomain, SiteSettings } from '../types';
-import { DEFAULT_CATEGORIES, DEFAULT_DOMAINS, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK, GENERIC_CATEGORY_ICON } from '../data/categories';
+import {
+  DEFAULT_CATEGORIES, DEFAULT_DOMAINS, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK,
+  GENERIC_CATEGORY_ICON, DEFAULT_LISTING_LIFETIME_DAYS,
+} from '../data/categories';
 
 const KEYS = {
   categories: 'vevaty:categories',
@@ -40,6 +43,7 @@ function normalizeCachedCategories(raw: any): Category[] {
     ...c,
     conditionMode:
       (c?.conditionMode as ConditionMode) ?? (c?.usesOfferType ? 'offer_type' : null),
+    listingLifetimeDays: typeof c?.listingLifetimeDays === 'number' ? c.listingLifetimeDays : null,
   })) as Category[];
 }
 
@@ -68,6 +72,7 @@ interface CreateCategoryInput {
   shotListAr: string[];
   isService: boolean;
   conditionMode: ConditionMode | null;
+  listingLifetimeDays: number | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -87,6 +92,7 @@ interface UpdateCategoryPatch {
   active: boolean;
   isService: boolean;
   conditionMode: ConditionMode | null;
+  listingLifetimeDays: number | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -146,6 +152,9 @@ interface SettingsValue {
   // nearest ancestor (itself included) that names something other than
   // the default wins.
   conditionModeForCategory: (categoryId: string) => ConditionMode;
+  // Days a listing in this category lives before expiring. Display only
+  // -- the database decides the real expiry. See LIFECYCLE.md.
+  lifetimeDaysForCategory: (categoryId: string) => number;
   // conditionModeForCategory(id) === 'offer_type', kept as its own name
   // because the rent-terms code reads better asking that question.
   usesOfferTypeCategory: (categoryId: string) => boolean;
@@ -250,6 +259,7 @@ function dbToCategory(row: any): Category {
     active: row.active !== false,
     isService: !!row.is_service,
     conditionMode: (row.condition_mode as ConditionMode) ?? null,
+    listingLifetimeDays: typeof row.listing_lifetime_days === 'number' ? row.listing_lifetime_days : null,
     domainId: row.domain_id || null,
     titleExampleEn: row.title_example_en || null,
     titleExampleAr: row.title_example_ar || null,
@@ -590,6 +600,27 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [conditionModeForCategory]
   );
 
+  // Same nearest-first walk as conditionModeForCategory above. The number
+  // it returns is for DISPLAY only -- "expires in N days", and the label
+  // on the Extend button. Every write of expires_at happens server-side
+  // (the trg_set_listing_expiry trigger on insert, extend_own_listing and
+  // republish_own_listing on renewal), because a lifetime the client
+  // computes is a lifetime that drifts the first time a second client
+  // exists. See LIFECYCLE.md.
+  const lifetimeDaysForCategory = useCallback(
+    (categoryId: string): number => {
+      const chain = buildAncestorChain(categoryId);
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const days = categoryById(chain[i])?.listingLifetimeDays;
+        if (typeof days === 'number' && days > 0) return days;
+      }
+      // Matches myazar.category_lifetime_days' own fallback. If you change
+      // one, change the other -- they are two halves of one answer.
+      return DEFAULT_LISTING_LIFETIME_DAYS;
+    },
+    [buildAncestorChain, categoryById]
+  );
+
   const domainById = useCallback(
     (id: string) => allDomains.find((d) => d.id === id),
     [allDomains]
@@ -700,6 +731,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         active: true,
         is_service: input.isService,
         condition_mode: input.conditionMode,
+        listing_lifetime_days: input.listingLifetimeDays,
         domain_id: input.domainId,
         title_example_en: input.titleExampleEn,
         title_example_ar: input.titleExampleAr,
@@ -729,6 +761,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.active !== undefined) dbPatch.active = patch.active;
       if (patch.isService !== undefined) dbPatch.is_service = patch.isService;
       if (patch.conditionMode !== undefined) dbPatch.condition_mode = patch.conditionMode;
+      if (patch.listingLifetimeDays !== undefined) dbPatch.listing_lifetime_days = patch.listingLifetimeDays;
       if (patch.domainId !== undefined) dbPatch.domain_id = patch.domainId;
       if (patch.titleExampleEn !== undefined) dbPatch.title_example_en = patch.titleExampleEn;
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
@@ -1083,6 +1116,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       conditionModeForCategory,
+      lifetimeDaysForCategory,
       usesOfferTypeCategory,
       domains,
       allDomains,
@@ -1131,6 +1165,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       conditionModeForCategory,
+      lifetimeDaysForCategory,
       usesOfferTypeCategory,
       domains,
       allDomains,
