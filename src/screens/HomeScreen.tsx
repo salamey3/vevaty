@@ -63,6 +63,7 @@ import { matchesConditionFilter } from '../lib/rentTerms';
 import { conditionFilterOptionsFor, CONDITION_FILTER_TITLE_KEY } from '../lib/conditionModes';
 import { findPlaceByFreeText } from '../data/lebanonPlaces';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
+import ContactOutcomePrompt from '../components/ContactOutcomePrompt';
 
 // Parallel, always-visible selection state -- replaces the old one-facet-
 // at-a-time drill-down. Every enabled facet is its own sidebar section;
@@ -116,7 +117,7 @@ export default function HomeScreen() {
   const params = route.params as
     | Partial<HomeStackParamList['HomeCategory'] & HomeStackParamList['HomeDomain']>
     | undefined;
-  const { listings: allListings, profile, isVerified } = useAppStore();
+  const { listings: allListings, profile, isVerified, contactPrompts } = useAppStore();
   const { collections, resolveCollection } = useCollections();
   // Browse/search only ever wants to show published listings -- RLS already
   // keeps other sellers' non-active listings out of what's fetched, but the
@@ -1064,7 +1065,28 @@ export default function HomeScreen() {
     </GHScrollView>
   );
 
-  const carousels = renderCarousels(mobileCollectionRowsHeader);
+  // "Did you reach the seller?" -- one at a time, above everything else,
+  // and only on a section home. It is a question about something the
+  // buyer already did, so it belongs where they land rather than
+  // interrupting a search or a category they are in the middle of. One,
+  // never a stack: a column of them reads as a chore and gets dismissed
+  // wholesale. See LIFECYCLE.md.
+  const contactPromptCard = isSectionHome && contactPrompts.length > 0 && (
+    <View style={styles.contactPromptSlot}>
+      <ContactOutcomePrompt key={contactPrompts[0].listingId} prompt={contactPrompts[0]} />
+    </View>
+  );
+
+  // Passed into BOTH branches. `carousels` is what mobile renders on a
+  // section home with listings -- the exact case this question exists for
+  // -- and it takes its own header, so a card added only to scrollHeader
+  // (the non-carousel path) never appeared on a phone at all.
+  const carousels = renderCarousels(
+    <>
+      {contactPromptCard}
+      {mobileCollectionRowsHeader}
+    </>
+  );
 
   // Where you are and the way out, on every layout: the section's name (or
   // the category's, one level in), a back link naming what it goes back to,
@@ -1126,6 +1148,7 @@ export default function HomeScreen() {
   const scrollHeader = (
     <>
       {elsewhereLine}
+      {contactPromptCard}
       {isSectionHome && (isDesktop ? collectionRowsHeader : mobileCollectionRowsHeader)}
     </>
   );
@@ -1497,6 +1520,7 @@ export default function HomeScreen() {
 }
 
 const styles = StyleSheet.create({
+  contactPromptSlot: { marginBottom: 12 },
   // The TouchableWithoutFeedback tap-outside-to-dismiss wrapper (see its
   // render site inside carouselsAnchor) needs a single child, and that
   // child needs to actually fill carouselsAnchor's own flex: 1 for an

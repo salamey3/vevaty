@@ -194,18 +194,93 @@ be ignoring us; the buyer is annoyed and motivated to answer. Three
 independent "they said it's sold" answers is stronger evidence than anything
 that seller will ever give us.
 
+## "Did you reach the seller?"
+
+The piece that actually catches the dead lead. A buyer who called and was
+told the item sold last Tuesday is the only person who knows that; the
+seller who forgot to remove it is by definition not going to say.
+
+Asked 24 hours after a contact event — long enough that the conversation
+has happened — and only while the listing is still active and the buyer
+has not already answered. Shown in two places, one component and one
+answer: a card above the feed on a section home (one at a time; a column
+of them reads as a chore and gets dismissed wholesale) and, compactly, on
+the listing itself if they revisit it. Answering anywhere removes it
+everywhere.
+
+Four answers: still available, they said it's sold, no answer, and
+dismiss. **Dismiss is a real answer**, recorded like the others — that is
+what stops the same card returning tomorrow.
+
+### Two independent reports hide a listing
+
+Two, not one and not three. Two strangers who both made real contact and
+both came back to say the same thing is hard to fake and hard to get
+wrong, while one person acting alone must never be able to take down a
+competitor's listing.
+
+Hidden, not deleted: the listing goes to `draft` with `auto_hidden_at`
+set, so the seller keeps every path back. `auto_hidden_at` is also what
+lets MyListings tell the two kinds of draft apart — "resume this draft" is
+bewildering on a listing you finished weeks ago — and it is why restore is
+its own RPC rather than reusing republish: it must also stamp
+`sold_reports_cleared_at`, or the next answer re-hides the listing on a
+count the seller has already overruled.
+
+### The seller's two ways back
+
+Restoring is one of them, and it refuses outright if the listing has not
+passed moderation — because `enforce_listing_moderation_gate` would
+silently rewrite the status back and the seller would be left with a
+listing that stayed hidden, an `auto_hidden_at` that had been cleared, and
+no button to try again. It raises `VV001` instead, which the app turns
+into "this has to be reviewed first" rather than "try again".
+
+Editing and resubmitting is the other, and it is the one most sellers will
+actually take. Publication clears the auto-hide state wherever it comes
+from (in `set_listing_expiry`), or the listing would go back up with the
+old two reports still counting and the next single answer would hide it
+again instantly.
+
+### Every guard, and why it is in the database
+
+This is the one write in the app where one user's word affects another
+user's listing, so none of it is trusted to a client:
+
+- **Only somebody who actually made contact.** There must be a
+  `listing_contact_events` row for this buyer and this listing. Without
+  it, anyone could report any listing sold without ever touching it.
+- **Phone-verified only, and only for "sold".** An unverified account can
+  still say "still available" or dismiss the card; it cannot help hide
+  anything.
+- **Never the seller**, about their own listing.
+- **Never an anonymous session.**
+- **`auto_hidden_at` and `sold_reports_cleared_at` are not writable by a
+  client.** `authenticated` holds TABLE-level UPDATE on `listings`, so a
+  column-level revoke does nothing — a seller could have PATCHed
+  `sold_reports_cleared_at` to `infinity` and made their listing
+  permanently un-hideable. A BEFORE trigger reverts any change to either
+  column unless the caller is one of the two functions allowed to make it,
+  which announce themselves with a transaction-local setting a PostgREST
+  request cannot set. Same shape as `enforce_listing_moderation_gate`.
+- **One answer per buyer per listing.** The row is replaceable at the
+  database level, so a buyer who says "no answer" on Tuesday and is told
+  "sold" on Thursday could correct themselves — but no screen offers that
+  today, because `my_pending_contact_prompts` excludes any listing that
+  already has an answer. Worth adding when there is traffic to justify it.
+
+One deliberate asymmetry: the buyer can read their own answers and admins
+can read all of them, but **the seller cannot see who said what**. They
+are told their listing was hidden and why; a seller who could identify
+the reporter could retaliate against them.
+
 ## Not built yet, and why
 
 Deliberately staged. Each of these depends on the expiry engine above
 existing first, and each is worth reviewing on its own.
 
-- **The buyer-side prompt** — "did you reach the seller?", a day or two
-  after a contact event. This is the piece that actually catches the dead
-  lead, and the reason `listing_contact_events` exists now rather than later.
-- **A passive "no longer available?" flag** on the listing. Needs
-  guardrails or a competitor takes down your best supply: verified accounts
-  only, a threshold rather than a single report, auto-hide pending seller
-  confirmation rather than deletion, and one tap for the seller to restore.
+- **A passive "no longer available?" flag** on the listing, for buyers who
+  never made contact at all. Same guardrails as the prompt below.
 - **The in-thread system message.** `chat_messages` already has a `kind`
   column (it is how offers are typed), so a `kind = 'system'` message needs
   no new machinery. Posting it into the buyer's own thread — rather than

@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { Listing, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
+import { ContactOutcome, ContactPrompt, Listing, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, tierForPoints } from '../data/points';
@@ -44,6 +44,10 @@ const DEFAULT_PROFILE: Profile = {
 export type ListingInput = Omit<
   Listing,
   'id' | 'createdAt' | 'sellerId' | 'sellerName' | 'rating' | 'status' | 'expiresAt' | 'expiryReminderSentAt'
+  // Set by the database when buyers report a listing as already sold, and
+  // cleared only by the seller restoring it -- never something a form
+  // supplies. See LIFECYCLE.md.
+  | 'autoHiddenAt'
   // Phase 4 item 16 -- computed from the poster's own account (join or
   // isVerified), never something the create-listing form itself supplies.
   | 'sellerVerified' | 'sellerMemberSince' | 'sellerAvatarUrl'
@@ -149,6 +153,13 @@ interface AppStoreValue {
   // option the seller picked in the confirmation sheet) -- it doesn't
   // change what buyers/sellers see anywhere yet.
   markListingSold: (id: string, soldVia: 'vevaty' | 'elsewhere') => Promise<void>;
+  // "Did you reach the seller?" -- one per listing this buyer made real
+  // contact with more than a day ago and has not answered about yet. See
+  // LIFECYCLE.md for why the buyer is asked rather than the seller.
+  contactPrompts: ContactPrompt[];
+  answerContactPrompt: (listingId: string, outcome: ContactOutcome) => Promise<void>;
+  // The seller's one tap back after buyers hid their listing.
+  restoreAutoHiddenListing: (id: string) => Promise<void>;
   awardPoints: (amount: number, label: string) => Promise<void>;
   // Persists a new avatar (already uploaded to Bunny by the caller, same
   // as shop logos -- see MyStorefrontScreen's pickLogo) to profiles.avatar_url
@@ -361,6 +372,7 @@ function normalizeListing(l: any): Listing {
     moderationReason: typeof l?.moderationReason === 'string' ? l.moderationReason : null,
     expiresAt: typeof l?.expiresAt === 'number' ? l.expiresAt : Date.now() + LISTING_LIFETIME_MS,
     expiryReminderSentAt: typeof l?.expiryReminderSentAt === 'number' ? l.expiryReminderSentAt : null,
+    autoHiddenAt: typeof l?.autoHiddenAt === 'number' ? l.autoHiddenAt : null,
     // Phase 4 item 14 -- same defensive story as photos/spinSets/status
     // above: a listing cached by a build that predates this field won't
     // have it at all.
@@ -502,6 +514,7 @@ function dbListingToLocal(row: any): Listing {
     moderationReason: row.moderation_reason ?? null,
     expiresAt: row.expires_at ? new Date(row.expires_at).getTime() : Date.now() + LISTING_LIFETIME_MS,
     expiryReminderSentAt: row.expiry_reminder_sent_at ? new Date(row.expiry_reminder_sent_at).getTime() : null,
+    autoHiddenAt: row.auto_hidden_at ? new Date(row.auto_hidden_at).getTime() : null,
     contactMethod: row.contact_method === 'phone' || row.contact_method === 'chat' ? row.contact_method : 'both',
     sellerVerified: !!row.seller?.is_phone_verified,
     sellerMemberSince: row.seller?.created_at
@@ -1027,6 +1040,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         moderationStatus: 'pending',
         moderationReason: null,
         expiresAt: Date.now() + LISTING_LIFETIME_MS,
+        autoHiddenAt: null,
         expiryReminderSentAt: null,
         // Posting a listing is already gated behind isVerified (see the
         // "Sell an item" tab), so whoever gets here has a real
@@ -1281,7 +1295,18 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
             ...(asDraft
               ? { status: 'draft' as const }
               : wasRejected || submittingDraft
-              ? { status: 'pending_review' as const, moderationStatus: 'pending' as const, moderationReason: null }
+              ? {
+                  status: 'pending_review' as const,
+                  moderationStatus: 'pending' as const,
+                  moderationReason: null,
+                  // Cleared to match what the database does on the way out
+                  // of draft (see set_listing_expiry): resubmitting IS the
+                  // seller overruling the buyers who hid this. Without it
+                  // the row keeps a Restore button beside a live listing
+                  // for the rest of the session, and that button leads
+                  // nowhere -- the RPC finds no hidden listing to restore.
+                  autoHiddenAt: null,
+                }
               : {}),
           };
         })
@@ -1527,6 +1552,117 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setListings((prev) => prev.map((it) => (it.id === id ? { ...it, status: 'sold' } : it)));
   }, []);
 
+  // ---- Did you reach the seller? -------------------------------------
+  //
+  // The only signal that survives a phone conversation. Vevaty can see
+  // that a buyer reached for the number (listing_contact_events, written
+  // by get_seller_phone) and nothing after it, so the buyer is asked how
+  // it went. Two independent phone-verified buyers saying "they told me
+  // it's sold" hides the listing; the seller is told why and restores it
+  // in one tap. Every guard lives in the RPC, not here -- this is the one
+  // write in the app where one user's word affects another user's
+  // listing, so it is not a place to trust a client. See LIFECYCLE.md.
+  const [contactPrompts, setContactPrompts] = useState<ContactPrompt[]>([]);
+
+  const refreshContactPrompts = useCallback(async () => {
+    if (!userIdRef.current) {
+      setContactPrompts([]);
+      return;
+    }
+    const { data, error } = await supabase.rpc('my_pending_contact_prompts');
+    if (error) {
+      // Never surfaced: an unanswerable question is not worth an error
+      // message, and the next sync tries again.
+      console.warn('[AppStore] contact prompts unavailable:', error.message);
+      return;
+    }
+    setContactPrompts(
+      (data || []).map((r: any) => ({
+        listingId: r.listing_id,
+        titleEn: r.title_en ?? null,
+        titleAr: r.title_ar ?? null,
+        photoUrl: r.photo_url ?? null,
+        contactedAt: r.contacted_at ? new Date(r.contacted_at).getTime() : Date.now(),
+      }))
+    );
+  }, []);
+
+  // Fetched once the app knows who it is, and again whenever a real
+  // session replaces the anonymous one -- an anonymous visitor has no
+  // contact history and gets nothing. Deliberately not part of
+  // syncFromSupabase: it is a small independent query, and a listing feed
+  // should not wait on it or fail with it.
+  useEffect(() => {
+    if (!ready) return;
+    refreshContactPrompts();
+    // profile.id, not isVerified alone: one signed-in account replacing
+    // another leaves isVerified true, so nothing would re-fetch and the
+    // previous account's questions would stay on screen.
+  }, [ready, isVerified, profile.id, refreshContactPrompts]);
+
+  const answerContactPrompt = useCallback(
+    async (listingId: string, outcome: ContactOutcome) => {
+      // Dropped from the list first, so the card goes away on the tap
+      // rather than after a round trip. Put back if the write is refused
+      // -- a question that silently vanishes unanswered is worse than one
+      // that stays.
+      // Only THIS prompt is remembered, not the whole list. Restoring a
+      // snapshot would resurrect a different prompt that a second card --
+      // the same question renders on the home and on the listing -- had
+      // already answered while this one was in flight.
+      let removed: ContactPrompt | null = null;
+      setContactPrompts((prev) => {
+        removed = prev.find((p) => p.listingId === listingId) ?? null;
+        return prev.filter((p) => p.listingId !== listingId);
+      });
+      const { data, error } = await supabase.rpc('answer_contact_prompt', {
+        p_listing_id: listingId,
+        p_outcome: outcome,
+      });
+      if (error) {
+        const putBack: ContactPrompt | null = removed;
+        if (putBack) {
+          setContactPrompts((prev) =>
+            prev.some((p) => p.listingId === listingId) ? prev : [...prev, putBack]
+          );
+        }
+        console.warn('[AppStore] answer_contact_prompt refused:', error.message);
+        throw listingSaveError('refused', error.message);
+      }
+      const row = Array.isArray(data) ? data[0] : data;
+      // The listing this buyer was asked about may have just been hidden
+      // by their own answer. Reflected locally so it stops appearing in
+      // their feed immediately, rather than at the next sync.
+      if (row?.hidden) {
+        setListings((prev) => prev.map((it) => (it.id === listingId ? { ...it, status: 'draft' as const } : it)));
+      }
+    },
+    []
+  );
+
+  const restoreAutoHiddenListing = useCallback(async (id: string) => {
+    const uid = userIdRef.current;
+    if (!uid) throw listingSaveError('not-signed-in');
+    const { data, error } = await supabase.rpc('restore_auto_hidden_listing', { p_listing_id: id });
+    const row = Array.isArray(data) ? data[0] : data;
+    if (error || !row) {
+      console.warn('[AppStore] restore_auto_hidden_listing refused:', error?.message || 'no row matched');
+      // VV001 is the RPC saying this listing has not passed review. "Try
+      // again" is the wrong advice for that -- a second tap does the same
+      // nothing -- and auto_hidden_at is deliberately left set, so the
+      // badge and its button are still there once a moderator clears it.
+      throw listingSaveError((error as any)?.code === 'VV001' ? 'needs-review' : 'refused', error?.message);
+    }
+    const expiresAt = row.expires_at ? new Date(row.expires_at).getTime() : Date.now() + LISTING_LIFETIME_MS;
+    setListings((prev) =>
+      prev.map((it) =>
+        it.id === id
+          ? { ...it, status: row.status as Listing['status'], expiresAt, autoHiddenAt: null, expiryReminderSentAt: null }
+          : it
+      )
+    );
+  }, []);
+
   // "Log out" for an anonymous-auth app: there's no persistent
   // email/password identity to sign back into, so this signs out of the
   // current anonymous session, wipes the local cache, and sends the
@@ -1548,6 +1684,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
     setMyShop(null);
+    // Cleared explicitly, not left to the isVerified effect: swapping one
+    // signed-in account for another never flips isVerified, so the
+    // previous account's questions would keep rendering -- and answering
+    // one under the new uid is refused with "no contact recorded", which
+    // leaves an un-clearable card.
+    setContactPrompts([]);
   }, []);
 
   // Delete Account (OLX-comparison follow-up, item 3) -- two-step contract
@@ -1592,6 +1734,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
     setMyShop(null);
+    // Cleared explicitly, not left to the isVerified effect: swapping one
+    // signed-in account for another never flips isVerified, so the
+    // previous account's questions would keep rendering -- and answering
+    // one under the new uid is refused with "no contact recorded", which
+    // leaves an un-clearable card.
+    setContactPrompts([]);
   }, []);
 
   // Slugs are unique (myazar.shops.slug has a unique constraint) --
@@ -1740,6 +1888,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       republishListing,
       hideListing,
       markListingSold,
+      contactPrompts,
+      answerContactPrompt,
+      restoreAutoHiddenListing,
       awardPoints,
       updateAvatar,
       updateProfileName,
@@ -1767,6 +1918,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       republishListing,
       hideListing,
       markListingSold,
+      contactPrompts,
+      answerContactPrompt,
+      restoreAutoHiddenListing,
       awardPoints,
       updateAvatar,
       updateProfileName,

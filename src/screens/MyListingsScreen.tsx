@@ -40,7 +40,7 @@ export default function MyListingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goBack = useGoBack();
   const { t, language } = useLanguage();
-  const { listings, profile, extendListing, republishListing, deleteListing, hideListing, markListingSold } =
+  const { listings, profile, extendListing, republishListing, deleteListing, hideListing, markListingSold, restoreAutoHiddenListing } =
     useAppStore();
   // The Extend button used to promise "another 15 days" to everyone. A
   // lifetime is per-category now, so a ticket's button has to say 3 and a
@@ -75,6 +75,18 @@ export default function MyListingsScreen() {
       await republishListing(id);
     } catch (err: any) {
       setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'profile.republishFailed') }));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const runRestore = async (id: string) => {
+    setBusyId(id);
+    setRowErrors((e) => ({ ...e, [id]: '' }));
+    try {
+      await restoreAutoHiddenListing(id);
+    } catch (err: any) {
+      setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'myListings.restoreFailed') }));
     } finally {
       setBusyId(null);
     }
@@ -164,12 +176,21 @@ export default function MyListingsScreen() {
                     {l.status === 'draft' && !listingTitle(l, language) ? t('profile.draftUntitled') : listingTitle(l, language)}
                   </Text>
 
+                  {/* A draft the seller parked and a listing buyers hid
+                      are both status 'draft', and they must not read the
+                      same: "resume this draft" is bewildering on a
+                      listing you finished weeks ago. autoHiddenAt is what
+                      tells them apart. See LIFECYCLE.md. */}
                   {l.status === 'draft' && (
                     <>
-                      <View style={styles.draftBadge}>
-                        <Text style={styles.draftBadgeText}>{t('profile.draft')}</Text>
+                      <View style={l.autoHiddenAt ? styles.autoHiddenBadge : styles.draftBadge}>
+                        <Text style={l.autoHiddenAt ? styles.autoHiddenBadgeText : styles.draftBadgeText}>
+                          {l.autoHiddenAt ? t('myListings.autoHidden') : t('profile.draft')}
+                        </Text>
                       </View>
-                      <Text style={styles.republishHint}>{t('profile.resumeHint')}</Text>
+                      <Text style={styles.republishHint}>
+                        {l.autoHiddenAt ? t('myListings.autoHiddenHint') : t('profile.resumeHint')}
+                      </Text>
                     </>
                   )}
                   {l.status === 'expired' && (
@@ -205,6 +226,26 @@ export default function MyListingsScreen() {
                   )}
                   {!!rowErrors[l.id] && <Text style={styles.rowError}>{rowErrors[l.id]}</Text>}
 
+                  {/* Restore is its own action, not Republish: it also has
+                      to void the reports that hid the listing, or the
+                      next buyer's answer re-hides it on a count the
+                      seller has already answered for.
+                      Gated on 'draft' as well as autoHiddenAt: editing
+                      and resubmitting clears the auto-hide state
+                      server-side, and this button beside a live listing
+                      leads only to a dead end -- the RPC finds no hidden
+                      listing and the seller is told to try again forever. */}
+                  {l.status === 'draft' && !!l.autoHiddenAt && (
+                    <Pressy
+                      onPress={(e: any) => { e?.stopPropagation?.(); runRestore(l.id); }}
+                      style={[styles.rowActionBtn, styles.rowActionSpacing]}
+                      disabled={busyId === l.id}
+                    >
+                      <Text style={styles.rowActionBtnText}>
+                        {busyId === l.id ? t('common.loading') : t('myListings.restore')}
+                      </Text>
+                    </Pressy>
+                  )}
                   {l.status === 'expired' && (
                     <Pressy
                       onPress={(e: any) => { e?.stopPropagation?.(); runRepublish(l.id); }}
@@ -334,6 +375,8 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
   },
   draftBadgeText: { fontSize: 11, fontWeight: '700', color: colors.inkSoft },
+  autoHiddenBadge: { alignSelf: 'flex-start', backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, paddingVertical: 3, marginTop: 4 },
+  autoHiddenBadgeText: { ...type.tiny, color: colors.accentDeep, fontWeight: '700' },
   rejectedBadge: {
     alignSelf: 'flex-start', backgroundColor: '#f5e4e2', borderRadius: radius.pill,
     paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,

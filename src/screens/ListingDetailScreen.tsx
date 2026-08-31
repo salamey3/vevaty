@@ -40,6 +40,7 @@ import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingActionMessage } from '../lib/listingActionMessage';
+import ContactOutcomePrompt from '../components/ContactOutcomePrompt';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { listingPriceLines, priceLineText } from '../lib/priceDisplay';
 import { rentPaymentFrequencyLabelKey } from '../lib/rentTerms';
@@ -56,7 +57,7 @@ type ReportReason = (typeof REPORT_REASONS)[number];
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
-  const { listings, profile, deleteListing, hideListing, markListingSold, isVerified } = useAppStore();
+  const { listings, profile, deleteListing, hideListing, markListingSold, isVerified, contactPrompts } = useAppStore();
   const { ready: settingsReady, categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory, domainOfCategory } = useSettings();
   const { collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
   const { getOrCreateThread } = useChat();
@@ -358,6 +359,14 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // falls back to the category this listing sits in -- the screen it would
   // have come from, and more useful than dropping someone at the home feed
   // with their place lost.
+  // Only if this buyer actually contacted THIS seller about THIS listing
+  // and has not answered yet -- contactPrompts is already filtered to
+  // exactly that by the RPC behind it.
+  const contactPromptForThis = useMemo(
+    () => (listing ? contactPrompts.find((p) => p.listingId === listing.id) ?? null : null),
+    [contactPrompts, listing]
+  );
+
   const goBack = useGoBack(listing ? openThisCategory : undefined);
   const galleryRef = useRef<PhotoGalleryHandle>(null);
   const [photoIndex, setPhotoIndex] = useState(0);
@@ -617,6 +626,16 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         <Text style={[styles.stockText, listing.stockQty === 0 && styles.stockTextEmpty]}>
           {listing.stockQty > 0 ? t('listingDetail.inStock', { count: listing.stockQty }) : t('listingDetail.outOfStock')}
         </Text>
+      )}
+      {/* The same question as the one on the home, in the one place with
+          more context than any card can carry -- they are looking at the
+          exact item. Compact: no thumbnail, and no title, because the
+          title is the very next thing below. Answering here removes it
+          from the home too, since the answer lives in the store. */}
+      {contactPromptForThis && (
+        <View style={styles.contactPromptSlot}>
+          <ContactOutcomePrompt prompt={contactPromptForThis} compact />
+        </View>
       )}
       {ownerModerationNotice}
       {ownerRejectedNotice}
@@ -1242,6 +1261,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  contactPromptSlot: { marginBottom: 14 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   topBar: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',

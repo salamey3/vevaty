@@ -146,6 +146,23 @@ export type ConditionMode = 'new_used' | 'offer_type' | 'rehome' | 'graded';
 // 'refused' is the database declining the row -- an ungranted column, a
 // failing CHECK, an RLS denial, a dropped connection. See AppStore's
 // addListing, which used to swallow all of them.
+// What a buyer is asked about a listing they made contact with, and what
+// they can answer. The whole point is the phone case: Vevaty never sees
+// that conversation, and the buyer is the only person who knows how it
+// went. See LIFECYCLE.md.
+export type ContactOutcome = 'available' | 'sold' | 'no_answer' | 'dismissed';
+
+export type ContactPrompt = {
+  listingId: string;
+  titleEn: string | null;
+  titleAr: string | null;
+  photoUrl: string | null;
+  // When they reached for the seller's number. Shown as "you contacted
+  // this seller 2 days ago", because a bare question about a listing they
+  // half-remember is a question they will dismiss.
+  contactedAt: number;
+};
+
 export type ListingSaveErrorCode =
   | 'not-signed-in'
   | 'refused'
@@ -406,6 +423,11 @@ export interface Listing {
   // See LIFECYCLE.md for the numbers and the reasoning behind them.
   expiresAt: number;
   expiryReminderSentAt: number | null;
+  // Set when buyers reported this listing as already sold and it was
+  // hidden automatically -- see LIFECYCLE.md. Only ever non-null on a
+  // 'draft', and it is what tells MyListings to explain why rather than
+  // showing the ordinary "resume this draft" hint, and to offer restore.
+  autoHiddenAt: number | null;
   // Phase 4 item 14 -- which of the contact CTAs (chat / phone+WhatsApp)
   // show on ListingDetailScreen for this listing. 'both' is the default
   // for every existing listing (via the DB column default and the
