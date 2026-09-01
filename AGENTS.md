@@ -291,6 +291,31 @@ other step:
   `listing.shopId` as well; anything new that reads `stockQty` should
   too.
 
+# A column nothing reads is worse than no column
+
+`category_attributes.card_priority` existed for weeks: added by a migration,
+mapped into the `CategoryAttribute` type, mapped again in `SettingsStore`, and
+read by **nothing**. Seventeen rows already carried values — somebody had sat
+down and decided a dog card should say age, sex and breed — and the card went
+on showing something else entirely, because it derived its own specs inline
+with a heuristic nobody else could see.
+
+Two rules came out of it:
+
+- **Land a mechanism end to end or not at all.** A half-built one is worse
+  than an absent one, because it looks finished. The type comment even said
+  "not yet consumed anywhere", and that comment was read by everyone who
+  touched the file and acted on by no one.
+- **When a component derives something a whole feature depends on, that
+  derivation belongs in `src/lib/`, not in the component.** The card's rule
+  was three lines inside `ListingCard`, so the question "what does a card
+  show?" had exactly one possible answer: read the component. It lives in
+  `src/lib/cardSpecs.ts` now — @CARDS.md has the reasoning.
+
+The same shape has now bitten twice (see also the six nested ternaries that
+shipped `rehome` broken, which became `src/lib/conditionModes.ts`). Per-value
+and per-category lists go in one table in one file, every time.
+
 # navigate() does not go back -- it pushes
 
 React Navigation 7 changed this, and the app was written against the old

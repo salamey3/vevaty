@@ -2,15 +2,41 @@ import React from 'react';
 import Svg, { Path, Circle, Rect, Line, Polyline } from 'react-native-svg';
 import { colors } from '../theme/theme';
 
-export type IconName =
-  | 'home' | 'search' | 'plus' | 'chat' | 'user' | 'back' | 'location'
-  | 'check' | 'checkCircle' | 'star' | 'gear' | 'rotate' | 'phone'
-  | 'car' | 'sofa' | 'shirt' | 'watch' | 'bag' | 'wallet' | 'banknote'
-  | 'card' | 'diamond' | 'chevronRight' | 'sparkle' | 'camera' | 'close'
-  | 'edit' | 'trophy' | 'globe' | 'trash' | 'grip'
-  | 'building' | 'tv' | 'factory' | 'paw' | 'baby' | 'dumbbell' | 'briefcase' | 'wrench' | 'flag' | 'lock' | 'fingerprint'
-  | 'image' | 'expand' | 'heart' | 'share' | 'wand' | 'eye' | 'eyeOff' | 'filter'
-  | 'mail';
+// A runtime array with the type derived from it, rather than a hand-written
+// union: `category_attributes.icon` is a free-text database column an admin
+// fills in, so something has to validate a value at runtime (SettingsStore's
+// dbToCategoryAttribute does). Keeping a separate list for that would be one
+// more thing to forget when a glyph is added -- this way the checker and the
+// type cannot disagree, because they are the same list.
+export const ICON_NAMES = [
+  'home', 'search', 'plus', 'chat', 'user', 'back', 'location',
+  'check', 'checkCircle', 'star', 'gear', 'rotate', 'phone',
+  'car', 'sofa', 'shirt', 'watch', 'bag', 'wallet', 'banknote',
+  'card', 'diamond', 'chevronRight', 'sparkle', 'camera', 'close',
+  'edit', 'trophy', 'globe', 'trash', 'grip',
+  'building', 'tv', 'factory', 'paw', 'baby', 'dumbbell', 'briefcase', 'wrench', 'flag', 'lock', 'fingerprint',
+  'image', 'expand', 'heart', 'share', 'wand', 'eye', 'eyeOff', 'filter',
+  'mail',
+  // Listing-card spec glyphs. Which attribute uses which is set per
+  // attribute in the admin (category_attributes.icon), never hardcoded here
+  // -- see src/lib/cardSpecs.ts. An attribute with no icon falls back to a
+  // short text label, which is why this set stays small and legible at 12px
+  // rather than trying to cover all 157 attributes.
+  'bed', 'bath', 'gauge', 'calendar', 'fuel', 'transmission', 'ruler', 'tag',
+] as const;
+
+export type IconName = (typeof ICON_NAMES)[number];
+
+// The subset an admin may attach to an attribute. Deliberately not the whole
+// set: half of it is app furniture (back, close, grip, fingerprint) that
+// would only ever be a mistake in a spec row, and a picker showing sixty
+// glyphs is a picker nobody reads to the end of.
+export const SPEC_ICON_NAMES: readonly IconName[] = [
+  'bed', 'bath', 'expand', 'ruler', 'gauge', 'calendar', 'fuel', 'transmission',
+  'tag', 'diamond', 'paw', 'car', 'building', 'shirt', 'bag', 'watch', 'sofa',
+  'tv', 'baby', 'dumbbell', 'briefcase', 'wrench', 'image', 'location',
+  'banknote', 'star', 'checkCircle', 'lock', 'globe', 'camera',
+];
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean };
 
@@ -354,6 +380,78 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
         <>
           <Rect x="3" y="5" width="18" height="14" rx="2.2" {...common} />
           <Path d="M3.6 6.5 12 13l8.4-6.5" {...common} />
+        </>
+      )}
+      {/* ---- Listing-card spec glyphs (see IconName above) ---------------- */}
+      {/* Bedrooms. Side elevation -- headboard, mattress, pillow -- which
+          survives 12px far better than a plan view. */}
+      {name === 'bed' && (
+        <>
+          <Path d="M3 20V8" {...common} />
+          <Path d="M3 13h15a3 3 0 0 1 3 3v4" {...common} />
+          <Path d="M3 17.4h18" {...common} />
+          <Circle cx="7.6" cy="10.3" r="1.9" {...common} />
+        </>
+      )}
+      {/* Bathrooms. */}
+      {name === 'bath' && (
+        <>
+          <Path d="M4.5 12V6.2a2.1 2.1 0 0 1 4.2 0" {...common} />
+          <Path d="M2.5 12h19" {...common} />
+          <Path d="M4.6 12v3a4 4 0 0 0 4 4h6.8a4 4 0 0 0 4-4v-3" {...common} />
+        </>
+      )}
+      {/* Mileage / engine hours -- a dial and a needle. */}
+      {name === 'gauge' && (
+        <>
+          <Path d="M3.6 18a8.4 8.4 0 1 1 16.8 0" {...common} />
+          <Path d="M12 18l4-3.6" {...common} />
+        </>
+      )}
+      {/* Year, age. */}
+      {name === 'calendar' && (
+        <>
+          <Rect x="3" y="5.2" width="18" height="15.8" rx="2.2" {...common} />
+          <Path d="M3 9.8h18" {...common} />
+          <Path d="M8 3.2v4" {...common} />
+          <Path d="M16 3.2v4" {...common} />
+        </>
+      )}
+      {/* Fuel type -- a pump with its hose. */}
+      {name === 'fuel' && (
+        <>
+          <Rect x="3.4" y="3.6" width="9.6" height="16.8" rx="1.9" {...common} />
+          <Path d="M6.2 8.2h4.2" {...common} />
+          <Path d="M13 10.6h2.6a1.8 1.8 0 0 1 1.8 1.8v4.3a1.7 1.7 0 0 0 3.4 0V9.1l-2.6-2.6" {...common} />
+        </>
+      )}
+      {/* Transmission -- the H of a manual gate. Reads as "gearbox" even to
+          someone who has only ever driven an automatic. */}
+      {name === 'transmission' && (
+        <>
+          <Path d="M6 5v14" {...common} />
+          <Path d="M12 5v14" {...common} />
+          <Path d="M18 5v14" {...common} />
+          <Path d="M6 12h12" {...common} />
+        </>
+      )}
+      {/* Size -- clothing, shoes. */}
+      {name === 'ruler' && (
+        <>
+          <Rect x="2.6" y="8" width="18.8" height="8" rx="1.6" {...common} />
+          <Path d="M7.2 8v3.1" {...common} />
+          <Path d="M12 8v4.2" {...common} />
+          <Path d="M16.8 8v3.1" {...common} />
+        </>
+      )}
+      {/* Brand. */}
+      {name === 'tag' && (
+        <>
+          <Path
+            d="M3 4.5A1.5 1.5 0 0 1 4.5 3H12a2 2 0 0 1 1.41.59l7 7a2 2 0 0 1 0 2.82l-7.5 7.5a2 2 0 0 1-2.82 0l-7-7A2 2 0 0 1 3 12.5Z"
+            {...common}
+          />
+          <Circle cx="7.8" cy="7.8" r="1.4" {...common} />
         </>
       )}
       {/* Classic funnel glyph -- the storefronts directory's "open the

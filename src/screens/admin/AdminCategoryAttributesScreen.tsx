@@ -4,12 +4,13 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import { Alert } from '../../lib/alertShim';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
-import Icon from '../../icons/Icon';
+import Icon, { SPEC_ICON_NAMES, type IconName } from '../../icons/Icon';
 import Button from '../../components/Button';
 import DraggableList from '../../components/DraggableList';
 import { colors, type, radius } from '../../theme/theme';
 import { useSettings } from '../../store/SettingsStore';
 import { AttributeOption, AttributeType, CategoryAttribute } from '../../types';
+import { MAX_CARD_SPECS } from '../../lib/cardSpecs';
 import { RootStackParamList } from '../../navigation/types';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'AdminCategoryAttributes'>;
@@ -32,10 +33,23 @@ type FormState = {
   unitAr: string;
   required: boolean;
   isVariant: boolean;
+  // '' = not on the card. Kept as text rather than a number so the field can
+  // be emptied while typing without snapping back to 0.
+  cardPriority: string;
+  icon: IconName | null;
+  // What cardPriority held when this form was opened. The clash check runs
+  // only when the admin has actually changed the number, and "changed" has to
+  // mean "differs from what I was shown" -- comparing against the live store
+  // instead would re-block a label-only edit the moment a background refresh
+  // landed, which is the lockout that check was added to avoid.
+  loadedCardPriority: string;
 };
 
 function blankForm(): FormState {
-  return { slug: '', labelEn: '', labelAr: '', type: 'text', optionsText: '', unitEn: '', unitAr: '', required: false, isVariant: false };
+  return {
+    slug: '', labelEn: '', labelAr: '', type: 'text', optionsText: '', unitEn: '', unitAr: '',
+    required: false, isVariant: false, cardPriority: '', icon: null, loadedCardPriority: '',
+  };
 }
 
 function optionsToText(options: AttributeOption[]): string {
@@ -65,6 +79,9 @@ function formFor(a: CategoryAttribute): FormState {
     unitAr: a.unitAr || '',
     required: a.required,
     isVariant: a.isVariant,
+    cardPriority: a.cardPriority === null ? '' : String(a.cardPriority),
+    icon: a.icon,
+    loadedCardPriority: a.cardPriority === null ? '' : String(a.cardPriority),
   };
 }
 
@@ -89,10 +106,14 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
     deleteAttribute,
     reorderAttributes,
     setFilterPriorities,
+    updateCategory,
   } = useSettings();
 
   const category = categoryById(categoryId);
-  const ancestors = ancestorsOf(categoryId);
+  // Memoised because attributesSharingLine depends on it: ancestorsOf
+  // builds a fresh array each call, so a bare call here made that memo
+  // recompute on every keystroke in the form.
+  const ancestors = useMemo(() => ancestorsOf(categoryId), [ancestorsOf, categoryId]);
   const ownAttributes = useMemo(
     () => categoryAttributes.filter((a) => a.categoryId === categoryId).sort((a, b) => a.sortOrder - b.sortOrder),
     [categoryAttributes, categoryId]
@@ -183,6 +204,16 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
     [ownAttributes, editingId]
   );
 
+  // The slug of the attribute currently open for editing, read off the saved
+  // row so it cannot drift from what is actually stored. Null while creating,
+  // which is deliberate: the card-label toggle writes to the category the
+  // moment it is tapped, and there is nothing to point it at until the
+  // attribute exists.
+  const editingSlug = useMemo(
+    () => (editingId ? ownAttributes.find((a) => a.id === editingId)?.slug || null : null),
+    [editingId, ownAttributes]
+  );
+
   const startCreate = () => {
     setForm(blankForm());
     setCreating(true);
@@ -199,6 +230,60 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
     setForm(blankForm());
   };
 
+  // The card's label lives on the CATEGORY (one attribute supplies it, or
+  // none does), not on the attribute row -- so this toggle writes through
+  // updateCategory rather than through the form's own save. It is applied
+  // immediately on tap rather than on Save for exactly that reason: batching
+  // it into a save that writes a different table would mean one button
+  // half-succeeding, which is the kind of thing nobody notices until a card
+  // is labelled wrong.
+  const cardKindSlug = category?.cardKindSlug || null;
+  const isCardKind = !!cardKindSlug && !!editingSlug && cardKindSlug === editingSlug;
+  const otherCardKindAttr = useMemo(
+    () => (cardKindSlug && cardKindSlug !== editingSlug
+      ? ownAttributes.find((a) => a.slug === cardKindSlug) || null
+      : null),
+    [cardKindSlug, editingSlug, ownAttributes]
+  );
+  // Every attribute that could ever end up in the same resolved set as one
+  // defined here: this category's own, its ancestors' (which resolve INTO
+  // here), and its descendants' (which this one resolves INTO). Anything
+  // outside that line can share a card position freely -- Vehicles and Pets
+  // both using position 1 is not a clash, it is the normal case.
+  const attributesSharingLine = useMemo(() => {
+    const line = new Set<string>([categoryId, ...ancestors.map((c) => c.id)]);
+    const queue = [categoryId];
+    while (queue.length) {
+      const next = queue.shift()!;
+      // includeInactive: a switched-off category still has attributes, and
+      // switching it back on must not surface a clash created while it was
+      // invisible.
+      childrenOf(next, { includeInactive: true }).forEach((child) => {
+        if (line.has(child.id)) return;
+        line.add(child.id);
+        queue.push(child.id);
+      });
+    }
+    return categoryAttributes.filter((a) => line.has(a.categoryId));
+  }, [categoryId, ancestors, childrenOf, categoryAttributes]);
+
+  const [savingCardKind, setSavingCardKind] = useState(false);
+  const toggleCardKind = async (next: boolean) => {
+    if (!editingSlug) return;
+    setSavingCardKind(true);
+    try {
+      await updateCategory(categoryId, { cardKindSlug: next ? editingSlug : null });
+    } catch (e: any) {
+      // No local cleanup needed: updateCategory snapshots and restores its
+      // own optimistic write when the database refuses, so the switch springs
+      // back on its own rather than sitting there claiming a change that
+      // never landed.
+      Alert.alert('Could not save', e?.message || String(e));
+    } finally {
+      setSavingCardKind(false);
+    }
+  };
+
   const save = async () => {
     if (!form.labelEn.trim() || !form.labelAr.trim()) {
       Alert.alert('Missing label', 'Enter both an English and Arabic label.');
@@ -209,6 +294,52 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
     if (needsOptions && options.length === 0) {
       Alert.alert('Missing options', 'Add at least one option (one per line: value|Label EN|Label AR).');
       return;
+    }
+    // '' means "not on the card". Anything else has to be a positive whole
+    // number: 0 would sort ahead of the first slot and read as "no priority"
+    // to anyone scanning the list, and a negative one is meaningless.
+    const trimmedPriority = form.cardPriority.trim();
+    const parsedCardPriority = trimmedPriority === '' ? null : Number(trimmedPriority);
+    if (parsedCardPriority !== null && (!Number.isInteger(parsedCardPriority) || parsedCardPriority < 1)) {
+      Alert.alert('Card position', 'Card position must be a whole number from 1 upwards, or empty to keep this field off the card.');
+      return;
+    }
+    // Two attributes resolving to the same card position is an accident, not
+    // a choice: which one prints is settled by inheritance depth. Jewelry had
+    // its own "Material" at position 1 alongside "Brand" inherited from
+    // Fashion & Beauty, which is what card_specs_corrections had to repair.
+    //
+    // Checked BOTH ways along the inheritance line, not just upwards. A
+    // resolved set contains a category's ancestors, never its descendants --
+    // so checking only this category would have caught the clash when editing
+    // Jewelry and waved it straight through when editing Fashion & Beauty,
+    // which is the end that creates it for four leaves at once.
+    //
+    // Only when the number actually CHANGED, so an existing clash cannot lock
+    // an attribute out of every other edit: with an unconditional check,
+    // fixing a typo in the Arabic label of a clashing field was refused
+    // because of the number the admin had not touched.
+    const priorityChanged = trimmedPriority !== form.loadedCardPriority.trim();
+    if (parsedCardPriority !== null && priorityChanged) {
+      const clash = attributesSharingLine.find(
+        (a) =>
+          a.cardPriority === parsedCardPriority &&
+          a.id !== editingId &&
+          // A descendant defining the same slug OVERRIDES this attribute
+          // rather than sitting beside it, so the two can never both appear.
+          a.slug !== (editingSlug || slugify(form.slug || form.labelEn))
+      );
+      if (clash) {
+        const where =
+          clash.categoryId === categoryId
+            ? ''
+            : ` (on ${categoryById(clash.categoryId)?.nameEn || 'another category'} in this branch)`;
+        Alert.alert(
+          'Position already used',
+          `"${clash.labelEn}" is already at card position ${parsedCardPriority}${where}. Give this field a different number, or move that one first.`
+        );
+        return;
+      }
     }
     setSaving(true);
     try {
@@ -230,6 +361,11 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
           unitAr: form.unitAr.trim() || null,
           required: form.required,
           isVariant: form.type === 'multiselect' && form.isVariant,
+          cardPriority: parsedCardPriority,
+          // An icon with no card slot behind it would never render, and
+          // leaving one set is how a stale glyph reappears the day someone
+          // gives this attribute a slot for an unrelated reason.
+          icon: parsedCardPriority === null ? null : form.icon,
         });
       } else if (editingId) {
         await updateAttribute(editingId, {
@@ -241,7 +377,17 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
           unitAr: form.unitAr.trim() || null,
           required: form.required,
           isVariant: form.type === 'multiselect' && form.isVariant,
+          cardPriority: parsedCardPriority,
+          icon: parsedCardPriority === null ? null : form.icon,
         });
+        // AFTER the attribute write, never before: a non-select can no longer
+        // be the card's label (the pill has to hold one short word, not
+        // "240 sqm" or whatever a seller typed), but clearing it first meant
+        // a failed attribute write left the admin reading "Could not save"
+        // over a card-label role that had already been silently discarded.
+        if (isCardKind && form.type !== 'select') {
+          await updateCategory(categoryId, { cardKindSlug: null });
+        }
       }
       cancel();
     } catch (e: any) {
@@ -271,6 +417,15 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
         style: 'destructive',
         onPress: async () => {
           try {
+            // Clear the card label first if this is the attribute supplying
+            // it. Nothing else in the app can clear card_kind_slug, so
+            // deleting the attribute out from under it would leave the
+            // category pointing at a slug that no longer exists -- harmless
+            // to render (cardKindLabel falls back to the category name) and
+            // impossible to correct without a migration.
+            if (category?.cardKindSlug === a.slug) {
+              await updateCategory(categoryId, { cardKindSlug: null });
+            }
             await deleteAttribute(a.id);
           } catch (e: any) {
             Alert.alert('Could not delete', e?.message || String(e));
@@ -362,6 +517,86 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
             />
           </View>
         </>
+      )}
+
+      {/* ---- What this field does on a listing card ---------------------
+          Separate section, because it answers a different question from
+          everything above it. The fields above ask "what does a seller have
+          to tell us?"; this asks "what would make a buyer stop scrolling?".
+          The card used to guess by reusing Required as a stand-in for the
+          second question, which is how a Jounieh apartment ended up showing
+          its floor number instead of its bedrooms. */}
+      <Text style={styles.sectionLabel}>On the listing card</Text>
+      <Text style={styles.rowSub}>
+        Cards show at most {MAX_CARD_SPECS} of a category's fields under the price. Number them in the order
+        you want them read; leave the box empty to keep a field off the card. A field with no icon shows its
+        label beside the value instead ("Still sealed  No, opened"), which is clearer than a glyph whenever
+        the value already reads as an answer.
+      </Text>
+      <Text style={styles.rowSub}>
+        Numbering past {MAX_CARD_SPECS} is useful, not wasted: a higher number only appears when a lower one
+        does not apply to that listing. Properties is numbered Bedrooms 1, Bathrooms 2, Area 3, Land area 4,
+        View 5 -- an apartment shows the first three, and a plot of land, which has no bedrooms or bathrooms,
+        falls through to Area and View.
+      </Text>
+
+      <Text style={styles.fieldLabel}>Card position</Text>
+      <TextInput
+        value={form.cardPriority}
+        onChangeText={(v) => setForm((f) => ({ ...f, cardPriority: v.replace(/[^0-9]/g, '') }))}
+        keyboardType="number-pad"
+        placeholder="empty = not on the card"
+        style={styles.input}
+      />
+
+      {/* Only offered once the field is actually on a card -- an icon picker
+          above an empty position box invites choosing a glyph that can never
+          appear. */}
+      {form.cardPriority.trim() !== '' && (
+        <>
+          <Text style={styles.fieldLabel}>Icon</Text>
+          <View style={styles.iconGrid}>
+            <Pressy
+              onPress={() => setForm((f) => ({ ...f, icon: null }))}
+              style={[styles.iconChoice, form.icon === null && styles.iconChoiceActive]}
+            >
+              <Text style={[styles.iconChoiceNone, form.icon === null && styles.iconChoiceNoneActive]}>Label</Text>
+            </Pressy>
+            {SPEC_ICON_NAMES.map((name) => (
+              <Pressy
+                key={name}
+                onPress={() => setForm((f) => ({ ...f, icon: name }))}
+                style={[styles.iconChoice, form.icon === name && styles.iconChoiceActive]}
+              >
+                <Icon name={name} size={17} color={form.icon === name ? colors.white : colors.ink} />
+              </Pressy>
+            ))}
+          </View>
+        </>
+      )}
+
+      {/* The card's own label, which is normally the category name. Offered
+          only on select fields, because it has to resolve to one short word:
+          a number or a free-text field would put "240 sqm" or a seller's
+          typing inside a pill that is meant to say what kind of thing this
+          is. See Category.cardKindSlug. */}
+      {form.type === 'select' && !creating && (
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={styles.fieldLabel}>Use as the card's label</Text>
+            <Text style={styles.rowSub}>
+              {isCardKind
+                ? `Cards in ${category?.nameEn || 'this category'} are labelled with this field's value instead of the category name.`
+                : otherCardKindAttr
+                ? `"${otherCardKindAttr.labelEn}" is already the card label here -- turning this on replaces it.`
+                : `Cards show "${category?.nameEn || 'the category name'}" today. Turn this on for a category whose real kind lives in a field, the way Properties holds Apartment/Villa/Land.`}
+            </Text>
+            {/* Said out loud because it is the one control on this form that
+                does not wait for Save, and Cancel will not put it back. */}
+            <Text style={styles.rowSub}>Applies immediately -- this one is not part of Save.</Text>
+          </View>
+          <Switch value={isCardKind} onValueChange={toggleCardKind} disabled={savingCardKind} />
+        </View>
       )}
 
       <View style={styles.formActions}>
@@ -475,6 +710,10 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
                       <Text style={styles.rowSub}>
                         {a.labelAr} · {TYPE_OPTIONS.find((t) => t.value === a.type)?.label}
                         {owner ? ` · from ${owner.nameEn}` : ''}
+                        {/* Worth showing here too: most leaf categories have
+                            no attributes of their own, so an inherited field
+                            is what their cards are actually made of. */}
+                        {a.cardPriority !== null ? ` · Card ${a.cardPriority}` : ''}
                       </Text>
                     </View>
                   </View>
@@ -494,6 +733,12 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
                   {a.labelAr} · {TYPE_OPTIONS.find((t) => t.value === a.type)?.label}
                   {a.unitEn ? ` · ${a.unitEn}` : ''}
                   {a.isVariant ? ' · Stock variant' : ''}
+                  {/* Visible without opening each field in turn, because
+                      curating a card is a comparison across the whole list
+                      -- "which three of these" -- not a decision about one
+                      field at a time. */}
+                  {a.cardPriority !== null ? ` · Card ${a.cardPriority}` : ''}
+                  {cardKindSlug === a.slug ? ' · Card label' : ''}
                 </Text>
               </View>
               <View style={styles.rowControls}>
@@ -567,6 +812,20 @@ const styles = StyleSheet.create({
   typePillTextActive: { color: colors.white },
   unitRow: { flexDirection: 'row', gap: 12 },
   switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 6 },
+  // A wrapping grid rather than a horizontal scroller: an admin picking a
+  // glyph wants to compare all of them at once, and a row that scrolls hides
+  // exactly the option they were looking for.
+  iconGrid: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 2 },
+  iconChoice: {
+    width: 40, height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center',
+  },
+  iconChoiceActive: { backgroundColor: colors.primary, borderColor: colors.primary },
+  // The "no glyph" choice sits in the grid with the glyphs rather than as a
+  // separate control, because it is a real choice among peers -- for a
+  // self-describing value it is usually the right one.
+  iconChoiceNone: { fontSize: 10.5, fontWeight: '700', color: colors.inkSoft },
+  iconChoiceNoneActive: { color: colors.white },
   formActions: { flexDirection: 'row', gap: 10, marginTop: 20 },
   cancelBtn: { height: 52, paddingHorizontal: 20, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
   cancelBtnText: { fontSize: 14.5, fontWeight: '600', color: colors.inkSoft },

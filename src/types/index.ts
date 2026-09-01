@@ -1,3 +1,9 @@
+// The icon set is a closed union, so an attribute's card glyph is
+// typechecked rather than being a free string that silently renders
+// nothing. SettingsStore validates the database value against it on the
+// way in -- see dbToCategoryAttribute.
+import type { IconName } from '../icons/Icon';
+
 // Category ids used to be a fixed union (electronics | vehicles | ...).
 // Categories are now admin-managed rows in Supabase (myazar.categories),
 // so any string is a valid id -- new categories the admin creates don't
@@ -75,6 +81,20 @@ export interface Category {
   // Read it through conditionModeForCategory in SettingsStore, never off
   // the row, or a subcategory will answer for itself alone.
   conditionMode: ConditionMode | null;
+  // Which attribute's value labels a listing card, instead of this
+  // category's own name. Null -- the answer for nearly every category --
+  // means the category name is the label.
+  //
+  // It exists for the two categories deliberately collapsed into ONE
+  // postable leaf with their real kind moved into an attribute. Labelling
+  // by category name there would print "Properties" over a Jounieh
+  // apartment and "Vehicles" over a 2018 Civic, which tells a buyer
+  // nothing the photo has not already told them; pointing this at
+  // property_type gets "Apartment".
+  //
+  // Inherits nearest-ancestor-first, so it is read through
+  // cardKindSlugForCategory in SettingsStore, never off the row.
+  cardKindSlug: string | null;
   // How many days a listing here stays active before it expires. Null
   // inherits from the nearest ancestor that names one, and 14 if none
   // does -- the same nullable-inherits shape as conditionMode, and for
@@ -215,10 +235,23 @@ export interface CategoryAttribute {
   // the DB column already exists, left for a future refinement.
   bound: 'min' | 'max' | null;
   // Which spec values print directly on a listing card (vs. only showing
-  // on the detail page), in order. Not yet consumed anywhere -- carried
-  // on the type now since the DB column already exists, left for a
-  // future refinement.
+  // on the detail page), and in what order -- 1 is the first slot. Null
+  // means "not on the card". Read through src/lib/cardSpecs.ts, which is
+  // the only consumer.
+  //
+  // This column sat here unread for weeks while the card guessed instead
+  // ("the required attributes, first two, in form order"). That guess was
+  // actively wrong for Properties, whose required list starts with
+  // property type and floor number -- so a card showed the floor and never
+  // the bedrooms, bathrooms or area a buyer was actually scanning for.
   cardPriority: number | null;
+  // Glyph shown beside this attribute's value on a listing card, chosen
+  // per attribute in the admin rather than hardcoded per slug -- 157
+  // attributes across ~90 categories is not a lookup table anyone can keep
+  // honest. Null is a real answer, not a gap: the value renders with a
+  // short text label instead ("Seats 5"), which is the right treatment for
+  // anything self-describing. Only consulted when cardPriority is set.
+  icon: IconName | null;
   // True for the one attribute (must be 'multiselect' -- see the admin
   // toggle in AdminCategoryAttributesScreen) a 'multiple' stock-mode
   // category uses to break a listing's stock into variants, e.g. "Size"

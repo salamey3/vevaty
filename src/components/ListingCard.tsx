@@ -12,9 +12,10 @@ import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle, listingDistrict, listingShopName } from '../lib/listingText';
+import { mirrorRow } from '../lib/mirrorRow';
 import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
-import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
+import { cardKindLabel, resolveCardSpecs } from '../lib/cardSpecs';
 import { listingPriceLines } from '../lib/priceDisplay';
 import { conditionShownInPrice } from '../lib/rentTerms';
 import { conditionCardLabel } from '../lib/conditionModes';
@@ -84,7 +85,7 @@ export default function ListingCard({
   cornerBadge?: CornerBadge;
   layout?: 'vertical' | 'horizontal';
 }) {
-  const { categoryById, resolveAttributesForCategory } = useSettings();
+  const { categoryById, resolveAttributesForCategory, cardKindSlugForCategory } = useSettings();
   const { isVerified, profile } = useAppStore();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { language, isRTL, t } = useLanguage();
@@ -137,39 +138,24 @@ export default function ListingCard({
   // stop it from squeezing the price into "$450,...".
   const priceLines = useMemo(() => listingPriceLines(listing, t, { variant: 'card' }), [listing, t]);
 
-  // The two specs most worth knowing before you open the listing -- screen
-  // size on a TV, year and mileage on a car, storage on a phone. Required
-  // attributes come first because a category's admin marked them required
-  // precisely by asking "what would you refuse to list this without?",
-  // which is close enough to "what does a buyer scan for" to be a good
-  // default without a second field to maintain.
-  //
-  // Two, not more: a browse card is a glance, and a third line of specs
-  // starts competing with the price and title for the same attention.
-  const topSpecs = useMemo(() => {
-    if (!listing.attributes) return [];
-    // Skip anything the title already says. A car listing titled "Honda
-    // Civic 2018" was showing "Honda · Civic" underneath it -- two lines
-    // of the same information, on the one surface where space is
-    // scarcest. Dropping the duplicates leaves the line to say what the
-    // title doesn't: mileage, transmission, condition.
-    //
-    // Compared against the full title, not the truncated one on screen,
-    // so a long title that gets cut off still suppresses its own terms.
-    const haystack = listingTitle(listing, language).toLowerCase();
-    const attrs = resolveAttributesForCategory(listing.cat)
-      .filter((a) => attrHasValue(listing.attributes[a.slug]))
-      .map((a) => ({ attr: a, text: formatAttrValue(a, listing.attributes[a.slug], language) }))
-      .filter(({ text }) => {
-        const t = text.trim().toLowerCase();
-        return t.length > 0 && !haystack.includes(t);
-      });
-    // Required first: an admin marks a field required by asking "what
-    // would I refuse to list this without?", which is close to what a
-    // buyer scans for.
-    const ordered = [...attrs.filter((a) => a.attr.required), ...attrs.filter((a) => !a.attr.required)];
-    return ordered.slice(0, 2).map(({ text }) => text);
-  }, [listing, listing.cat, listing.attributes, resolveAttributesForCategory, language]);
+  // What this thing IS, and the specs worth knowing before opening it. Both
+  // come from src/lib/cardSpecs.ts, which is now the only place that
+  // decides -- see that file for why "the required attributes, first two, in
+  // form order" had to go, and what it was quietly getting wrong on every
+  // single property listing.
+  const cardAttrs = useMemo(
+    () => resolveAttributesForCategory(listing.cat),
+    [listing.cat, resolveAttributesForCategory]
+  );
+  const fullTitle = listingTitle(listing, language);
+  const kindLabel = useMemo(
+    () => cardKindLabel(cat, cardKindSlugForCategory(listing.cat), cardAttrs, listing, language),
+    [cat, cardKindSlugForCategory, listing, cardAttrs, language]
+  );
+  const cardSpecs = useMemo(
+    () => resolveCardSpecs(cardAttrs, listing, language, fullTitle),
+    [cardAttrs, listing, language, fullTitle]
+  );
 
   // Shop attribution -- only present on listings posted through a shop
   // (see the Listing type's shopId doc comment). No standalone
@@ -189,7 +175,14 @@ export default function ListingCard({
       }}
       style={[
         styles.storefrontPill,
-        isRTL && styles.storefrontPillRTL,
+        // mirrorRow, not a raw `isRTL && row-reverse`: on web the document
+        // already has dir="rtl" and reverses this row itself, so a manual
+        // row-reverse flips it BACK and puts the building icon on the wrong
+        // side of the shop name. See mirrorRow's own comment. Every row in
+        // this file went the same way in this change; the one that could not
+        // is storefrontPillInlineRTL, which is an alignSelf rather than a
+        // direction and has no mirrorRow equivalent -- noted in NEXT.md.
+        mirrorRow(isRTL),
         horizontal && styles.storefrontPillInline,
         horizontal && isRTL && styles.storefrontPillInlineRTL,
       ]}
@@ -331,74 +324,98 @@ export default function ListingCard({
           <View style={styles.storefrontOverlay}>{storefrontPill}</View>
         )}
       </View>
+      {/* One surface, not two. This used to be a forest-green band carrying
+          the price and title in white, with the rest of the card dropping
+          back to white underneath -- which split every card into two zones
+          and forced anything inside the band to be white text. The green is
+          still here and still the loudest thing on the card; it just does
+          the work as the price, the kind pill and the spec glyphs rather
+          than as a filled rectangle. Two consequences worth keeping: there
+          is now room for a title that wraps, and a per-domain accent colour
+          (see the domain-colour study) recolours a pill and three glyphs
+          gracefully where it would have recoloured a solid block loudly. */}
       <View style={[styles.info, horizontal && styles.infoHorizontal]}>
-        {/* Forest green from the top of this block through the title
-            text, with a little extra padding underneath it, before the
-            card drops back to its normal white surface. Price and the
-            new/used tag share this top line; the tag is a plain gold
-            pill now rather than a separate colored line above the price
-            (New and Used no longer get different fills -- the pill's
-            text is the only thing that changes). */}
-        <View style={[styles.infoTop, horizontal && styles.infoTopHorizontal]}>
-          <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
-            {/* A property says what its number IS -- "Buy for $450,000",
-                "Rent for $12,000/yr" -- so the figure can never be
-                mistaken for the other kind of offer. See listingPriceLines. */}
-            <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>
-              {!!priceLines.primary.label && (
-                <Text style={styles.priceLabel}>{priceLines.primary.label} </Text>
-              )}
-              {priceLines.primary.amount}
-            </Text>
-            {/* New/Used and wear grades. Any pick the price lines already state -- a
-                property's Sale/Rent/Both, an animal's Free is already
-                spelled out by the price lines themselves, and repeating it
-                as a pill cost enough width to truncate the price it sat
-                next to ("$450,..." beside "SALE OR RENT"), so properties
-                deliberately show no pill at all.
-
-                Null for a listing posted before this field existed (or one
-                of the pre-existing seed rows a migration collapsed from a
-                more granular scale with no real "new" value among them) --
-                those simply show no tag rather than guessing. */}
+        {/* What kind of thing this is, and -- for the categories where the
+            price line does not already say it -- whether it is new or used.
+            The kind comes from cardSpecs.cardKindLabel: usually the category
+            name, but the attribute value for the two categories collapsed
+            into one postable leaf, so this reads "Apartment" rather than
+            "Properties". */}
+        {(!!kindLabel || (listing.condition && !conditionShownInPrice(listing.condition))) && (
+          <View style={[styles.pillRow, mirrorRow(isRTL)]}>
+            {!!kindLabel && (
+              <View style={styles.kindPill}>
+                <Text style={[styles.kindPillText, isRTL && styles.rtlText]} numberOfLines={1}>{kindLabel}</Text>
+              </View>
+            )}
+            {/* Null for a listing posted before this field existed, and
+                deliberately absent wherever the price lines already say it
+                ("Buy for $450,000" makes a "For sale" pill a repetition). */}
             {listing.condition && !conditionShownInPrice(listing.condition) && (
               <View style={styles.tag}>
-                <Text style={styles.tagText}>{conditionCardLabel(listing.condition, t)}</Text>
+                <Text style={[styles.tagText, isRTL && styles.rtlText]} numberOfLines={1}>{conditionCardLabel(listing.condition, t)}</Text>
               </View>
             )}
           </View>
-          {/* Only ever set for a property offered for sale AND rent: the
-              sale price is the headline above, this is the rent under it. */}
-          {!!priceLines.secondary && (
-            <Text style={[styles.priceSecondary, isRTL && styles.rtlText]} numberOfLines={1}>
-              {!!priceLines.secondary.label && (
-                <Text style={styles.priceLabel}>{priceLines.secondary.label} </Text>
-              )}
-              {priceLines.secondary.amount}
-            </Text>
+        )}
+
+        {/* Two lines now, not one. A marketplace title is written by a
+            seller, not a copywriter, and one line truncated most of them
+            mid-word. Two is enough for almost all of them and still bounds
+            the card's height, so a grid keeps its rhythm. */}
+        <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={2}>{fullTitle}</Text>
+
+        {/* A property says what its number IS -- "Buy for $450,000",
+            "Rent for $12,000/yr" -- so a figure can never be mistaken for
+            the other kind of offer. See listingPriceLines. */}
+        <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>
+          {!!priceLines.primary.label && (
+            <Text style={styles.priceLabel}>{priceLines.primary.label} </Text>
           )}
-          <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={1}>{listingTitle(listing, language)}</Text>
-        </View>
-        <View style={[styles.infoBottom, horizontal && styles.infoBottomHorizontal]}>
-          {topSpecs.length > 0 && (
-            <Text style={[styles.specs, isRTL && styles.rtlText]} numberOfLines={1}>
-              {topSpecs.join(' · ')}
-            </Text>
-          )}
-          {/* District and relative post time ("3 days ago", not a date --
-              on a grid the question is "is this still going?") now share
-              one line instead of two. */}
-          <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
-            <Icon name="location" size={12} color={colors.inkSoft} />
-            <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={1}>
-              {listingDistrict(listing, language)} · {relativeTimeFrom(listing.createdAt, language)}
-            </Text>
+          {priceLines.primary.amount}
+        </Text>
+        {/* Only ever set for a property offered for sale AND rent: the sale
+            price is the headline above, this is the rent under it. */}
+        {!!priceLines.secondary && (
+          <Text style={[styles.priceSecondary, isRTL && styles.rtlText]} numberOfLines={1}>
+            {!!priceLines.secondary.label && (
+              <Text style={styles.priceLabel}>{priceLines.secondary.label} </Text>
+            )}
+            {priceLines.secondary.amount}
+          </Text>
+        )}
+
+        {/* The spec row -- up to three, in the order an admin chose for this
+            category. An attribute with no glyph prints its label instead of
+            one ("Seats 5"), which is the right treatment for anything
+            self-describing and the reason the glyph set can stay small. */}
+        {cardSpecs.length > 0 && (
+          <View style={[styles.specRow, mirrorRow(isRTL)]}>
+            {cardSpecs.map((spec) => (
+              <View key={spec.slug} style={[styles.spec, mirrorRow(isRTL)]}>
+                {spec.icon ? (
+                  <Icon name={spec.icon} size={13} color={colors.primary} strokeWidth={1.7} />
+                ) : (
+                  <Text style={[styles.specLabel, isRTL && styles.rtlText]} numberOfLines={1}>{spec.label}</Text>
+                )}
+                <Text style={[styles.specValue, isRTL && styles.rtlText]} numberOfLines={1}>{spec.value}</Text>
+              </View>
+            ))}
           </View>
-          {/* Shop pill, horizontal layout only -- see the comment by the
-              thumb above for why the vertical layout renders this one
-              differently. */}
-          {horizontal && storefrontPill}
+        )}
+
+        {/* District and relative post time ("3 days ago", not a date -- on a
+            grid the question is "is this still going?") share one line. */}
+        <View style={[styles.metaRow, mirrorRow(isRTL)]}>
+          <Icon name="location" size={12} color={colors.inkSoft} />
+          <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={1}>
+            {listingDistrict(listing, language)} · {relativeTimeFrom(listing.createdAt, language)}
+          </Text>
         </View>
+
+        {/* Shop pill, horizontal layout only -- see the comment by the thumb
+            above for why the vertical layout renders this one differently. */}
+        {horizontal && storefrontPill}
       </View>
     </Pressy>
   );
@@ -438,7 +455,13 @@ const styles = StyleSheet.create({
   // instead of the default column; everything else (background, radius,
   // border, the overflow:hidden that clips the thumb's square corners to
   // the card's rounded ones) is shared with the vertical card unchanged.
-  cardHorizontal: { flexDirection: 'row' },
+  // alignItems 'flex-start' is load-bearing now, not decoration. The text
+  // column beside the thumbnail used to be about the thumbnail's own height,
+  // so the default `stretch` never mattered; a two-line title plus a spec row
+  // has made that column meaningfully taller, and under `stretch` a
+  // fixed-width box with an aspectRatio has to fight the stretch to stay
+  // square. Pinning it to the top settles it.
+  cardHorizontal: { flexDirection: 'row', alignItems: 'flex-start' },
   // Square 1:1, derived from the card's own width rather than a fixed
   // height. The old fixed 120/150px meant the shape changed with every
   // context the card appeared in -- roughly square in a 2-column grid,
@@ -484,10 +507,16 @@ const styles = StyleSheet.create({
   // instead of owning the card's whole top edge, so it needs its own
   // bounded width rather than stretching to `card`'s width. Same 1:1
   // ratio as `thumb` above, for the same reasoning as that style's own
-  // comment. Height follows from the ratio (112 at this width) -- see
-  // infoHorizontal/infoBottomHorizontal below for how the text column
-  // beside it is kept close to this same height.
-  thumbHorizontal: { width: 112, aspectRatio: 1 },
+  // comment. Height follows from the ratio; the text
+  // column beside it (infoHorizontal) simply grows to whatever its content
+  // needs, which since the two-line title and the spec row is usually a
+  // little more than this.
+  // 128, up from 112. The text column grew by a line of title and a row of
+  // specs, and at 112 the photo was left floating in the corner of a card
+  // nearly twice its height. This does not make them equal -- the column is
+  // still taller -- but it keeps the photo a substantial part of the card
+  // rather than a stamp on it.
+  thumbHorizontal: { width: 128, aspectRatio: 1 },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
@@ -518,89 +547,88 @@ const styles = StyleSheet.create({
     fontSize: 10.5, fontWeight: '700', color: colors.white,
     textTransform: 'uppercase', letterSpacing: 0.5,
   },
-  // Vertical layout: a plain column, no padding of its own -- infoTop
-  // and infoBottom below each carry their own. Horizontal layout: see
-  // infoHorizontal.
-  info: {},
-  // Fills whatever's left beside the fixed-width thumbHorizontal. Not
-  // vertically centered any more -- now that infoBottom's storefront
-  // row and merged meta line keep this column's height close to the
-  // photo's own height (see infoBottomHorizontal), centering would just
-  // as often nudge it a couple of pixels off top-alignment as fix
-  // anything.
-  infoHorizontal: { flex: 1 },
-  // Forest green from the top of the info block through the title text,
-  // with a little extra padding underneath before the card drops back
-  // to its normal white surface (see infoBottom). Horizontal layout
-  // uses the wider 12px horizontal padding infoHorizontal used to carry
-  // itself, and a touch less bottom padding to match the vertical
-  // card's proportions at its narrower thumb.
-  infoTop: {
-    backgroundColor: colors.primary,
-    paddingHorizontal: 10, paddingTop: 10, paddingBottom: 14,
+  // One padded column now, where this used to be two stacked blocks with a
+  // colour change between them (infoTop on forest green, infoBottom on
+  // white). The old `minHeight: 54` floor is gone with them -- not because
+  // cards are now uniform (most categories have no curated specs at all yet,
+  // see @CARDS.md, so heights vary more than before if anything) but because
+  // the grid already equalises them: FlatList's columnWrapperStyle sets no
+  // alignItems, so a row stretches its cards to match its tallest. The floor
+  // was solving a problem the layout above it had already solved.
+  info: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 10, gap: 5 },
+  // Fills whatever's left beside the fixed-width thumbHorizontal.
+  infoHorizontal: { flex: 1, paddingHorizontal: 12 },
+  // Kind pill and, where the price does not already say it, new/used. Wraps
+  // rather than truncating: "Vacation rental" beside "Like new" does not fit
+  // one line on a two-column phone grid, and a clipped pill looks broken in
+  // a way a wrapped one does not.
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', gap: 5 },
+  // Outlined, not filled. The fill is what made the old green band shout;
+  // an outline states the same thing at a fraction of the visual weight,
+  // and leaves the price as the loudest element on the card -- which is
+  // what a buyer is actually scanning for.
+  kindPill: {
+    borderWidth: 1, borderColor: colors.primary, borderRadius: radius.pill,
+    paddingHorizontal: 8, paddingVertical: 2.5,
+    flexShrink: 1,
   },
-  infoTopHorizontal: { paddingHorizontal: 12, paddingBottom: 13 },
-  priceRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 8 },
-  priceRowRTL: { flexDirection: 'row-reverse' },
-  // flexShrink is what keeps numberOfLines honest here: a flex child
-  // defaults to flexShrink 0, so the text would lay out at its full
-  // intrinsic width and shove the condition pill past the card's clipped
-  // edge instead of ellipsising. Only became reachable once a rental's
-  // price line grew from "$1,500" to "$1,500 / month" beside a "For rent"
-  // pill; the pill itself must not shrink, or it truncates instead.
-  price: { fontSize: 16, fontWeight: '700', color: colors.white, letterSpacing: -0.2, flexShrink: 1 },
-  // "Buy for" / "Rent for", nested inline ahead of the figure. Smaller
-  // and slightly muted so the number stays the biggest thing on the line:
-  // the label is context, the price is what the buyer came for, and if
-  // anything has to give on a narrow card it must not be the digits.
-  priceLabel: { fontSize: 11.5, fontWeight: '600', opacity: 0.8 },
-  // The rent line under the sale price on a property offered both ways --
-  // same white-on-forest-green band, stepped down so it reads as the
-  // second of two numbers rather than competing with the headline. It now
-  // carries its own "Rent for" label rather than a bare figure, so it
-  // sits closer to the headline in weight than it did as a bare number.
-  priceSecondary: { fontSize: 13.5, fontWeight: '600', color: colors.white, opacity: 0.9, marginTop: 2 },
-  // New/used, now a plain gold pill on the price line instead of its
-  // own colored line above it -- New and Used no longer get different
-  // fills, just different text, so this one style covers both.
+  kindPillText: {
+    fontSize: 10.5, fontWeight: '700', color: colors.primary,
+    letterSpacing: 0.2,
+  },
+  // New/used and wear grades, in the brand gold. Outlined to match the kind
+  // pill beside it -- and it fixes the contrast note this style used to
+  // carry: white on #D9A441 measures about 2:1 and failed WCAG outright,
+  // where the same gold as an outline plus accentDeep text clears it.
   tag: {
-    backgroundColor: colors.accent, borderRadius: radius.pill,
-    paddingHorizontal: 9, paddingVertical: 3,
-    flexShrink: 0,
+    borderWidth: 1, borderColor: colors.accent, borderRadius: radius.pill,
+    paddingHorizontal: 8, paddingVertical: 2.5,
+    flexShrink: 1,
   },
-  // White on the brand gold measures under WCAG's 4.5:1 text minimum
-  // (see theme.ts's own note on this exact pair, which is why the
-  // corner badge above uses near-black instead) -- kept white here per
-  // the approved design; swap to colors.accentInk if legibility turns
-  // out to matter more than the look.
-  tagText: { fontSize: 10, fontWeight: '800', color: colors.white, textTransform: 'uppercase', letterSpacing: 0.5 },
-  title: { marginTop: 5, fontSize: 14, fontWeight: '500', color: colors.white },
-  // Fixed regardless of content on the vertical card -- the only thing
-  // that still varies once the storefront row moved onto the photo is
-  // whether a listing has specs, so this only needs to cover that one
-  // line; a card with none just leaves quiet space at the bottom
-  // instead of pulling its row of the grid shorter. Not applied on the
-  // horizontal layout (see infoBottomHorizontal) -- there the merged
-  // meta line and in-flow storefront pill already keep this section
-  // close to the photo's own height without needing a floor.
-  infoBottom: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 9, minHeight: 54 },
-  infoBottomHorizontal: { paddingHorizontal: 12, paddingBottom: 11, minHeight: undefined },
-  specs: { ...type.tiny, color: colors.ink, marginBottom: 5 },
+  tagText: {
+    fontSize: 10, fontWeight: '800', color: colors.accentDeep,
+    textTransform: 'uppercase', letterSpacing: 0.5,
+  },
+  // Ink on white now rather than white on green, and allowed two lines.
+  // lineHeight is set explicitly because a wrapping title with the default
+  // leading sets too loose against the pill above it and the price below.
+  title: { fontSize: 14, fontWeight: '500', color: colors.ink, lineHeight: 18.5 },
+  // The loudest thing on the card, which is the whole point of giving up
+  // the filled band: the green now marks the number a buyer came for
+  // instead of a rectangle behind it.
+  price: { fontSize: 16.5, fontWeight: '800', color: colors.primary, letterSpacing: -0.2 },
+  // "Buy for" / "Rent for", nested inline ahead of the figure. Smaller and
+  // slightly muted so the number stays the biggest thing on the line: the
+  // label is context, the price is what the buyer came for, and if anything
+  // has to give on a narrow card it must not be the digits.
+  priceLabel: { fontSize: 11.5, fontWeight: '600', color: colors.inkSoft },
+  // The rent line under the sale price on a property offered both ways --
+  // stepped down so it reads as the second of two numbers rather than
+  // competing with the headline.
+  priceSecondary: { fontSize: 13, fontWeight: '700', color: colors.primary, opacity: 0.85 },
+  // Up to three specs on one line. flexWrap, not truncation: a long value
+  // ("Semi-furnished") pushes the third spec onto a second line rather than
+  // clipping it mid-word, which costs a few pixels of height on a minority
+  // of cards and never shows a half-word.
+  specRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, rowGap: 4 },
+  // No directional margin anywhere in this row: mirrorRow flips it on
+  // native for Arabic, but marginStart/End still resolve against
+  // I18nManager.isRTL, which this app never flips -- so a directional gap
+  // would point the wrong way in exactly the layout it was added for.
+  spec: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  // Stands in for a glyph on attributes that do not have one, so the value
+  // is never an orphaned number. Muted, because on those attributes the
+  // value is the information and the label is only there to name it.
+  specLabel: { fontSize: 11, fontWeight: '600', color: colors.inkSoft },
+  specValue: { fontSize: 12.5, fontWeight: '700', color: colors.ink },
   // theme.ts's `textAlign: 'auto'` doesn't actually right-align Arabic
   // text on native (it resolves via I18nManager.isRTL, which this app
   // never flips -- see ListingDetailScreen's rtlText comment for the full
   // story). This explicit override is the real fix.
   rtlText: { textAlign: 'right', writingDirection: 'rtl' },
   metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  // Same icon-then-text mirroring as ListingDetailScreen's metaRowRTL --
-  // this card's own location row never got the isRTL treatment the
-  // detail screen's equivalent row already had, so the pin icon and
-  // district text stayed LTR-ordered here even once everything else on
-  // the card (title) was fixed.
-  metaRowRTL: { flexDirection: 'row-reverse' },
-  // Carries the relative post time too now ("West Hills · 3 days ago",
-  // was two separate lines) -- the other half of what keeps
-  // infoBottomHorizontal's height down near the photo's.
+  // Carries the relative post time too ("West Hills · 3 days ago", was two
+  // separate lines).
   district: { ...type.tiny },
   // Shop-name pill -- same pill shape as ListingDetailScreen's aiTag
   // (warnBg fill, radius.pill) as the visual basis, at a smaller
@@ -614,8 +642,6 @@ const styles = StyleSheet.create({
     backgroundColor: colors.warnBg, borderRadius: radius.pill,
     paddingHorizontal: 8, height: 20,
   },
-  // Flips icon-then-name to name-then-icon for Arabic on both layouts.
-  storefrontPillRTL: { flexDirection: 'row-reverse' },
   storefrontPillName: { fontSize: 10.5, fontWeight: '800', color: colors.primary },
   // Horizontal layout only: kept in its original in-flow spot below the
   // meta row, rather than moved onto the photo.

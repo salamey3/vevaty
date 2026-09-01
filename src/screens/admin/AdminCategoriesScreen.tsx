@@ -287,7 +287,15 @@ export default function AdminCategoriesScreen() {
         setSaving(false);
         return;
       }
-      await createCategory({ id, parentId, ...buildCategoryPatch(form) });
+      await createCategory({
+        id,
+        parentId,
+        // Which attribute labels a card is chosen on the ATTRIBUTES screen
+        // (there is nothing to choose from until the category has some),
+        // so a brand-new category always starts labelled by its own name.
+        cardKindSlug: null,
+        ...buildCategoryPatch(form),
+      });
       cancel();
     } catch (e: any) {
       Alert.alert('Could not save', e?.message || String(e));

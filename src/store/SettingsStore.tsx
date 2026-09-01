@@ -4,6 +4,7 @@ import { supabase, ensureSession } from '../lib/supabase';
 import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
 import { AttributeOption, AttributeType, Category, CategoryAttribute, ConditionMode, FilterFacet, ListingDomain, SiteSettings } from '../types';
+import { ICON_NAMES, type IconName } from '../icons/Icon';
 import {
   DEFAULT_CATEGORIES, DEFAULT_DOMAINS, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK,
   GENERIC_CATEGORY_ICON, DEFAULT_LISTING_LIFETIME_DAYS,
@@ -73,6 +74,7 @@ interface CreateCategoryInput {
   isService: boolean;
   conditionMode: ConditionMode | null;
   listingLifetimeDays: number | null;
+  cardKindSlug: string | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -93,6 +95,7 @@ interface UpdateCategoryPatch {
   isService: boolean;
   conditionMode: ConditionMode | null;
   listingLifetimeDays: number | null;
+  cardKindSlug: string | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -112,6 +115,12 @@ interface CreateAttributeInput {
   unitAr: string | null;
   required: boolean;
   isVariant: boolean;
+  // Which slot this takes on a listing card (1 = first), or null for "not
+  // on the card". See src/lib/cardSpecs.ts.
+  cardPriority: number | null;
+  // Glyph beside the value on a card. Null renders a short text label
+  // instead, which is the right answer for a self-describing value.
+  icon: IconName | null;
 }
 
 interface UpdateAttributePatch {
@@ -123,6 +132,12 @@ interface UpdateAttributePatch {
   unitAr: string | null;
   required: boolean;
   isVariant: boolean;
+  // Which slot this takes on a listing card (1 = first), or null for "not
+  // on the card". See src/lib/cardSpecs.ts.
+  cardPriority: number | null;
+  // Glyph beside the value on a card. Null renders a short text label
+  // instead, which is the right answer for a self-describing value.
+  icon: IconName | null;
 }
 
 interface SettingsValue {
@@ -152,6 +167,10 @@ interface SettingsValue {
   // nearest ancestor (itself included) that names something other than
   // the default wins.
   conditionModeForCategory: (categoryId: string) => ConditionMode;
+  // Slug of the attribute whose value labels a listing card here, or null
+  // to use the category's own name. Inherited nearest-ancestor-first --
+  // see Category.cardKindSlug for why the two collapsed categories need it.
+  cardKindSlugForCategory: (categoryId: string) => string | null;
   // Days a listing in this category lives before expiring. Display only
   // -- the database decides the real expiry. See LIFECYCLE.md.
   lifetimeDaysForCategory: (categoryId: string) => number;
@@ -259,6 +278,7 @@ function dbToCategory(row: any): Category {
     active: row.active !== false,
     isService: !!row.is_service,
     conditionMode: (row.condition_mode as ConditionMode) ?? null,
+    cardKindSlug: row.card_kind_slug || null,
     listingLifetimeDays: typeof row.listing_lifetime_days === 'number' ? row.listing_lifetime_days : null,
     domainId: row.domain_id || null,
     titleExampleEn: row.title_example_en || null,
@@ -282,6 +302,27 @@ function dbToListingDomain(row: any): ListingDomain {
   };
 }
 
+// The database column is a plain text field on purpose (a CHECK listing
+// every glyph would have to be migrated in lockstep with the TypeScript
+// union), so the validation happens here instead: an icon name the app does
+// not have becomes null, which the card already knows how to render as a
+// text label. A typo in the admin therefore looks plain, never broken, and
+// never crashes Icon with a name it cannot draw.
+const KNOWN_ICON_NAMES = new Set<string>(ICON_NAMES);
+
+// Per-row write counters, the same shape as AppStore's updateListingSeq and
+// for the same reason. Capture-inside-the-updater and restore-one-row are not
+// enough on their own once two writes can overlap on one row: an older write
+// that fails after a newer one has succeeded would otherwise roll back OVER
+// the newer value. AdminCategoriesScreen's 700ms debounced autosave makes
+// that overlap ordinary rather than theoretical -- typing, pausing, and
+// typing again starts a second write while the first is still in the air.
+//
+// Module scope, not a ref, so the counter survives a remount of the provider
+// mid-write.
+const updateCategorySeq = new Map<string, number>();
+const updateAttributeSeq = new Map<string, number>();
+
 function dbToCategoryAttribute(row: any): CategoryAttribute {
   return {
     id: row.id,
@@ -300,6 +341,7 @@ function dbToCategoryAttribute(row: any): CategoryAttribute {
     filterPriority: row.filter_priority ?? null,
     bound: row.bound === 'min' || row.bound === 'max' ? row.bound : null,
     cardPriority: row.card_priority ?? null,
+    icon: typeof row.icon === 'string' && KNOWN_ICON_NAMES.has(row.icon) ? (row.icon as IconName) : null,
     isVariant: !!row.is_variant,
     dependsOnSlug: row.depends_on_slug || null,
     dependsOnValues: Array.isArray(row.depends_on_values) ? row.depends_on_values : null,
@@ -595,6 +637,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     },
     [buildAncestorChain, categoryById]
   );
+  // Which attribute labels a listing card in this category, or null to use
+  // the category's own name. Same nearest-first walk as
+  // conditionModeForCategory above, and for the same reason: a leaf inherits
+  // this from the branch it hangs off, so reading it off the row would make
+  // every subcategory answer only for itself.
+  const cardKindSlugForCategory = useCallback(
+    (categoryId: string): string | null => {
+      const chain = buildAncestorChain(categoryId);
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const slug = categoryById(chain[i])?.cardKindSlug;
+        if (slug) return slug;
+      }
+      return null;
+    },
+    [buildAncestorChain, categoryById]
+  );
+
   const usesOfferTypeCategory = useCallback(
     (categoryId: string): boolean => conditionModeForCategory(categoryId) === 'offer_type',
     [conditionModeForCategory]
@@ -731,6 +790,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         active: true,
         is_service: input.isService,
         condition_mode: input.conditionMode,
+        card_kind_slug: input.cardKindSlug,
         listing_lifetime_days: input.listingLifetimeDays,
         domain_id: input.domainId,
         title_example_en: input.titleExampleEn,
@@ -762,6 +822,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.isService !== undefined) dbPatch.is_service = patch.isService;
       if (patch.conditionMode !== undefined) dbPatch.condition_mode = patch.conditionMode;
       if (patch.listingLifetimeDays !== undefined) dbPatch.listing_lifetime_days = patch.listingLifetimeDays;
+      if (patch.cardKindSlug !== undefined) dbPatch.card_kind_slug = patch.cardKindSlug;
       if (patch.domainId !== undefined) dbPatch.domain_id = patch.domainId;
       if (patch.titleExampleEn !== undefined) dbPatch.title_example_en = patch.titleExampleEn;
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
@@ -769,11 +830,42 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.descriptionExampleAr !== undefined) dbPatch.description_example_ar = patch.descriptionExampleAr;
       if (patch.stockMode !== undefined) dbPatch.stock_mode = patch.stockMode;
 
-      // Update local state immediately so the admin UI feels instant.
-      setAllCategories((prev) => prev.map((c) => (c.id === id ? { ...c, ...patch } : c)));
+      // Update local state immediately so the admin UI feels instant, with a
+      // rollback for the refused write -- a switch that stays on after
+      // "Could not save" is worse than a slow one.
+      //
+      // Three details, all from AGENTS.md's note that a plain restore is not
+      // enough. The previous value is captured INSIDE the updater, not read
+      // from this callback's render closure, which would be one render stale
+      // the moment two writes overlap. The rollback restores only THIS row
+      // rather than reassigning the array, so it cannot throw away a change
+      // to a different category that landed while this one was in flight.
+      // And the sequence guard above stops a late failure undoing a newer
+      // success.
+      const seq = (updateCategorySeq.get(id) ?? 0) + 1;
+      updateCategorySeq.set(id, seq);
+
+      let before: Category | undefined;
+      setAllCategories((prev) =>
+        prev.map((c) => {
+          if (c.id !== id) return c;
+          before = c;
+          return { ...c, ...patch };
+        })
+      );
 
       const { error } = await supabase.from('categories').update(dbPatch).eq('id', id);
-      if (error) throw new Error(friendlyError(error, 'category'));
+      if (error) {
+        // Only the newest write for this row may roll back. An older one
+        // finishing late would otherwise restore a value from before a newer
+        // write that has already succeeded -- the admin would watch their
+        // text revert under an alert about a different, earlier failure.
+        const restore = before;
+        if (restore && updateCategorySeq.get(id) === seq) {
+          setAllCategories((prev) => prev.map((c) => (c.id === id ? restore : c)));
+        }
+        throw new Error(friendlyError(error, 'category'));
+      }
       await refreshFromSupabase();
     },
     [refreshFromSupabase]
@@ -836,6 +928,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         required: input.required,
         sort_order: nextSortOrder,
         is_variant: input.isVariant,
+        card_priority: input.cardPriority,
+        icon: input.icon,
       });
       if (error) throw new Error(friendlyError(error, 'attribute'));
       await refreshFromSupabase();
@@ -854,11 +948,31 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.unitAr !== undefined) dbPatch.unit_ar = patch.unitAr;
       if (patch.required !== undefined) dbPatch.required = patch.required;
       if (patch.isVariant !== undefined) dbPatch.is_variant = patch.isVariant;
+      if (patch.cardPriority !== undefined) dbPatch.card_priority = patch.cardPriority;
+      if (patch.icon !== undefined) dbPatch.icon = patch.icon;
 
-      setAllCategoryAttributes((prev) => prev.map((a) => (a.id === id ? { ...a, ...patch } : a)));
+      // Capture-inside-the-updater, restore-one-row, and the same sequence
+      // guard -- see updateCategory above for all three reasons.
+      const seq = (updateAttributeSeq.get(id) ?? 0) + 1;
+      updateAttributeSeq.set(id, seq);
+
+      let before: CategoryAttribute | undefined;
+      setAllCategoryAttributes((prev) =>
+        prev.map((a) => {
+          if (a.id !== id) return a;
+          before = a;
+          return { ...a, ...patch };
+        })
+      );
 
       const { error } = await supabase.from('category_attributes').update(dbPatch).eq('id', id);
-      if (error) throw new Error(friendlyError(error, 'attribute'));
+      if (error) {
+        const restore = before;
+        if (restore && updateAttributeSeq.get(id) === seq) {
+          setAllCategoryAttributes((prev) => prev.map((a) => (a.id === id ? restore : a)));
+        }
+        throw new Error(friendlyError(error, 'attribute'));
+      }
       await refreshFromSupabase();
     },
     [refreshFromSupabase]
@@ -1116,6 +1230,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       conditionModeForCategory,
+      cardKindSlugForCategory,
       lifetimeDaysForCategory,
       usesOfferTypeCategory,
       domains,
@@ -1165,6 +1280,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       conditionModeForCategory,
+      cardKindSlugForCategory,
       lifetimeDaysForCategory,
       usesOfferTypeCategory,
       domains,

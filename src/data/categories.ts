@@ -37,6 +37,9 @@ function topLevel(
     nameAr,
     iconUrl: null,
     icon,
+    // No collapsed categories in the offline fallback set -- every tile here
+    // is labelled by its own name. See Category.cardKindSlug.
+    cardKindSlug: null,
     supports3d: false,
     shotListEn,
     shotListAr,

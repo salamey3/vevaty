@@ -28,6 +28,22 @@ Two things worth fixing:
   account phone. Both are new writes and neither has been exercised against
   the real endpoint. See @ACCOUNTS.md.
 
+- **The storefront pill sits on the wrong edge in Arabic on the web.**
+  `storefrontPillInlineRTL` uses `alignSelf: 'flex-end'`, and on the web the
+  document already carries `dir="rtl"`, so the cross axis is reversed and
+  `flex-end` resolves to the left. Same web-versus-native divergence
+  `mirrorRow` exists for, in a style `mirrorRow` cannot express. Pre-dates the
+  card rebuild and was left alone rather than widened into it; the app is
+  unaffected, only Arabic web.
+
+- **~88 categories still have no card specs curated.** Listing cards now show
+  up to three specs chosen per category (@CARDS.md), and Properties, Vehicles,
+  Pets and Fashion are done. Everything else shows no spec row until someone
+  numbers its fields in Admin -> Categories -> Attributes -> "On the listing
+  card". That is deliberate -- the old guess was wrong more often than it was
+  right -- but it means most of the catalogue currently shows less on a card
+  than it could. Electronics and Furniture are the ones worth doing first.
+
 - **Nothing has confirmed the VV001 path by hand.** When a seller taps
   Restore on an auto-hidden listing that has not passed moderation, they
   should read "This listing has to be reviewed before it can go back on
@@ -61,6 +77,15 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Listing cards rebuilt**, 1 Sep 2026. One surface instead of a forest-green
+band and a white half, with the green doing the work as the kind pill, the
+spec glyphs and the price. A category pill that says "Apartment" rather than
+"Properties", a title that wraps to two lines, and up to three specs with
+icons chosen per attribute in admin. The photo stays 1:1 -- that decision was
+made on evidence in August and re-examined rather than re-litigated.
+@CARDS.md is the reasoning record, including why `card_priority` sat unread
+in the database for weeks with seventeen rows of curation in it.
 
 **Registration became a real form**, 1 Sep 2026. Full name, an optional
 unverified email, a separate WhatsApp number with a "same as my mobile"

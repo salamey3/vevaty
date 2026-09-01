@@ -42,6 +42,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { listingActionMessage } from '../lib/listingActionMessage';
 import ContactOutcomePrompt from '../components/ContactOutcomePrompt';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
+import { resolveVisibleAttrs } from '../lib/attributeVisibility';
 import { listingPriceLines, priceLineText } from '../lib/priceDisplay';
 import { rentPaymentFrequencyLabelKey } from '../lib/rentTerms';
 import { listingTitle, listingDescription, listingDistrict, listingShopName, pickText } from '../lib/listingText';
@@ -147,7 +148,18 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     listing && settingsReady ? domainOfCategory(listing.cat)?.id ?? null : undefined;
   const specs = useMemo(() => {
     if (!listing) return [];
-    return resolveAttributesForCategory(listing.cat).filter((a) => attrHasValue(listing.attributes[a.slug]));
+    // resolveVisibleAttrs, same as the create form and the card. Without it
+    // this page showed specs that do not apply to the listing at all: a
+    // seller who filled in Bedrooms and then changed Property type to Land
+    // leaves those values behind in the row, and the create form, the AI
+    // schema and now the card all correctly ignore them while this page
+    // printed "Bedrooms 3" on a plot of land. Every other consumer of an
+    // attribute list already went through this filter; this one was missed.
+    return resolveVisibleAttrs(
+      resolveAttributesForCategory(listing.cat),
+      listing.attributes,
+      listing.condition
+    ).filter((a) => attrHasValue(listing.attributes[a.slug]));
   }, [listing, resolveAttributesForCategory]);
   const isDesktop = useIsDesktop();
   const isOwner = !!listing && listing.sellerId === profile.id;
