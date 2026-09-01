@@ -6,7 +6,8 @@ import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
-import ListingCard from '../components/ListingCard';
+import ListingCard, { ListingCardSpacer } from '../components/ListingCard';
+import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
@@ -172,8 +173,8 @@ export default function FavoritesScreen({ navigation }: Props) {
       {tabRow}
       <FlatList
         key={columns}
-        data={favoritedListings}
-        keyExtractor={(item) => item.id}
+        data={padRowsToFullColumns(favoritedListings, columns)}
+        keyExtractor={gridRowKey}
         numColumns={columns}
         // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
         // _checkProps throws "columnWrapperStyle not supported for single column
@@ -182,9 +183,18 @@ export default function FavoritesScreen({ navigation }: Props) {
         // page on web -- on every listing surface in the app.
         columnWrapperStyle={columns > 1 ? { justifyContent: 'space-between' } : undefined}
         contentContainerStyle={[styles.grid, isDesktop && styles.gridDesktop]}
-        renderItem={({ item }) => (
-          <ListingCard columns={columns} listing={item} onPress={() => navigation.navigate('ListingDetail', { listingId: item.id })} />
-        )}
+        // A null item is the padding that keeps a short last row full --
+        // see padRowsToFullColumns. It renders an empty box exactly one
+        // card wide, so space-between spaces the row the same way it
+        // spaces a full one instead of throwing two results to opposite
+        // ends of the grid.
+        renderItem={({ item }) =>
+          item ? (
+            <ListingCard columns={columns} listing={item} onPress={() => navigation.navigate('ListingDetail', { listingId: item.id })} />
+          ) : (
+            <ListingCardSpacer columns={columns} />
+          )
+        }
       />
     </Screen>
   );

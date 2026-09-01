@@ -33,7 +33,8 @@ import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
-import ListingCard from '../components/ListingCard';
+import ListingCard, { ListingCardSpacer } from '../components/ListingCard';
+import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import CategoryCard from '../components/CategoryCard';
 import CarouselArrows from '../components/CarouselArrows';
 import CategoryCarouselSection from '../components/CategoryCarouselSection';
@@ -890,8 +891,8 @@ export default function HomeScreen() {
     <GHFlatList
       key={columns}
       ListHeaderComponent={header ? <>{header}</> : null}
-      data={filtered}
-      keyExtractor={(item) => item.id}
+      data={padRowsToFullColumns(filtered, columns)}
+      keyExtractor={gridRowKey}
       numColumns={columns}
       style={styles.list}
       // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
@@ -911,9 +912,18 @@ export default function HomeScreen() {
           <Text style={type.soft}>{t('home.emptySub')}</Text>
         </View>
       }
-      renderItem={({ item }) => (
-        <ListingCard columns={columns} listing={item} onPress={() => navigation.navigate('ListingDetail', { listingId: item.id })} />
-      )}
+      // A null item is the padding that keeps a short last row full --
+      // see padRowsToFullColumns. It renders an empty box exactly one
+      // card wide, so space-between spaces the row the same way it
+      // spaces a full one instead of throwing two results to opposite
+      // ends of the grid.
+      renderItem={({ item }) =>
+        item ? (
+          <ListingCard columns={columns} listing={item} onPress={() => navigation.navigate('ListingDetail', { listingId: item.id })} />
+        ) : (
+          <ListingCardSpacer columns={columns} />
+        )
+      }
     />
   );
 
@@ -970,7 +980,19 @@ export default function HomeScreen() {
   // Anchored on `kind`, not `slug` or title -- kind is the fixed
   // curated/price_drop/recent enum (AdminCollectionsScreen's KIND_LABEL),
   // while slug and title are both admin-editable free text.
-  const renderCollectionRows = (includeBanners: boolean) =>
+  // `flush` says the CONTAINER already places its content at the page inset,
+  // so these rows must not add one of their own. That is every grid
+  // ListHeaderComponent (styles.grid carries 18 on mobile and 0 on desktop --
+  // either way it is already the page inset), and it is also the carousels
+  // scroller on DESKTOP, where the page inset is 0 and Screen does the
+  // centring. The one case that is not flush is the carousels scroller on
+  // mobile, whose content style sets no horizontal padding at all, so 18 here
+  // IS the page inset.
+  //
+  // Stated as "the container already places content at the page inset" rather
+  // than as a list of screens, because the list was wrong the first time it
+  // was written down.
+  const renderCollectionRows = (includeBanners: boolean, flush: boolean) =>
     collectionCarousels.length > 0 ? (
       <>
         {collectionCarousels.map(({ collection, items }) => (
@@ -978,6 +1000,7 @@ export default function HomeScreen() {
             <CollectionCarouselSection
               collection={collection}
               items={items}
+              flush={flush}
               onSeeAll={() =>
                 navigation.navigate('Collection', {
                   slug: collection.slug,
@@ -987,20 +1010,34 @@ export default function HomeScreen() {
               onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
             />
             {includeBanners && collection.kind === 'curated' && (
-              <BannerSlot slot="home_after_editors_picks" domain={domainId} style={styles.homeBanner} />
+              <BannerSlot
+                slot="home_after_editors_picks"
+                domain={domainId}
+                style={flush ? styles.homeBannerFlush : styles.homeBanner}
+              />
             )}
           </React.Fragment>
         ))}
-        {includeBanners && <BannerSlot slot="home_after_just_listed" domain={domainId} style={styles.homeBanner} />}
+        {includeBanners && (
+          <BannerSlot
+            slot="home_after_just_listed"
+            domain={domainId}
+            style={flush ? styles.homeBannerFlush : styles.homeBanner}
+          />
+        )}
       </>
     ) : null;
-  // No banners: this is the copy prepended into desktop's "all
-  // categories" header further down (see that site's comment on why it
-  // needs collection rows at all) -- desktop never gets these two ad
-  // slots, only the mobile site and app do, per how they were asked for.
-  const collectionRowsHeader = renderCollectionRows(false);
-  // With banners: mobile-only, feeds the header passed into renderCarousels below.
-  const mobileCollectionRowsHeader = renderCollectionRows(true);
+  // No banners: this is the copy prepended into desktop's "all categories"
+  // header further down (see that site's comment on why it needs collection
+  // rows at all) -- desktop never gets these two ad slots, only the mobile
+  // site and app do, per how they were asked for. Flush on both of its
+  // containers, since the desktop page inset is 0 everywhere.
+  const collectionRowsHeader = renderCollectionRows(false, true);
+  // With banners, mobile only, in two variants of the same rows: the first
+  // goes into a grid's ListHeaderComponent, which already carries the page
+  // inset, and the second into the carousels scroller, which does not.
+  const mobileCollectionRowsHeader = renderCollectionRows(true, true);
+  const mobileCollectionRowsStandalone = renderCollectionRows(true, false);
 
   // Shared by mobile's own "all categories" composite (see carouselsAnchor
   // below) and desktop's topCat === 'all' branch (see the isDesktop block
@@ -1065,6 +1102,11 @@ export default function HomeScreen() {
           items={items}
           onSeeAll={() => chooseTopCategory(category.id)}
           onPressListing={(item) => navigation.navigate('ListingDetail', { listingId: item.id })}
+          // The carousels scroller sets no horizontal padding of its own on
+          // either layout, so this section keeps its 18 on mobile -- where
+          // that IS the page inset -- and drops it on desktop, where Screen
+          // centres the content and everything else on the page sits at 0.
+          flush={isDesktop}
         />
       ))}
     </GHScrollView>
@@ -1089,7 +1131,7 @@ export default function HomeScreen() {
   const carousels = renderCarousels(
     <>
       {contactPromptCard}
-      {mobileCollectionRowsHeader}
+      {mobileCollectionRowsStandalone}
     </>
   );
 
@@ -1547,6 +1589,14 @@ const styles = StyleSheet.create({
   // it instead of running edge-to-edge, and marginTop/marginBottom give
   // it the same breathing room ListingDetailScreen's mobileBanner uses.
   homeBanner: { marginTop: 22, marginBottom: 20, paddingHorizontal: 18 },
+  // These banners are interleaved between the collection carousels, so they
+  // have to take the same `flush` treatment those do -- without it the
+  // carousels drop their inset inside a padded container and the banner
+  // between them keeps it, sitting 18px narrower on each side than the rows
+  // it is meant to line up with.
+  // A whole style rather than an override appended to homeBanner, because
+  // BannerSlot takes one ViewStyle and not an array.
+  homeBannerFlush: { marginTop: 22, marginBottom: 20, paddingHorizontal: 0 },
   // Mobile only -- see mobileGreetingSearchRow. Greeting text and search
   // bar share this one row instead of stacking on two, freeing the height
   // a separate search row used to take up for the category slider to move
@@ -1816,11 +1866,10 @@ const styles = StyleSheet.create({
   // since the overlay's height now varies (greeting text length), so a
   // static stylesheet number can't track it.
   carouselsContent: { paddingBottom: 110 },
-  // Desktop counterpart to gridDesktop above -- same 60px bottom
-  // clearance (no tab bar to clear on desktop, unlike mobile's 110) and
-  // no horizontal override needed, since carouselsContent never sets
-  // paddingHorizontal to begin with (each CategoryCarouselSection already
-  // carries its own 18px row padding, same on both platforms).
+  // No horizontal padding on either variant, deliberately: each carousel
+  // section places its own content at the page inset (18 on mobile, 0 on
+  // desktop -- see the `flush` prop it takes). Used by BOTH layouts, mobile's
+  // "all categories" composite and the desktop topCat === 'all' branch.
   carouselsContentDesktop: { paddingBottom: 60 },
 
   // Mobile filters modal.

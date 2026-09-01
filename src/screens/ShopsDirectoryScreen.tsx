@@ -2,6 +2,7 @@ import React, { useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, Image, StyleSheet, Text, TextInput, View } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
+import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import { colors, type, radius } from '../theme/theme';
@@ -182,9 +183,21 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
     </>
   );
 
-  const renderShop = ({ item }: { item: Shop }) => {
+  // Same gutter/width maths the shop card already used, lifted out so the
+  // spacer that pads a short last row is exactly as wide as a card.
+  const shopCardWidthPct = (): `${number}%` => {
     const gutterPct = columns > 2 ? 1.6 : 3;
-    const widthPct: `${number}%` = `${Number(((100 - (columns - 1) * gutterPct) / columns).toFixed(3))}%`;
+    return `${Number(((100 - (columns - 1) * gutterPct) / columns).toFixed(3))}%`;
+  };
+
+  const renderShop = ({ item }: { item: Shop | null }) => {
+    // Padding that keeps a short last row full -- see padRowsToFullColumns.
+    // The listing grids hit this first, but this one has it too: six shops in
+    // a four-column grid put the last two at opposite ends of the screen,
+    // because space-between is doing exactly what it is told with a row that
+    // is not full.
+    if (!item) return <View style={{ width: shopCardWidthPct() }} />;
+    const widthPct = shopCardWidthPct();
     const name = pickText(item.nameEn, item.nameAr || '', language);
     const tagline = pickText(item.taglineEn || '', item.taglineAr || '', language);
     const location = [item.caza, item.governorate].filter(Boolean).join(', ');
@@ -230,10 +243,14 @@ export default function ShopsDirectoryScreen({ navigation }: Props) {
     <Screen maxWidth={1180}>
       <FlatList
         key={columns}
-        data={filteredShops}
-        keyExtractor={(item) => item.id}
+        data={padRowsToFullColumns(filteredShops, columns)}
+        keyExtractor={gridRowKey}
         numColumns={columns}
-        columnWrapperStyle={filteredShops.length > 0 ? { justifyContent: 'space-between' } : undefined}
+        // columns is 2 or 4 here, never 1, so unlike the listing grids this
+        // cannot hit FlatList's "columnWrapperStyle not supported for single
+        // column lists" invariant. Guarded anyway, and cheaply, so that a
+        // future one-column shops layout cannot reintroduce it.
+        columnWrapperStyle={columns > 1 && filteredShops.length > 0 ? { justifyContent: 'space-between' } : undefined}
         ListHeaderComponent={
           <>
             {header}

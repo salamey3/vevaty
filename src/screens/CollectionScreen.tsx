@@ -5,7 +5,8 @@ import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
-import ListingCard from '../components/ListingCard';
+import ListingCard, { ListingCardSpacer } from '../components/ListingCard';
+import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import { colors, type, radius } from '../theme/theme';
 import { useCollections } from '../store/CollectionsStore';
 import { useSettings } from '../store/SettingsStore';
@@ -143,8 +144,8 @@ export default function CollectionScreen({ route, navigation }: Props) {
     <Screen maxWidth={1180}>
       <FlatList
         key={columns}
-        data={items}
-        keyExtractor={(item) => item.id}
+        data={padRowsToFullColumns(items, columns)}
+        keyExtractor={gridRowKey}
         numColumns={columns}
         // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
         // _checkProps throws "columnWrapperStyle not supported for single column
@@ -159,14 +160,23 @@ export default function CollectionScreen({ route, navigation }: Props) {
             <Text style={[type.soft, styles.emptyListingsText]}>{t('collection.empty')}</Text>
           </View>
         }
-        renderItem={({ item }) => (
-          <ListingCard
-            columns={columns}
-            listing={item}
-            onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
-            cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
-          />
-        )}
+        // A null item is the padding that keeps a short last row full --
+        // see padRowsToFullColumns. It renders an empty box exactly one
+        // card wide, so space-between spaces the row the same way it
+        // spaces a full one instead of throwing two results to opposite
+        // ends of the grid.
+        renderItem={({ item }) =>
+          item ? (
+            <ListingCard
+              columns={columns}
+              listing={item}
+              onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
+              cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
+            />
+          ) : (
+            <ListingCardSpacer columns={columns} />
+          )
+        }
       />
     </Screen>
   );

@@ -28,11 +28,18 @@ export default function CategoryCarouselSection({
   items,
   onSeeAll,
   onPressListing,
+  // Set by the caller when the CONTAINER already provides the horizontal
+  // inset -- a desktop grid (paddingHorizontal 0, Screen centres the
+  // content) or, on mobile, this section being rendered inside a grid's
+  // ListHeaderComponent, which already carries styles.grid's 18. Only the
+  // caller knows which of those it just did.
+  flush = false,
 }: {
   category: Category;
   items: Listing[];
   onSeeAll: () => void;
   onPressListing: (listing: Listing) => void;
+  flush?: boolean;
 }) {
   const { language, t, isRTL } = useLanguage();
   const label = language === 'ar' ? category.nameAr : category.nameEn;
@@ -43,7 +50,7 @@ export default function CategoryCarouselSection({
   // on web.
   const { ordered, scrollRef, onContentSizeChange } = useRtlCarousel(items, isRTL);
 
-  // This component only ever renders on mobile (HomeScreen's "all
+  // This component renders on both layouts (HomeScreen's renderCarousels is used by the desktop branch too) (HomeScreen's "all
   // categories" carousels view -- see that screen's own comment), but
   // check isDesktop anyway rather than assume it: swiping through this
   // row's own horizontal scroller should keep the page's floating chrome
@@ -57,7 +64,7 @@ export default function CategoryCarouselSection({
 
   return (
     <View style={styles.section}>
-      <View style={[styles.headerRow, isRTL && styles.headerRowRTL]}>
+      <View style={[styles.headerRow, isRTL && styles.headerRowRTL, flush && styles.flush]}>
         <Text style={[styles.title, isRTL && styles.titleRTL]} numberOfLines={1}>{label}</Text>
         <Pressy onPress={onSeeAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.seeAll}>{t('home.seeAll')}</Text>
@@ -67,7 +74,7 @@ export default function CategoryCarouselSection({
         ref={scrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.row}
+        contentContainerStyle={[styles.row, flush && styles.flush]}
         onContentSizeChange={onContentSizeChange}
         onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
         onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
@@ -122,4 +129,7 @@ const styles = StyleSheet.create({
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   // Tightened from 12 -- minimal space between cards, per request.
   row: { paddingHorizontal: 18, gap: 6 },
+  // Matches CollectionCarouselSection's `flush` -- see its comment for the
+  // two containers that already provide the inset themselves.
+  flush: { paddingHorizontal: 0 },
 });

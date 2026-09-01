@@ -36,6 +36,32 @@ const HOVER_PREVIEW_DELAY_MS = 180;
 // phone paths that matter for memory.
 const GRID_PADDING = 18;
 
+// Gutter between cards, as a percentage of the row. 3% reads well at two
+// columns and far too wide at four or six -- the same proportion of a wider
+// row is a much bigger gap in pixels, which is what left the desktop grid
+// looking sparse. Scale it down as the columns go up.
+function gridGutterPct(columns: number): number {
+  return columns > 4 ? 0.5 : columns > 2 ? 0.7 : 1.2;
+}
+
+// How wide one grid card is, as a percentage of its row. Exported so the
+// empty boxes that pad a short last row (see padRowsToFullColumns) are exactly
+// as wide as the cards they stand in for -- if they were not, space-between
+// would go on mis-spacing the row it was added to fix.
+//
+// Not floored: rounding each card down left the remainder to space-between,
+// which quietly widened the gutters again beyond whatever was set here.
+export function gridCardWidthPct(columns: number): `${number}%` {
+  const gutter = gridGutterPct(columns);
+  return `${Number(((100 - (columns - 1) * gutter) / columns).toFixed(3))}%`;
+}
+
+// The empty box that stands in for a missing card on a short last row. Renders
+// nothing and measures exactly one card wide.
+export function ListingCardSpacer({ columns }: { columns: number }) {
+  return <View style={{ width: gridCardWidthPct(columns) }} />;
+}
+
 // A single small badge in the thumbnail's top-right corner -- Editor's
 // Picks (sparkle, gold) and Hot Deals (a "-15%" style label, terracotta)
 // both use this same slot, one collection row at a time, so it's a plain
@@ -99,22 +125,20 @@ export default function ListingCard({
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { width: windowWidth } = useWindowDimensions();
   const cat = categoryById(listing.cat);
-  // Gutter between cards, as a percentage of the row. 3% reads well at two
-  // columns and far too wide at four or six -- the same proportion of a
-  // wider row is a much bigger gap in pixels, which is what left the
-  // desktop grid looking sparse. Scale it down as the columns go up.
-  //
-  // Not floored: rounding each card down left the remainder to
-  // space-between, which quietly widened the gutters again beyond whatever
-  // was set here.
-  const gutterPct = columns > 4 ? 0.5 : columns > 2 ? 0.7 : 1.2;
-  const widthPct: `${number}%` = `${Number(((100 - (columns - 1) * gutterPct) / columns).toFixed(3))}%`;
+  const widthPct = gridCardWidthPct(columns);
   const favorited = isFavorite(listing.id);
   const [favBusy, setFavBusy] = useState(false);
   // Nothing to save about your own listing -- same reasoning as
   // ListingDetailScreen hiding its contact CTA from the owner.
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
   const horizontal = layout === 'horizontal';
+  // Reserve fixed heights for the title and the spec row -- but only where
+  // this card sits beside another one to line up WITH. A one-column phone
+  // grid has no neighbour: there the floors would add ~40px of blank to every
+  // card (a one-line title plus an empty spec row) on the layout that exists
+  // precisely to give the photo room, and buy nothing at all. Anything in a
+  // multi-column grid or a carousel has a neighbour.
+  const alignsWithNeighbour = horizontal || columns > 1 || width !== undefined;
   // The photo-left thumbnail: 38% of the card, never below 128.
   //
   // The floor is the point. A bare percentage made the photo SMALLER than the
@@ -430,7 +454,12 @@ export default function ListingCard({
             seller, not a copywriter, and one line truncated most of them
             mid-word. Two is enough for almost all of them and still bounds
             the card's height, so a grid keeps its rhythm. */}
-        <Text style={[styles.title, isRTL && styles.rtlText]} numberOfLines={2}>{fullTitle}</Text>
+        <Text
+          style={[styles.title, isRTL && styles.rtlText, alignsWithNeighbour && styles.titleReserved]}
+          numberOfLines={2}
+        >
+          {fullTitle}
+        </Text>
 
         {/* A property says what its number IS -- "Buy for $450,000",
             "Rent for $12,000/yr" -- so a figure can never be mistaken for
@@ -454,41 +483,63 @@ export default function ListingCard({
 
         {/* The spec row -- up to three, in the order an admin chose for this
             category. An attribute with no glyph prints its label instead of
-            one ("Seats 5"), which is the right treatment for anything
-            self-describing and the reason the glyph set can stay small. */}
-        {cardSpecs.length > 0 && (
-          <View style={[styles.specRow, mirrorRow(isRTL)]}>
-            {cardSpecs.map((spec) => (
-              <View key={spec.slug} style={[styles.spec, mirrorRow(isRTL)]}>
-                {spec.icon ? (
-                  <Icon name={spec.icon} size={13} color={colors.primary} strokeWidth={1.7} />
-                ) : (
-                  <Text style={[styles.specLabel, isRTL && styles.rtlText]} numberOfLines={1}>{spec.label}</Text>
-                )}
-                <Text style={[styles.specValue, isRTL && styles.rtlText]} numberOfLines={1}>{spec.value}</Text>
-              </View>
-            ))}
-          </View>
-        )}
+            one, which is the right treatment for anything self-describing and
+            the reason the glyph set can stay small.
 
-        {/* District and relative post time ("3 days ago", not a date -- on a
-            grid the question is "is this still going?") share one line. */}
-        {/* Two lines allowed, not one. This line is what actually truncated
-            on the photo-left card -- "Beit ech Chaar · 3 day…" -- and the fix
-            is to let it wrap rather than to win pixels back off the photo.
-            Still ONE Text: splitting the district and the time into two
-            elements in a flexWrap row was tried and does the same job worse.
-            It forces the break at the separator rather than wherever the
-            line actually runs out, and in Arabic it makes the placement of
-            that separator depend on bidi resolution rather than on the
-            layout. (It also usually avoids a stranded "· " at the head of
-            line two -- usually, not always: a district that exactly fills
-            line one still puts it there.) */}
-        <View style={[styles.metaRow, mirrorRow(isRTL)]}>
-          <Icon name="location" size={12} color={colors.inkSoft} />
-          <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={2}>
-            {listingDistrict(listing, language)} · {relativeTimeFrom(listing.createdAt, language)}
-          </Text>
+            Rendered even when empty, so specRowReserved's minHeight applies
+            to a listing in an uncurated category too -- a conditional row
+            would drop the reservation on exactly the cards that need it. The
+            cost where the reservation is OFF (a one-column phone grid) is
+            info's 5px gap around a zero-height row, which is not worth a
+            second condition to avoid. */}
+        <View style={[styles.specRow, mirrorRow(isRTL), alignsWithNeighbour && styles.specRowReserved]}>
+          {cardSpecs.map((spec) => (
+            <View key={spec.slug} style={[styles.spec, mirrorRow(isRTL)]}>
+              {spec.icon ? (
+                <Icon name={spec.icon} size={13} color={colors.primary} strokeWidth={1.7} />
+              ) : (
+                <Text style={[styles.specLabel, isRTL && styles.rtlText]} numberOfLines={1}>{spec.label}</Text>
+              )}
+              <Text style={[styles.specValue, isRTL && styles.rtlText]} numberOfLines={1}>{spec.value}</Text>
+            </View>
+          ))}
+        </View>
+
+        {/* Everything below the specs, pinned to the bottom of the card as
+            one block -- see styles.footer. Wrapped rather than hanging the
+            auto-margin off the divider itself, because the divider is
+            conditional: a card whose category has no curated specs would
+            otherwise lose the pin along with the rule and let its district
+            line float back up under the price. */}
+        <View style={styles.footer}>
+          {/* A thin rule between the listing's own facts and where and when it
+              was posted. Inset from both edges rather than run edge to edge:
+              a full-bleed rule cuts the card in two and re-creates the visual
+              split the forest-green band used to have, where the point here
+              is only to group. It sits above the meta line because that is
+              the one real seam on the card -- pill, title, price and specs
+              are all the thing being sold; the district and the age are about
+              the listing rather than the property.
+
+              Skipped when there is nothing above it to separate: a rule
+              directly under a price reads as a stray line, not a grouping. */}
+          {cardSpecs.length > 0 && <View style={styles.metaDivider} />}
+
+          {/* Two lines allowed, not one. This line is what actually truncated
+              on the photo-left card -- "Beit ech Chaar · 3 day…" -- and the
+              fix is to let it wrap rather than to win pixels back off the
+              photo. Still ONE Text: splitting the district and the time into
+              two elements in a flexWrap row was tried and does the same job
+              worse. It forces the break at the separator rather than wherever
+              the line actually runs out, and in Arabic it makes the placement
+              of that separator depend on bidi resolution rather than on the
+              layout. */}
+          <View style={[styles.metaRow, mirrorRow(isRTL)]}>
+            <Icon name="location" size={12} color={colors.inkSoft} />
+            <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={2}>
+              {listingDistrict(listing, language)} · {relativeTimeFrom(listing.createdAt, language)}
+            </Text>
+          </View>
         </View>
 
         {/* Shop pill, horizontal layout only -- see the comment by the thumb
@@ -635,7 +686,12 @@ const styles = StyleSheet.create({
   // the grid already equalises them: FlatList's columnWrapperStyle sets no
   // alignItems, so a row stretches its cards to match its tallest. The floor
   // was solving a problem the layout above it had already solved.
-  info: { paddingHorizontal: 10, paddingTop: 9, paddingBottom: 10, gap: 5 },
+  // flex 1 so this column absorbs whatever height the row gives the card.
+  // On its own it changes nothing visible -- the leftover space is white
+  // either way -- it is what gives footer's `marginTop: 'auto'` something to
+  // push against. Without it the auto margin has no free space to consume and
+  // the district line stays wherever the content leaves it.
+  info: { flex: 1, paddingHorizontal: 10, paddingTop: 9, paddingBottom: 10, gap: 5 },
   // Fills whatever's left beside the fixed-width thumbHorizontal.
   infoHorizontal: { flex: 1, paddingHorizontal: 12 },
   // Kind pill and, where the price does not already say it, new/used. Wraps
@@ -673,6 +729,12 @@ const styles = StyleSheet.create({
   // lineHeight is set explicitly because a wrapping title with the default
   // leading sets too loose against the pill above it and the price below.
   title: { fontSize: 14, fontWeight: '500', color: colors.ink, lineHeight: 18.5 },
+  // Exactly two lines' worth, so a one-line title does not pull everything
+  // below it up by 18px relative to the card beside it. Applied only where
+  // there IS a card beside it -- see alignsWithNeighbour. Costs almost
+  // nothing in practice: a marketplace title is long, and both of the seeded
+  // examples already run to two lines.
+  titleReserved: { minHeight: 37 },
   // The loudest thing on the card, which is the whole point of giving up
   // the filled band: the green now marks the number a buyer came for
   // instead of a rectangle behind it.
@@ -691,6 +753,11 @@ const styles = StyleSheet.create({
   // clipping it mid-word, which costs a few pixels of height on a minority
   // of cards and never shows a half-word.
   specRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, rowGap: 4 },
+  // Same idea as titleReserved: one row's worth of height whether or not the
+  // category has curated any specs, so an uncurated listing does not sit 18px
+  // shorter than the one next to it. A row that wraps to two lines still
+  // grows -- that only happens on the narrowest cards.
+  specRowReserved: { minHeight: 18 },
   // No directional margin anywhere in this row: mirrorRow flips it on
   // native for Arabic, but marginStart/End still resolve against
   // I18nManager.isRTL, which this app never flips -- so a directional gap
@@ -706,6 +773,35 @@ const styles = StyleSheet.create({
   // never flips -- see ListingDetailScreen's rtlText comment for the full
   // story). This explicit override is the real fix.
   rtlText: { textAlign: 'right', writingDirection: 'rtl' },
+  // height 1, not StyleSheet.hairlineWidth. Every other rule in this app is
+  // 1px (see CreateListingScreen, BatchLocationContactScreen), and a hairline
+  // on a 3x Android screen is a third of a physical pixel of #E4E2DA on white
+  // -- which is not a subtle separator, it is an absent one.
+  //
+  // marginHorizontal 6 on top of info's own 10 puts it 16px in from the card
+  // edge and visibly short of the text column, so it reads as a deliberate
+  // rule rather than as a border that failed to reach the sides. It is
+  // symmetric, so it needs no RTL handling at all.
+  //
+  // No vertical margin of its own: the 5px above comes from info's gap and
+  // the 5px below from footer's, so the rule sits centred between the specs
+  // and the district. An earlier marginBottom here made it 5 above and 9
+  // below.
+  metaDivider: {
+    height: 1,
+    backgroundColor: colors.line,
+    marginHorizontal: 6,
+  },
+  // 'auto' on the top margin is what pins this block -- rule and district
+  // together -- to the BOTTOM of the card rather than letting it sit directly
+  // under the specs. Wherever cards are stretched to a common height, that
+  // puts every district line on the same baseline and the difference in
+  // content shows as a gap in the middle instead of as ragged bottoms. That
+  // is a grid row (columnWrapperStyle sets no alignItems) AND the home
+  // carousels (their row sets none either); it is inert on the photo-left
+  // card and in ListingDetailScreen's related rows, both of which pin their
+  // children to flex-start.
+  footer: { marginTop: 'auto', gap: 5 },
   // flex-start, because the text beside the pin is allowed two lines now and
   // a centred icon against a two-line block floats in the middle of it. The
   // explicit lineHeight is what keeps the one-line case (every grid card)

@@ -30,11 +30,18 @@ export default function CollectionCarouselSection({
   items,
   onSeeAll,
   onPressListing,
+  // Set by the caller when the CONTAINER already provides the horizontal
+  // inset -- a desktop grid (paddingHorizontal 0, Screen centres the
+  // content) or, on mobile, this section being rendered inside a grid's
+  // ListHeaderComponent, which already carries styles.grid's 18. Only the
+  // caller knows which of those it just did.
+  flush = false,
 }: {
   collection: Collection;
   items: Listing[];
   onSeeAll: () => void;
   onPressListing: (listing: Listing) => void;
+  flush?: boolean;
 }) {
   const { language, t, isRTL } = useLanguage();
   const { priceDropPercent } = useCollections();
@@ -45,7 +52,7 @@ export default function CollectionCarouselSection({
   // This component renders on BOTH mobile (inside HomeScreen's floating
   // auto-hide carousels view) and desktop (folded into the "all
   // categories" grid header, which has no auto-hide chrome at all) --
-  // unlike CategoryCarouselSection, which is mobile-only. isDesktop is
+  // as does CategoryCarouselSection, which is not mobile-only either (that was true once and is not now). isDesktop is
   // what makes this the same JSX safe to reuse in both places: swiping
   // this row's own horizontal scroller only touches the shared chrome
   // flag where that chrome actually exists. See CategoryCarouselSection's
@@ -91,7 +98,7 @@ export default function CollectionCarouselSection({
 
   return (
     <View style={styles.section}>
-      <View style={[styles.headerRow, isRTL && styles.headerRowRTL]}>
+      <View style={[styles.headerRow, isRTL && styles.headerRowRTL, flush && styles.flush]}>
         <Text style={[styles.title, isRTL && styles.titleRTL]} numberOfLines={1}>{label}</Text>
         <Pressy onPress={onSeeAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.seeAll}>{t('home.seeAll')}</Text>
@@ -101,7 +108,7 @@ export default function CollectionCarouselSection({
         ref={scrollRef}
         horizontal
         showsHorizontalScrollIndicator={false}
-        contentContainerStyle={styles.row}
+        contentContainerStyle={[styles.row, flush && styles.flush]}
         onContentSizeChange={onContentSizeChange}
         onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
         onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
@@ -161,6 +168,16 @@ const styles = StyleSheet.create({
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   // Tightened from 12 -- minimal space between cards, per request.
   row: { paddingHorizontal: 18, gap: 6 },
+  // Drops this section's own inset, for when the CONTAINER already provides
+  // one. Two cases, and they are why this is a prop rather than an
+  // isDesktop check in here: on desktop the browse grid sets
+  // paddingHorizontal 0 (Screen is already centring the content), so an 18px
+  // inset here left every carousel and its heading sitting 18px right of the
+  // grid below it; and on mobile these sections are sometimes rendered inside
+  // that grid's own ListHeaderComponent, where styles.grid's 18 is already
+  // applied and this one doubled it to 36. Only the caller knows which
+  // container it just put this in.
+  flush: { paddingHorizontal: 0 },
   // Just Listed's two-row layout -- one column per pair of cards, stacked
   // vertically. Same 6px gap as `row` uses horizontally, for visual
   // consistency between the two axes.
