@@ -93,6 +93,23 @@ Now it is one surface and the green does the work as **accent** — the kind
 pill's outline, the spec glyphs, and the price itself. Same colour, a
 fraction of the weight, and room for a title that wraps to two lines.
 
+**Each spec glyph sits on a tinted disc** (20px, `colors.primaryTint`) rather
+than as a bare stroke on white. The bare 13px line icon this replaced read
+as decoration next to a bold value; a 12px glyph on a filled circle reads as
+a labelled figure, which is what it is. The tint is the brand green at the
+palette's lightest step, so the row still belongs to the card instead of
+introducing a second accent.
+
+It is not free, and the cost is width rather than height. A bare glyph led its
+value by 17px (13px icon, 4px gap); a 20px disc with the same gap leads by 24,
+so a three-spec row asks for 21px more than it used to. That is why the disc
+is 20 and not the 22 it was first drawn at: 22 with a 5px gap cost 30px, and
+those nine pixels are the difference between a 390pt phone's spec row falling
+about 7px short of one line and falling about 16px short. Shrinking the disc
+narrowed the shortfall; it did not buy any slack, and the row wraps on a
+current phone either way. See the wrap threshold under Known limits, which
+this change moved from ~376px of screen to ~402.
+
 There is a second reason, worth recording because it is not visible yet: the
 per-domain colour study still has an open decision behind it. A thin accent
 recolours per domain gracefully. A solid block of colour recolours loudly.
@@ -177,6 +194,61 @@ rejected once as "a stamp on the card". Trading photo size for text width was
 the wrong trade, and once the text stopped truncating there was nothing to
 trade for.
 
+## Making cards line up with each other
+
+A card's height follows its content, and content varies: a property offered
+for sale *and* rent carries two price lines where everything else carries
+one. Left alone that pushes everything below the price down by a line, so
+nothing under it agrees with the card beside it.
+
+Three mechanisms, and the third is the one with a real cost.
+
+**The footer is pinned to the bottom** (`marginTop: 'auto'`). Wherever cards
+are stretched to a common height — a grid row, a home carousel — every card's
+district line sits on the same baseline and the difference in content shows
+as a gap in the middle rather than as a ragged bottom.
+
+**The title and spec row reserve a fixed height**, so a one-line title does
+not pull everything under it up by 18px, and a category with no curated specs
+does not sit a row shorter than one that has them.
+
+**The price block reserves two lines.** This is the expensive one: only
+properties offered both ways ever use the second line, so nearly every card
+carries a blank line under its price. It buys the last piece of alignment —
+without it the spec row on a two-price card sits 17px below its neighbour's,
+which is `priceSecondary`'s line height exactly — the block itself carries no
+gap between its two lines, by the decision recorded two paragraphs down.
+
+Chosen deliberately over the alternatives of leaving that one row unaligned,
+or of collapsing the two figures onto one line (which would undo the
+Properties decision that a rent and an asking price must never be able to be
+read as each other).
+
+One detail that is not conditional: wrapping the two price lines in a block
+of their own also removed the 5px the info column's `gap` used to put between
+them, everywhere. They are two halves of one offer and read better tight; it
+is mentioned because it is the one part of this that a one-column phone card
+sees too.
+
+All three reservations are switched **off** on the one-column phone grid.
+There is no card beside any card there, so they would buy nothing and cost
+about 55px of blank per card (18.5 + 20 + 17) on the layout that exists to
+give the photo room.
+
+**The photo-left card's picture fills the row.** It was a square, which left a
+band of empty white beneath it once the details column grew taller than its
+own width — worst on the cards with the most to say. The frame now takes its
+height from the row, which makes it roughly 128×171 on a phone — very close
+to 3:4, which is the ratio the seeded photos are already in, and a portrait
+crop of what a seller's own camera usually shoots landscape. That is the accepted cost of not
+having the gap, and the lever if it reads as too tight is the thumbnail's 38%
+share of the card, not the ratio.
+
+The shop pill moved inside that pinned footer at the same time. Left hanging
+below it, a shop-sourced card's district line sat ~26px above a plain card's
+in the same row — the pinning would have swapped one misalignment for
+another.
+
 ## Known limits
 
 - **~88 categories have no `card_priority` set** and therefore show no spec
@@ -207,12 +279,49 @@ trade for.
   falls through to Area and View. Two attributes may not share a number; the
   admin blocks it, because a tie is resolved by inheritance depth, which is
   not a decision anyone made.
-- **Below about 376px of screen, the photo-left card's spec row takes two
-  lines.** A 375px phone leaves it 169px against the ~170 three specs need,
-  and a 360px one leaves 154. Nothing clips — the row wraps and the card is
-  simply taller — and the alternative was shrinking the photo below the size
-  this card had already rejected once. Stated because it will look like an
-  oversight on an iPhone SE or a 360px Android and it is not.
+- **Below about 402px of screen, the photo-left card's spec row can take two
+  lines.** The card is the screen less 52, capped at 380 (400 on desktop,
+  which is well clear of all of this). Out of that the photo takes
+  `max(128, 38%)` and `infoHorizontal`'s padding plus the card border take
+  26. Three specs with typical property or vehicle values need about 191 of
+  what is left — the ~170 they needed before the glyphs got their discs, plus
+  the 21 the discs cost.
+
+  The photo's 128 floor is what makes this a threshold rather than a straight
+  subtraction. Up to a 390px screen the photo is pinned at 128 and every
+  point of screen goes to the text (screen − 206); above it the photo starts
+  taking its 38%, so the text grows at 0.62 and 191 first arrives at a 402px
+  screen.
+
+  This was ~376 before the discs — it cleared an iPhone 12–16 (390pt) and a
+  Pixel (393pt), and caught only an SE (375) or a 360px Android. It does not
+  clear them any more: at 390 the text column is 184 against 191, so the row
+  is about 7px short of fitting. Note the threshold moved 26px, not the 21
+  the discs cost, because the extra 12 of screen it takes to make up 7px of
+  text is spent 38% on the photo.
+
+  Nothing clips — the row wraps and the card is a row taller. In Hot Deals
+  and desktop Editor's Picks the other cards in the row stretch to match; in
+  Just Listed they do not, because that carousel stacks its cards in columns
+  of two (`twoRowColumn`) and a column child stretches in width, not height,
+  so one wrapped card leaves its column-mate short. The alternatives were a
+  smaller disc that stops reading as a disc, or shrinking the photo below a
+  size this card has already rejected once.
+
+- **The small vertical cards are tighter still, and always were.** A vertical
+  card's text column is the card less 22 (`info`'s 10 each side, plus the
+  border). The 192px carousel card therefore has 170, and the 140px
+  related-listings cards on the listing page have 118 — both under the ~191
+  three specs now ask for, on every screen size rather than only narrow ones.
+  Only one of the two is a regression. The 140px card had 118 against the
+  ~170 three specs needed and always wrapped; the discs only make its wrapped
+  row about 4px taller, since a spec line goes from 18 to 20. The 192px card
+  had exactly the 170 it needed and sat on the boundary, and the discs push it
+  over. Worth recording alongside this: the related-listings row sets
+  `alignItems: 'flex-start'`, so nothing there equalises the ragged bottoms
+  that result. The lever, if it ever matters enough, is those cards' widths
+  rather than the disc — 192 is 160 × 1.2, chosen for the photo and not for
+  the text under it.
 - **Photos on listings posted before 1 Sep 2026 look soft at full width.**
   The card thumbnail is baked at upload time, and it was baked at 400px for a
   175px two-column card. New uploads bake at 640px; old ones keep the 400 they

@@ -29,7 +29,7 @@ Two things worth fixing:
   the real endpoint. See @ACCOUNTS.md.
 
 - **The storefront pill sits on the wrong edge in Arabic on the web.**
-  `storefrontPillInlineRTL` uses `alignSelf: 'flex-end'`, and on the web the
+  `storefrontPillRTL` uses `alignSelf: 'flex-end'`, and on the web the
   document already carries `dir="rtl"`, so the cross axis is reversed and
   `flex-end` resolves to the left. Same web-versus-native divergence
   `mirrorRow` exists for, in a style `mirrorRow` cannot express. Pre-dates the

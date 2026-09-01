@@ -132,10 +132,11 @@ export default function ListingCard({
   // ListingDetailScreen hiding its contact CTA from the owner.
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
   const horizontal = layout === 'horizontal';
-  // Reserve fixed heights for the title and the spec row -- but only where
-  // this card sits beside another one to line up WITH. A one-column phone
-  // grid has no neighbour: there the floors would add ~40px of blank to every
-  // card (a one-line title plus an empty spec row) on the layout that exists
+  // Reserve fixed heights for the title, the spec row and the second price
+  // line -- but only where this card sits beside another one to line up WITH.
+  // A one-column phone grid has no neighbour: there the three floors would
+  // add ~55px of blank to every card (a one-line title, an empty spec row and
+  // an absent second price, at 18.5 + 20 + 17) on the layout that exists
   // precisely to give the photo room, and buy nothing at all. Anything in a
   // multi-column grid or a carousel has a neighbour.
   const alignsWithNeighbour = horizontal || columns > 1 || width !== undefined;
@@ -272,11 +273,10 @@ export default function ListingCard({
         // row-reverse flips it BACK and puts the building icon on the wrong
         // side of the shop name. See mirrorRow's own comment. Every row in
         // this file went the same way in this change; the one that could not
-        // is storefrontPillInlineRTL, which is an alignSelf rather than a
+        // is storefrontPillRTL, which is an alignSelf rather than a
         // direction and has no mirrorRow equivalent -- noted in NEXT.md.
         mirrorRow(isRTL),
-        horizontal && styles.storefrontPillInline,
-        horizontal && isRTL && styles.storefrontPillInlineRTL,
+        horizontal && isRTL && styles.storefrontPillRTL,
       ]}
       hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
     >
@@ -336,7 +336,11 @@ export default function ListingCard({
       onPressOut={() => setPreviewing(false)}
     >
       <View
-        style={[styles.thumb, horizontal && styles.thumbHorizontal, horizontal && { width: thumbWidth }]}
+        style={[
+          styles.thumb,
+          horizontal ? styles.thumbHorizontal : styles.thumbVertical,
+          horizontal && { width: thumbWidth },
+        ]}
         onLayout={(e) => setMeasuredPhotoWidth(Math.round(e.nativeEvent.layout.width))}
       >
         {listing.photos[0] ? (
@@ -346,15 +350,16 @@ export default function ListingCard({
           //
           // resizeMode="cover" (RN's own default, set explicitly here so it
           // reads as deliberate) fills the frame edge to edge on both
-          // layouts -- 4:3 on the vertical card, 1:1 on the photo-left one;
-          // see thumb and thumbHorizontal for why they differ. A photo shot
-          // in a different ratio from the frame gets the excess cropped off
-          // whichever axis runs long, rather than being letterboxed to fit
-          // inside it. That is the deliberate choice: every card in a row is
-          // a uniform, gap-free rectangle whatever shape its source photo
-          // was. Which ratio is the forgiving one is argued at `thumb`
-          // below. The listing detail page's own photo display is unrelated
-          // and keeps its 3:4 crop.
+          // layouts -- 4:3 on the vertical card, and on the photo-left one a
+          // frame whose height comes from the row rather than from a ratio at
+          // all; see thumbVertical and thumbHorizontal for why they differ. A
+          // photo shot in a different ratio from the frame gets the excess
+          // cropped off whichever axis runs long, rather than being
+          // letterboxed to fit inside it. That is the deliberate choice:
+          // every card in a row is a uniform, gap-free rectangle whatever
+          // shape its source photo was. Which ratio is the forgiving one is
+          // argued at `thumbVertical` below. The listing detail page's own
+          // photo display is unrelated and keeps its 3:4 crop.
           <Image
             // The real, purpose-made small thumbnail when one exists (see
             // Listing.coverThumbnailUrl's own comment for why only the
@@ -409,8 +414,8 @@ export default function ListingCard({
         {/* Shop pill, vertical layout only -- lives on the photo itself
             (bottom-left, fixed regardless of RTL, same as every other
             badge in this thumb) rather than in the white section below.
-            The horizontal layout keeps it in its original in-flow spot
-            instead -- see storefrontPillInline below. */}
+            The horizontal layout keeps it in the text column instead, at
+            the top of the pinned footer -- see the footer block below. */}
         {!horizontal && storefrontPill && (
           <View style={styles.storefrontOverlay}>{storefrontPill}</View>
         )}
@@ -462,24 +467,34 @@ export default function ListingCard({
         </Text>
 
         {/* A property says what its number IS -- "Buy for $450,000",
-            "Rent for $12,000/yr" -- so a figure can never be mistaken for
-            the other kind of offer. See listingPriceLines. */}
-        <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>
-          {!!priceLines.primary.label && (
-            <Text style={styles.priceLabel}>{priceLines.primary.label} </Text>
-          )}
-          {priceLines.primary.amount}
-        </Text>
-        {/* Only ever set for a property offered for sale AND rent: the sale
-            price is the headline above, this is the rent under it. */}
-        {!!priceLines.secondary && (
-          <Text style={[styles.priceSecondary, isRTL && styles.rtlText]} numberOfLines={1}>
-            {!!priceLines.secondary.label && (
-              <Text style={styles.priceLabel}>{priceLines.secondary.label} </Text>
+            "Rent for $12,000/yr" -- so a figure can never be mistaken for the
+            other kind of offer. See listingPriceLines.
+
+            Wrapped in a block that reserves room for the SECOND line whether
+            or not this listing has one. Only a property offered for sale and
+            rent does, which is a small minority, so nearly every card carries
+            a blank line under its price -- and that is the deliberate trade:
+            without it, a two-price card pushes its spec row 17px below its
+            neighbour's -- priceSecondary's line height exactly, since the
+            block carries no gap of its own -- and nothing under the price
+            lines up across a row.
+            Reserved only where there IS a neighbour, same as the title. */}
+        <View style={[styles.priceBlock, alignsWithNeighbour && styles.priceBlockReserved]}>
+          <Text style={[styles.price, isRTL && styles.rtlText]} numberOfLines={1}>
+            {!!priceLines.primary.label && (
+              <Text style={styles.priceLabel}>{priceLines.primary.label} </Text>
             )}
-            {priceLines.secondary.amount}
+            {priceLines.primary.amount}
           </Text>
-        )}
+          {!!priceLines.secondary && (
+            <Text style={[styles.priceSecondary, isRTL && styles.rtlText]} numberOfLines={1}>
+              {!!priceLines.secondary.label && (
+                <Text style={styles.priceLabel}>{priceLines.secondary.label} </Text>
+              )}
+              {priceLines.secondary.amount}
+            </Text>
+          )}
+        </View>
 
         {/* The spec row -- up to three, in the order an admin chose for this
             category. An attribute with no glyph prints its label instead of
@@ -496,7 +511,16 @@ export default function ListingCard({
           {cardSpecs.map((spec) => (
             <View key={spec.slug} style={[styles.spec, mirrorRow(isRTL)]}>
               {spec.icon ? (
-                <Icon name={spec.icon} size={13} color={colors.primary} strokeWidth={1.7} />
+                // A tinted disc behind the glyph rather than a bare stroke on
+                // white. A 13px line icon on its own reads as decoration next
+                // to a bold value; sat on a filled circle it reads as a
+                // labelled figure, which is what it is. primaryTint is the
+                // brand green at the palette's lightest step, so the row
+                // still belongs to the card rather than becoming a second
+                // accent.
+                <View style={styles.specIconChip}>
+                  <Icon name={spec.icon} size={12} color={colors.primary} strokeWidth={1.8} />
+                </View>
               ) : (
                 <Text style={[styles.specLabel, isRTL && styles.rtlText]} numberOfLines={1}>{spec.label}</Text>
               )}
@@ -512,6 +536,15 @@ export default function ListingCard({
             otherwise lose the pin along with the rule and let its district
             line float back up under the price. */}
         <View style={styles.footer}>
+          {/* Shop pill, horizontal layout only -- the vertical card puts this
+              on the photo instead (see storefrontOverlay). INSIDE the footer,
+              and above the rule rather than below the district: the footer is
+              pinned to the bottom of the card, so a pill hanging underneath it
+              would push a shop-sourced card's district line ~26px above a
+              plain one's in the same row -- swapping one misalignment for
+              another on the very row this pinning exists to line up. */}
+          {horizontal && storefrontPill}
+
           {/* A thin rule between the listing's own facts and where and when it
               was posted. Inset from both edges rather than run edge to edge:
               a full-bleed rule cuts the card in two and re-creates the visual
@@ -541,10 +574,6 @@ export default function ListingCard({
             </Text>
           </View>
         </View>
-
-        {/* Shop pill, horizontal layout only -- see the comment by the thumb
-            above for why the vertical layout renders this one differently. */}
-        {horizontal && storefrontPill}
       </View>
     </Pressy>
   );
@@ -584,16 +613,41 @@ const styles = StyleSheet.create({
   // instead of the default column; everything else (background, radius,
   // border, the overflow:hidden that clips the thumb's square corners to
   // the card's rounded ones) is shared with the vertical card unchanged.
-  // alignItems 'flex-start' is load-bearing now, not decoration. The text
-  // column beside the thumbnail used to be about the thumbnail's own height,
-  // so the default `stretch` never mattered; a two-line title plus a spec row
-  // has made that column meaningfully taller, and under `stretch` a
-  // fixed-width box with an aspectRatio has to fight the stretch to stay
-  // square. Pinning it to the top settles it.
-  cardHorizontal: { flexDirection: 'row', alignItems: 'flex-start' },
+  // Default `stretch`, deliberately -- an earlier version pinned this to
+  // flex-start to protect the thumbnail's square ratio, and the square was
+  // the wrong thing to protect. The details column is taller than a square
+  // photo (a two-line title, a spec row, two price lines), so flex-start left
+  // a band of empty white under the picture on exactly the tallest cards.
+  // Stretch, plus dropping the ratio from thumbHorizontal, makes the photo
+  // fill the card's full height whatever the column beside it does.
+  cardHorizontal: { flexDirection: 'row' },
+  // The photo frame, shared by both layouts. Its SHAPE is not set here: the
+  // vertical card's 4:3 lives on thumbVertical (which also explains why it is
+  // not here) and the photo-left card's full-height stretch on
+  // thumbHorizontal, each argued at its own style. What is common to both is
+  // the fill behind a photo that has not loaded, and the clipping below.
+  thumb: {
+    backgroundColor: colors.surface,
+    alignItems: 'center',
+    justifyContent: 'center',
+    // CardPreview's hover/long-press slideshow (PhotoSlideshow in
+    // CardPreview.tsx) renders a row wider than this box -- one frame per
+    // photo, sitting side by side -- and slides it left so only one
+    // frame's worth shows at a time. Without clipping here, only `card`'s
+    // own overflow:hidden (see below) was ever stopping the rest of that
+    // row from painting, and `card`'s edge is the whole card, not just
+    // this thumbnail. On the vertical layout `thumb` already spans the
+    // card's full width, so there was nothing past its own edge for the
+    // extra frames to bleed into and this went unnoticed; on the
+    // horizontal layout (thumbHorizontal, a fixed narrower column with an
+    // `info` column beside it) the un-clipped frames were free to slide
+    // out past the thumbnail and paint straight across that info column's
+    // text, since nothing local to the thumbnail was stopping them.
+    overflow: 'hidden',
+  },
   // 4:3 landscape, derived from the card's own width rather than a fixed
-  // height, so the same listing is the same shape in every context it
-  // appears in.
+  // height, so the same listing is the same shape in every context a vertical
+  // card appears in.
   //
   // This was 1:1 until the browse grid went to one column on a phone, and the
   // reasoning genuinely changed with it rather than being overruled. The
@@ -616,38 +670,42 @@ const styles = StyleSheet.create({
   // Deliberately scoped to the card. ListingDetailScreen keeps its own 3:4
   // display, where there is room for a taller frame and no grid rhythm to
   // hold.
-  thumb: {
-    aspectRatio: 4 / 3,
-    backgroundColor: colors.surface,
-    alignItems: 'center',
-    justifyContent: 'center',
-    // CardPreview's hover/long-press slideshow (PhotoSlideshow in
-    // CardPreview.tsx) renders a row wider than this box -- one frame per
-    // photo, sitting side by side -- and slides it left so only one
-    // frame's worth shows at a time. Without clipping here, only `card`'s
-    // own overflow:hidden (see below) was ever stopping the rest of that
-    // row from painting, and `card`'s edge is the whole card, not just
-    // this thumbnail. On the vertical layout `thumb` already spans the
-    // card's full width, so there was nothing past its own edge for the
-    // extra frames to bleed into and this went unnoticed; on the
-    // horizontal layout (thumbHorizontal, a fixed narrower column with an
-    // `info` column beside it) the un-clipped frames were free to slide
-    // out past the thumbnail and paint straight across that info column's
-    // text, since nothing local to the thumbnail was stopping them.
-    overflow: 'hidden',
-  },
+  //
+  // It lives HERE and not in `thumb`, so that the photo-left card simply
+  // never receives it. The obvious alternative -- put it in `thumb` and clear
+  // it with `aspectRatio: undefined` in thumbHorizontal -- is a trap on both
+  // renderers, in opposite directions.
+  // On native it works at mount and then breaks on UPDATE: RN's style
+  // differ compares array entries index by index, and a key whose new value
+  // is `undefined` is skipped rather than emitted, so a card that is already
+  // mounted when `layout` flips (an iPad crossing the 860pt desktop
+  // breakpoint on rotation, which does not remount the list) either keeps a
+  // ratio it should have lost or loses one it should have kept -- and a
+  // vertical thumb with no ratio has no intrinsic height at all, so the photo
+  // vanishes. On web the same `undefined` is dropped from the compiled style
+  // entirely, so it never overrides anything and the picture is only correct
+  // because CSS resolves stretch-versus-aspect-ratio the opposite way to
+  // Yoga. Two renderers agreeing by accident is not agreement.
+  thumbVertical: { aspectRatio: 4 / 3 },
   thumbImg: { width: '100%', height: '100%' },
   // A bounded column instead of the vertical card's full-bleed frame: this
   // thumbnail shares the row with a details column rather than owning the
-  // card's whole top edge. Only the RATIO lives here; the width is computed
-  // from the card at render time (thumbWidth, near the top of the component)
-  // because a fixed 128 on a fixed 300px card was most of what was wrong
-  // with this shape.
+  // card's whole top edge. Its WIDTH is computed from the card at render time
+  // (thumbWidth, near the top of the component), because a fixed 128 on a
+  // fixed 300px card was most of what was wrong with this shape.
   //
-  // It stays 1:1 rather than following the vertical card's 4:3. A
-  // side-by-side row wants a photo that is tall relative to its width, or
-  // the text column beside it towers over the picture.
-  thumbHorizontal: { aspectRatio: 1 },
+  // No aspectRatio at all, and that is the point: the height comes from the
+  // row, so the photo is exactly as tall as the card. A fixed ratio meant a
+  // square photo beside a taller details column, which left a band of empty
+  // white beneath the picture -- worst on the cards that have most to say,
+  // which are the ones you most want to look at. `alignSelf: stretch` says so
+  // explicitly rather than leaning on the parent's default, so this does not
+  // quietly break if someone sets alignItems on cardHorizontal again.
+  //
+  // The trade is a harder crop: a landscape photo in a tall narrow frame
+  // loses more of its sides than it did in a square. resizeMode 'cover'
+  // centres what survives, and the alternative was the white gap.
+  thumbHorizontal: { alignSelf: 'stretch' },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
@@ -738,7 +796,20 @@ const styles = StyleSheet.create({
   // The loudest thing on the card, which is the whole point of giving up
   // the filled band: the green now marks the number a buyer came for
   // instead of a rectangle behind it.
-  price: { fontSize: 16.5, fontWeight: '800', color: colors.primary, letterSpacing: -0.2 },
+  // The two price lines as one block, so the reservation below can be a
+  // single number rather than a sum of gaps. No gap between them: they are
+  // two halves of one offer, and spacing them apart made the second read as a
+  // separate fact.
+  priceBlock: {},
+  // Exactly two lines of this block: 21 for the headline + 17 for the rent
+  // under it. Both lineHeights are set explicitly for that reason -- an
+  // unset lineHeight is platform-dependent, and a reservation computed from a
+  // number the renderer is free to change is a reservation that drifts.
+  priceBlockReserved: { minHeight: 38 },
+  price: {
+    fontSize: 16.5, fontWeight: '800', color: colors.primary,
+    letterSpacing: -0.2, lineHeight: 21,
+  },
   // "Buy for" / "Rent for", nested inline ahead of the figure. Smaller and
   // slightly muted so the number stays the biggest thing on the line: the
   // label is context, the price is what the buyer came for, and if anything
@@ -747,22 +818,52 @@ const styles = StyleSheet.create({
   // The rent line under the sale price on a property offered both ways --
   // stepped down so it reads as the second of two numbers rather than
   // competing with the headline.
-  priceSecondary: { fontSize: 13, fontWeight: '700', color: colors.primary, opacity: 0.85 },
+  priceSecondary: { fontSize: 13, fontWeight: '700', color: colors.primary, opacity: 0.85, lineHeight: 17 },
   // Up to three specs on one line. flexWrap, not truncation: a long value
   // ("Semi-furnished") pushes the third spec onto a second line rather than
   // clipping it mid-word, which costs a few pixels of height on a minority
   // of cards and never shows a half-word.
   specRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'center', columnGap: 12, rowGap: 4 },
   // Same idea as titleReserved: one row's worth of height whether or not the
-  // category has curated any specs, so an uncurated listing does not sit 18px
-  // shorter than the one next to it. A row that wraps to two lines still
-  // grows -- that only happens on the narrowest cards.
-  specRowReserved: { minHeight: 18 },
+  // category has curated any specs, so an uncurated listing does not sit a
+  // row shorter than the one next to it. 20 and not 18 because the row's
+  // height is now set by the icon chip rather than by the text beside it, and
+  // it tracks specIconChip's size exactly -- reserving less than a populated
+  // row actually stands would defeat the point, and reserving more would put
+  // a permanent sliver of blank under every spec row in the app. A row that
+  // wraps to two lines still grows past it; that only happens on the
+  // narrowest cards.
+  specRowReserved: { minHeight: 20 },
   // No directional margin anywhere in this row: mirrorRow flips it on
   // native for Arabic, but marginStart/End still resolve against
   // I18nManager.isRTL, which this app never flips -- so a directional gap
   // would point the wrong way in exactly the layout it was added for.
   spec: { flexDirection: 'row', alignItems: 'center', gap: 4 },
+  // 20px around a 12px glyph -- 4px of tint on every side, which is the
+  // least that still reads as a disc rather than as a smudge behind the
+  // icon. Sized DOWN from the 22 this started at, and the reason is width
+  // rather than taste: a disc is wider than the bare glyph it replaces, and
+  // the spec row is the narrowest thing on the card.
+  //
+  // The arithmetic, because it is the whole argument. Each spec used to lead
+  // with a 13px icon and a 4px gap -- 17px before its value. A 20px disc with
+  // the same 4px gap is 24, so three specs cost 21px more than they did. At
+  // 22 with a 5px gap it was 30. Those nine pixels do not buy any slack back:
+  // a 390-393pt phone (iPhone 12 through 16, Pixel) ends up 6-7px short of
+  // fitting three specs on one line where it was 15-16px short, so the row
+  // wraps there either way. They are still worth having, because 7px is a size bump
+  // or a shorter value away from fitting, and 16 is not. CARDS.md's known
+  // limit carries the full derivation, including why the threshold moved 26px
+  // of screen rather than 21.
+  //
+  // borderRadius is half the box, not radius.pill: a pill radius on a square
+  // is the same circle, but writing half the size says the shape is meant to
+  // be a circle and breaks visibly if the size changes.
+  specIconChip: {
+    width: 20, height: 20, borderRadius: 10,
+    backgroundColor: colors.primaryTint,
+    alignItems: 'center', justifyContent: 'center',
+  },
   // Stands in for a glyph on attributes that do not have one, so the value
   // is never an orphaned number. Muted, because on those attributes the
   // value is the information and the label is only there to name it.
@@ -797,10 +898,12 @@ const styles = StyleSheet.create({
   // under the specs. Wherever cards are stretched to a common height, that
   // puts every district line on the same baseline and the difference in
   // content shows as a gap in the middle instead of as ragged bottoms. That
-  // is a grid row (columnWrapperStyle sets no alignItems) AND the home
-  // carousels (their row sets none either); it is inert on the photo-left
-  // card and in ListingDetailScreen's related rows, both of which pin their
-  // children to flex-start.
+  // is a grid row (columnWrapperStyle sets no alignItems) and a home carousel
+  // whose cards sit in its horizontal row -- INCLUDING the photo-left card,
+  // which used to be exempt only because cardHorizontal pinned its children
+  // to flex-start, and no longer does. It stays inert in Just Listed's
+  // two-row variant, whose cards are column children, and in
+  // ListingDetailScreen's related rows, which set flex-start themselves.
   footer: { marginTop: 'auto', gap: 5 },
   // flex-start, because the text beside the pin is allowed two lines now and
   // a centred icon against a two-line block floats in the middle of it. The
@@ -816,23 +919,21 @@ const styles = StyleSheet.create({
   // card-appropriate scale. No standalone "Storefront" label next to it
   // any more on either layout -- the building icon carries that meaning
   // on its own. Position on screen differs by layout (storefrontOverlay
-  // below for vertical, storefrontPillInline for horizontal); this base
-  // style is shared by both.
+  // below for vertical; for horizontal it is the first child of the pinned
+  // footer, which spaces it with its own gap -- the RTL alignment below is
+  // the only extra style it takes there); this base style is shared by both.
   storefrontPill: {
     flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start', maxWidth: '100%',
     backgroundColor: colors.warnBg, borderRadius: radius.pill,
     paddingHorizontal: 8, height: 20,
   },
   storefrontPillName: { fontSize: 10.5, fontWeight: '800', color: colors.primary },
-  // Horizontal layout only: kept in its original in-flow spot below the
-  // meta row, rather than moved onto the photo.
-  storefrontPillInline: { marginTop: 6 },
   // Right-aligns the pill within the horizontal layout's RTL column,
   // same as every other right-aligned element there -- not used on the
   // vertical layout, whose overlay position stays fixed regardless of
   // language (see storefrontOverlay below, and favoriteBadge/cornerBadge
   // above, which are fixed corners for the same reason).
-  storefrontPillInlineRTL: { alignSelf: 'flex-end' },
+  storefrontPillRTL: { alignSelf: 'flex-end' },
   // Vertical layout only: the shop pill lives on the photo, bottom-left,
   // fixed regardless of RTL -- same reasoning as favoriteBadge/
   // cornerBadge/spinBadge above, none of which mirror for RTL either,
