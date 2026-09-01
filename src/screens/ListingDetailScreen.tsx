@@ -35,7 +35,7 @@ import { useSettings } from '../store/SettingsStore';
 import { useCollections } from '../store/CollectionsStore';
 import BannerSlot from '../components/BannerSlot';
 import { cornerBadgeFor } from '../lib/collectionBadge';
-import { supabase } from '../lib/supabase';
+import { supabase, getSellerContact } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -86,6 +86,16 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // has SELECT revoked on myazar.profiles for anon/authenticated roles,
   // so this RPC (SECURITY DEFINER) is the only way to ever read it back.
   const [contactPhone, setContactPhone] = useState<string | null>(null);
+  // The seller's WhatsApp number, when they gave one that differs from the
+  // account phone. Null for everyone who hasn't -- which is what the app
+  // silently assumed about every seller before this field existed.
+  const [contactWhatsapp, setContactWhatsapp] = useState<string | null>(null);
+  // Which listing this screen is CURRENTLY showing, for the in-flight reveal
+  // below to compare itself against. It has to be a ref: React Navigation
+  // never mutates a route in place -- SET_PARAMS and NAVIGATE both build a
+  // new route object -- so an async callback that closed over `route` keeps
+  // reading the old one and can only ever compare a value with itself.
+  const currentListingIdRef = useRef(route.params.listingId);
   const [contactLoading, setContactLoading] = useState(false);
   const [contactError, setContactError] = useState<string | null>(null);
   const listing = useMemo(() => listings.find((l) => l.id === route.params.listingId), [listings, route.params.listingId]);
@@ -304,15 +314,31 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
   const revealContact = async () => {
     if (!listing) return;
+    // Captured now and re-checked on the way out. The reset effect below
+    // clears the revealed numbers when the listing swaps under a reused
+    // screen, but it cannot cancel a request already in flight -- without
+    // this check, a reveal started on listing A resolves after the swap and
+    // puts seller A's phone behind listing B's "Call seller" button.
+    const forListingId = listing.id;
     setContactLoading(true);
     setContactError(null);
     try {
-      const { data, error } = await supabase.rpc('get_seller_phone', { p_listing_id: listing.id });
-      if (error) throw error;
-      if (!data) throw new Error('No phone on file for this seller');
-      setContactPhone(data);
+      // get_seller_contact, not the older get_seller_phone: the same reveal
+      // and the same logged contact event, but it returns the seller's
+      // WhatsApp number too. The old function is deliberately left in place
+      // and untouched -- every app build already installed on somebody's
+      // phone still calls it, and they keep working until their OTA lands.
+      const contact = await getSellerContact(forListingId);
+      if (forListingId !== currentListingIdRef.current) return;
+      if (!contact.phone) throw new Error('No phone on file for this seller');
+      setContactPhone(contact.phone);
+      setContactWhatsapp(contact.whatsapp);
     } catch (e: any) {
-      setContactError(t('listingDetail.contactLoadFailed'));
+      // Guarded too: a stale REJECTION would otherwise paint "couldn't load
+      // the contact details" over a listing that was never asked about.
+      if (forListingId === currentListingIdRef.current) {
+        setContactError(t('listingDetail.contactLoadFailed'));
+      }
     } finally {
       setContactLoading(false);
     }
@@ -335,12 +361,33 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     }
   };
 
+  // Prefer the number the seller actually nominated for WhatsApp; fall back
+  // to the account phone, which is what this always used. In Lebanon those
+  // are routinely two different numbers, so the old assumption sent buyers to
+  // a WhatsApp account that either belongs to nobody or, worse, to a stranger
+  // who happens to have registered that number.
+  // Most routes into this screen push a fresh instance -- a navigate() from
+  // Home, Favorites or a chat thread fires while THAT screen is focused, so
+  // StackRouter finds no matching current route and pushes. The swap-in-place
+  // case is the narrower one: a navigate() that arrives while ListingDetail is
+  // itself the focused route (a deep link, a notification hop). Without this,
+  // a revealed number survives that swap and the page for listing B offers
+  // seller A's phone and WhatsApp under a "Call seller" button.
+  useEffect(() => {
+    currentListingIdRef.current = route.params.listingId;
+    setContactPhone(null);
+    setContactWhatsapp(null);
+    setContactError(null);
+    setContactLoading(false);
+  }, [route.params.listingId]);
+
   const whatsappUrl = useMemo(() => {
-    if (!listing || !contactPhone) return null;
-    const digits = contactPhone.replace(/[^\d]/g, '');
+    const number = contactWhatsapp || contactPhone;
+    if (!listing || !number) return null;
+    const digits = number.replace(/[^\d]/g, '');
     const text = t('listingDetail.whatsappMessage', { title: listingTitle(listing, language) });
     return `https://wa.me/${digits}?text=${encodeURIComponent(text)}`;
-  }, [listing, contactPhone, language, t]);
+  }, [listing, contactPhone, contactWhatsapp, language, t]);
 
   // EVERY hook this component uses has to be above the early return below.
   // These seven used to sit further down, next to the markup that reads

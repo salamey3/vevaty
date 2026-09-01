@@ -150,11 +150,112 @@ export async function setAccountPassword(password: string) {
 // undefined) to leave that column exactly as it is rather than clearing
 // it -- e.g. verifyCode's call only ever touches phone/is_phone_verified,
 // never full_name.
-export async function upsertOwnProfile(fields: { phone?: string; fullName?: string; isPhoneVerified?: boolean }) {
+export async function upsertOwnProfile(fields: {
+  phone?: string;
+  fullName?: string;
+  isPhoneVerified?: boolean;
+  email?: string | null;
+  whatsapp?: string | null;
+  whatsappOptIn?: boolean;
+}) {
   const { error } = await supabase.rpc('upsert_own_profile', {
     p_phone: fields.phone ?? null,
     p_full_name: fields.fullName ?? null,
     p_is_phone_verified: fields.isPhoneVerified ?? null,
+    p_email: fields.email ?? null,
+    p_whatsapp: fields.whatsapp ?? null,
+    p_whatsapp_opt_in: fields.whatsappOptIn ?? null,
   });
   if (error) throw error;
+}
+
+// The caller's own email / WhatsApp number / WhatsApp consent flag.
+//
+// This needs an RPC for a reason that is easy to get wrong: profiles carries
+// the policy "profiles are publicly readable" with a `true` qualifier, so
+// column-level SELECT on this table is not "the owner can read it" -- it is
+// "every signed-in user can read it, on every row". That is precisely why
+// `phone` has never been SELECT-granted, and both new contact columns follow
+// it. So there is no client-side query that returns your own email without
+// also handing everyone else's to anyone who asks; a SECURITY DEFINER
+// function pinned to auth.uid() is the only way to read them back.
+export async function getOwnContactDetails(): Promise<{
+  loaded: boolean;
+  email: string | null;
+  whatsapp: string | null;
+  whatsappOptIn: boolean;
+}> {
+  const { data, error } = await supabase.rpc('get_own_contact_details');
+  if (error) throw error;
+  // `loaded` exists because the function returns SQL null for "no session"
+  // and "no profiles row", which is NOT the same answer as a row whose three
+  // columns happen to be empty -- and collapsing the two would show a user a
+  // blank form claiming their account holds no contact details when in fact
+  // we never managed to read it.
+  if (data == null) return { loaded: false, email: null, whatsapp: null, whatsappOptIn: false };
+  const row = data as Record<string, unknown>;
+  return {
+    loaded: true,
+    email: (row.email as string) || null,
+    whatsapp: (row.whatsapp as string) || null,
+    whatsappOptIn: !!row.whatsapp_opt_in,
+  };
+}
+
+// Saves those same three, and unlike upsertOwnProfile above this one CAN
+// clear a field -- a plain UPDATE writes a real null where the RPC's
+// coalesce-every-argument shape would read null as "leave it alone". That
+// asymmetry is deliberate and is why editing goes through here while
+// registration goes through the RPC: registration only ever adds, editing has
+// to be able to remove.
+//
+// `.select('id')` and the row check are not decoration. An UPDATE that matches
+// no row -- a signed-out session, a profiles row that was never created --
+// returns success with an empty result set from PostgREST, which is one of the
+// documented ways a write on this project reports success and changes nothing
+// (see AGENTS.md). Without the check, "Saved" would appear over a database
+// that never heard about it.
+export async function saveOwnContactDetails(fields: {
+  email: string | null;
+  whatsapp: string | null;
+  whatsappOptIn: boolean;
+}) {
+  const { data: sessionData } = await supabase.auth.getSession();
+  const uid = sessionData.session?.user?.id;
+  if (!uid) throw new Error('Not signed in');
+  const { data, error } = await supabase
+    .from('profiles')
+    .update({
+      email: fields.email,
+      whatsapp: fields.whatsapp,
+      whatsapp_opt_in: fields.whatsappOptIn,
+    })
+    .eq('id', uid)
+    .select('id');
+  if (error) throw error;
+  if (!data || data.length === 0) throw new Error('Contact details update matched no row');
+}
+
+// The seller's contact numbers for a listing, for the buyer-facing reveal.
+//
+// Deliberately a SECOND function rather than a widened get_seller_phone: that
+// one returns a bare text and is called by every build already installed on
+// somebody's phone. Changing its return type would break those the moment the
+// migration landed -- hours or days before an OTA update reaches them -- so it
+// stays exactly as it is and new builds call this instead.
+//
+// `whatsapp` is null for the many sellers who have not given one; the caller
+// falls back to the phone number, which is what the app assumed for everybody
+// before this field existed.
+export async function getSellerContact(listingId: string): Promise<{
+  phone: string | null;
+  whatsapp: string | null;
+}> {
+  const { data, error } = await supabase.rpc('get_seller_contact', { p_listing_id: listingId });
+  if (error) throw error;
+  const row = (data || {}) as Record<string, unknown>;
+  return {
+    phone: (row.phone as string) || null,
+    whatsapp: (row.whatsapp as string) || null,
+  };
 }

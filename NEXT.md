@@ -20,6 +20,14 @@ Two things worth fixing:
   is the chat-side equivalent of the prompt. Neither is urgent -- the
   prompt covers the case that actually loses buyers.
 
+- **Two things about the new registration form need a real tap.** Sign up
+  with a fresh number and confirm the profile lands complete — name, email,
+  WhatsApp number and consent flag all written the moment the OTP verifies,
+  not on a screen after it. Then open a listing as a buyer and confirm the
+  WhatsApp button opens the seller's *nominated* number rather than their
+  account phone. Both are new writes and neither has been exercised against
+  the real endpoint. See @ACCOUNTS.md.
+
 - **Nothing has confirmed the VV001 path by hand.** When a seller taps
   Restore on an auto-hidden listing that has not passed moderation, they
   should read "This listing has to be reviewed before it can go back on
@@ -53,6 +61,18 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Registration became a real form**, 1 Sep 2026. Full name, an optional
+unverified email, a separate WhatsApp number with a "same as my mobile"
+checkbox and a consent line, and a password with show/hide — all on one step,
+all written when the OTP verifies. Phone stays the sole account identity;
+email is a free channel and nothing more. Contact details are editable
+afterwards from Profile → Edit your profile → Email & WhatsApp, because a
+field you can enter once and never correct is a defect. `send-expiry-reminders`
+now sends only to sellers who consented, and only on the number they
+nominated — that one is a Supabase deploy (version 16), not part of the
+commit, since edge functions are not tracked here. @ACCOUNTS.md is the
+reasoning record.
 
 **"Did you reach the seller?"**, 31 Aug 2026. The piece that actually
 catches a dead lead. A day after a buyer reaches for a seller's number,

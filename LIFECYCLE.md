@@ -295,6 +295,33 @@ existing first, and each is worth reviewing on its own.
 - **WhatsApp.** Last, if Meta ever unblocks templates. By then we will
   probably find we do not need it.
 
+  Two things about that channel changed on 1 Sep 2026, when registration
+  started collecting a WhatsApp number of its own (see @ACCOUNTS.md), and
+  both are worth knowing before anyone re-reads `send-expiry-reminders`
+  and wonders why it sends less than it used to.
+
+  Edge functions are not tracked in this repo — they are deployed straight
+  to Supabase, same as every other one — so there is nothing in the commit
+  that changed it. It is live as version 16 of `send-expiry-reminders`.
+
+  It now messages **only sellers who ticked the consent box**, and **only
+  on the number they nominated for WhatsApp** — never the account phone.
+  The version before it messaged `profiles.phone` for every seller it
+  found, which was wrong twice over: an unsolicited business-initiated
+  WhatsApp is precisely what gets a WABA suspended, and in Lebanon the
+  account phone and the WhatsApp number are routinely different, so the
+  old behaviour was a coin flip between the right person, nobody, and a
+  stranger who happens to hold that number on WhatsApp.
+
+  The practical consequence, stated plainly because it will otherwise look
+  like a bug: **every account created before that checkbox existed has the
+  flag false and will receive nothing here** until its owner opts in from
+  Profile → Edit your profile → Email & WhatsApp. That costs nothing today
+  — Meta blocks the channel entirely, so the function has never delivered
+  a single message — and it is the right default to be holding on the day
+  it unblocks. Push notifications, which need no such consent, remain the
+  intended primary channel.
+
 ## What this cannot fix
 
 A seller who keeps renewing out of habit while the item is long gone looks

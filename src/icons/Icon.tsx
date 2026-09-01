@@ -9,7 +9,8 @@ export type IconName =
   | 'card' | 'diamond' | 'chevronRight' | 'sparkle' | 'camera' | 'close'
   | 'edit' | 'trophy' | 'globe' | 'trash' | 'grip'
   | 'building' | 'tv' | 'factory' | 'paw' | 'baby' | 'dumbbell' | 'briefcase' | 'wrench' | 'flag' | 'lock' | 'fingerprint'
-  | 'image' | 'expand' | 'heart' | 'share' | 'wand' | 'eyeOff' | 'filter';
+  | 'image' | 'expand' | 'heart' | 'share' | 'wand' | 'eye' | 'eyeOff' | 'filter'
+  | 'mail';
 
 type Props = { name: IconName; size?: number; color?: string; strokeWidth?: number; filled?: boolean };
 
@@ -335,6 +336,24 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
           <Path d="M3 12s3.6-6.5 9-6.5S21 12 21 12s-3.6 6.5-9 6.5S3 12 3 12Z" {...common} />
           <Circle cx="12" cy="12" r="2.6" {...common} />
           <Line x1="4" y1="4" x2="20" y2="20" {...common} />
+        </>
+      )}
+      {/* The unslashed twin of 'eyeOff' above -- the pair is a show/hide
+          password toggle (AuthScreen's signup step, EditContactScreen).
+          Same geometry deliberately, so the glyph doesn't jump as it
+          switches. */}
+      {name === 'eye' && (
+        <>
+          <Path d="M3 12s3.6-6.5 9-6.5S21 12 21 12s-3.6 6.5-9 6.5S3 12 3 12Z" {...common} />
+          <Circle cx="12" cy="12" r="2.6" {...common} />
+        </>
+      )}
+      {/* Envelope -- the optional email field and its row in the profile
+          edit menu. */}
+      {name === 'mail' && (
+        <>
+          <Rect x="3" y="5" width="18" height="14" rx="2.2" {...common} />
+          <Path d="M3.6 6.5 12 13l8.4-6.5" {...common} />
         </>
       )}
       {/* Classic funnel glyph -- the storefronts directory's "open the

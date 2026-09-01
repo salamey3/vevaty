@@ -66,6 +66,17 @@ grant select (new_col) on myazar.listings to anon, authenticated;
 grant insert (new_col), update (new_col) on myazar.listings to authenticated;
 ```
 
+One more consequence of that same SECURITY DEFINER pattern, learned the
+awkward way: **a function whose argument list changes has to be dropped and
+recreated, not `CREATE OR REPLACE`d.** Replace cannot change the signature —
+it creates a second overload beside the old one, and PostgREST then has two
+candidates for the same name. `myazar.upsert_own_profile` went from three
+arguments to six this way. Every argument still defaults to null and every
+column is `coalesce(excluded.x, profiles.x)`, which is what lets one caller
+write `{phone, is_phone_verified}` without erasing a name — and is also why
+that function can never *clear* a field. Removing an email is a plain
+`UPDATE`, which the column grants above already allow.
+
 Related, and subtler: **`INSERT ... ON CONFLICT DO UPDATE` requires
 table-level `SELECT`.** Column-level grants alone are not enough, whatever
 the columns. This is what broke profile writes for weeks — `.upsert()` from
@@ -83,6 +94,21 @@ rendering as not-found. Select what the screen reads, nothing more.
 
 Both failures are silent by construction, so when a write "works" but the
 row does not change, suspect grants before logic.
+
+And one that runs the other way: **on `myazar.profiles`, a SELECT grant is
+not "the owner can read it" — it is "everyone can read it, on every row."**
+The table carries the policy `profiles are publicly readable` with a `true`
+qualifier, so a column-level SELECT grant to `authenticated` publishes that
+column to every signed-in user. This is why `phone` has never had one, and
+why `email`, `whatsapp` and `whatsapp_opt_in` do not either: they are
+INSERT/UPDATE-granted only, and every read goes through a `SECURITY
+DEFINER` function pinned to `auth.uid()` (`myazar.get_own_contact_details`
+for your own, `myazar.get_seller_contact` for a listing's seller). Adding a
+grant so that "the settings screen can show it" would hand every contact
+detail on the platform to anyone who asks PostgREST for it. **@ACCOUNTS.md
+has the reasoning behind those three columns** — what an account is, why
+email is optional and unverified, and what the WhatsApp consent box does and
+does not mean.
 
 # Three ways a write reports success and changes nothing
 

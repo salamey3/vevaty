@@ -394,6 +394,14 @@ export default function ProfileScreen() {
               navigation.navigate('EditLocation');
             },
           },
+          {
+            label: t('profile.editProfileContactDetails'),
+            icon: 'mail',
+            onPress: () => {
+              setEditMenuOpen(false);
+              navigation.navigate('EditContact');
+            },
+          },
         ]}
         cancelLabel={t('common.cancel')}
         onCancel={() => setEditMenuOpen(false)}

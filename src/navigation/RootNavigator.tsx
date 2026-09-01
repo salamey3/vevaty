@@ -16,6 +16,7 @@ import AuthScreen from '../screens/AuthScreen';
 import ChangePhoneScreen from '../screens/ChangePhoneScreen';
 import EditNameScreen from '../screens/EditNameScreen';
 import EditLocationScreen from '../screens/EditLocationScreen';
+import EditContactScreen from '../screens/EditContactScreen';
 import PaymentScreen from '../screens/PaymentScreen';
 import ChatThreadScreen from '../screens/ChatThreadScreen';
 import FavoritesScreen from '../screens/FavoritesScreen';
@@ -81,6 +82,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       ChangePhone: 'change-phone',
       EditName: 'edit-name',
       EditLocation: 'edit-location',
+      EditContact: 'edit-contact',
       Payment: 'listing/:listingId/payment',
       ChatThread: 'messages/:threadId',
       Favorites: 'favorites',
@@ -131,6 +133,7 @@ export default function RootNavigator() {
         <Stack.Screen name="ChangePhone" component={ChangePhoneScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="EditName" component={EditNameScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="EditLocation" component={EditLocationScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="EditContact" component={EditContactScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="Payment" component={PaymentScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="ChatThread" component={ChatThreadScreen} />
         <Stack.Screen name="Favorites" component={FavoritesScreen} />

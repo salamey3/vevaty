@@ -67,6 +67,7 @@ export type RootStackParamList = {
   // profile fields that don't need OTP re-verification.
   EditName: undefined;
   EditLocation: undefined;
+  EditContact: undefined;
   Payment: { listingId: string };
   ChatThread: { threadId: string };
   Favorites: undefined;
