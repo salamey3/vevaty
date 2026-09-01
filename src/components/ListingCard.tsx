@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { StyleSheet, Text, View, Image, ViewStyle } from 'react-native';
+import { StyleSheet, Text, View, Image, ViewStyle, useWindowDimensions } from 'react-native';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Pressy from './Pressy';
@@ -13,7 +13,7 @@ import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle, listingDistrict, listingShopName } from '../lib/listingText';
 import { mirrorRow } from '../lib/mirrorRow';
-import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
+import { sizedPhotoUrl } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { cardKindLabel, resolveCardSpecs } from '../lib/cardSpecs';
 import { listingPriceLines } from '../lib/priceDisplay';
@@ -28,6 +28,13 @@ import { RootStackParamList } from '../navigation/types';
 // that out, short enough that anyone who's actually looking still reads
 // it as instant.
 const HOVER_PREVIEW_DELAY_MS = 180;
+
+// The horizontal padding a listing grid puts around itself ON A PHONE. Used
+// only for the first-frame estimate of a grid card's width (see
+// drawnPhotoWidth), which onLayout then replaces with the measured value --
+// so being wrong here costs at most one extra request, and it is exact on the
+// phone paths that matter for memory.
+const GRID_PADDING = 18;
 
 // A single small badge in the thumbnail's top-right corner -- Editor's
 // Picks (sparkle, gold) and Hot Deals (a "-15%" style label, terracotta)
@@ -90,6 +97,7 @@ export default function ListingCard({
   const { isFavorite, toggleFavorite } = useFavorites();
   const { language, isRTL, t } = useLanguage();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
+  const { width: windowWidth } = useWindowDimensions();
   const cat = categoryById(listing.cat);
   // Gutter between cards, as a percentage of the row. 3% reads well at two
   // columns and far too wide at four or six -- the same proportion of a
@@ -107,6 +115,66 @@ export default function ListingCard({
   // ListingDetailScreen hiding its contact CTA from the owner.
   const canFavorite = showFavorite && listing.sellerId !== profile.id;
   const horizontal = layout === 'horizontal';
+  // The photo-left thumbnail: 38% of the card, never below 128.
+  //
+  // The floor is the point. A bare percentage made the photo SMALLER than the
+  // 128 it had been on every phone narrower than about 388px -- 117px on a
+  // 360px one -- which is under the width this same card had already rejected
+  // once as "a stamp on the card". Buying text width by shrinking the photo
+  // was the wrong trade, and it stopped being necessary once the district
+  // line was allowed to wrap (see metaRow) instead of ellipsising.
+  //
+  // Not a claim that nothing on this card can ever clip -- the title is
+  // capped at two lines and the district at two, and a long enough one of
+  // either still ellipsises. What changed is that the line which clipped on
+  // an ORDINARY listing at an ordinary width no longer does.
+  //
+  // No upper cap: it would need a card wider than 444px to bind, and the
+  // widest any caller renders is 400.
+  //
+  // The fallback is only reached if a caller renders a horizontal card
+  // without saying how wide it is, which no caller does today.
+  const thumbWidth = horizontal ? Math.max(128, Math.round((width ?? 336) * 0.38)) : undefined;
+
+  // How wide this card's photo is ACTUALLY drawn, so the fetch asks for that
+  // rather than for one constant covering every card in the app.
+  //
+  // It matters more than bandwidth. RN decodes a remote bitmap at its SOURCE
+  // resolution however small the view is -- the whole premise of
+  // photoSize.ts -- so a 140pt related-listing card handed a grid-sized
+  // request pays a grid-sized decoded bitmap. With one shared constant,
+  // widening the browse grid would have raised the cost on every carousel in
+  // the app at once, the touch-preview path included, which mounts five
+  // frames for a slideshow and every frame of a spin set (up to 24).
+  //
+  // Bounded in scope, and worth stating: sizedPhotoUrl only rewrites the
+  // seeded picsum URLs. For a real uploaded photo Bunny returns exactly what
+  // it was given, so the ceiling there is the thumbnail baked at upload
+  // (resizeThumbnailForUpload), and this request width changes nothing.
+  //
+  // MEASURED, not derived from the window. A grid card is a percentage of
+  // its row, and deriving that from the window width is exact on a phone and
+  // badly wrong on desktop, where Screen caps content at 1180 and HomeScreen
+  // additionally reserves a 232px nav sidebar, a 240px filter sidebar and a
+  // 72px gutter -- so a 1920px window holds a 285px card, and asking for the
+  // window-derived 628 would request ~5x the pixels the card draws. That is
+  // worse than the constant this replaced.
+  //
+  // The window-derived value is kept only as the FIRST-FRAME estimate, so a
+  // photo appears immediately rather than a frame late; onLayout replaces it
+  // with the truth. On a phone the two agree exactly, so nothing refetches
+  // there; on desktop a card may request once more at the right size.
+  const estimatedPhotoWidth = horizontal
+    ? thumbWidth!
+    : width ?? Math.round((windowWidth - GRID_PADDING * 2) / columns);
+  const [measuredPhotoWidth, setMeasuredPhotoWidth] = useState(0);
+  // Quantised up to a 40pt step. Without it every pixel of a desktop window
+  // drag produces a new URL for every mounted card, so each one refetches and
+  // re-decodes continuously through the drag.
+  const drawnPhotoWidth = Math.min(
+    400,
+    Math.ceil((measuredPhotoWidth || estimatedPhotoWidth) / 40) * 40
+  );
 
   // The hover/touch preview (CardPreview) -- mounted only while
   // `previewing` is true, so its images never load for a card nobody's
@@ -243,27 +311,26 @@ export default function ListingCard({
       onPressIn={() => setPreviewing(true)}
       onPressOut={() => setPreviewing(false)}
     >
-      <View style={[styles.thumb, horizontal && styles.thumbHorizontal]}>
+      <View
+        style={[styles.thumb, horizontal && styles.thumbHorizontal, horizontal && { width: thumbWidth }]}
+        onLayout={(e) => setMeasuredPhotoWidth(Math.round(e.nativeEvent.layout.width))}
+      >
         {listing.photos[0] ? (
           // Requested at card size, not the seeded 900x1200 original -- see
           // photoSize.ts for why that mattered so much more than it looks
           // (bitmap heap, not bandwidth).
           //
-          // resizeMode="cover" (RN's own default, set explicitly here so
-          // it reads as deliberate) always fills the square frame edge to
-          // edge, on both layouts -- see thumb/thumbHorizontal's own
-          // comments for why they're both 1:1. A photo shot in a
-          // different ratio than the frame (portrait, landscape,
-          // whatever the seller's camera produced) gets the excess
-          // cropped off whichever axis runs long, rather than being
-          // letterboxed down to fit inside it -- that's the deliberate
-          // choice here: every card in a row stays a uniform, gap-free
-          // square regardless of what shape the source photo was, and a
-          // square crop is close to equally forgiving of both a vertical
-          // phone-camera shot and a horizontal one, which is the whole
-          // reason this became the card thumbnail's ratio (see thumb
-          // below). The listing detail page's own photo display is
-          // unrelated to this and keeps its original 3:4 crop.
+          // resizeMode="cover" (RN's own default, set explicitly here so it
+          // reads as deliberate) fills the frame edge to edge on both
+          // layouts -- 4:3 on the vertical card, 1:1 on the photo-left one;
+          // see thumb and thumbHorizontal for why they differ. A photo shot
+          // in a different ratio from the frame gets the excess cropped off
+          // whichever axis runs long, rather than being letterboxed to fit
+          // inside it. That is the deliberate choice: every card in a row is
+          // a uniform, gap-free rectangle whatever shape its source photo
+          // was. Which ratio is the forgiving one is argued at `thumb`
+          // below. The listing detail page's own photo display is unrelated
+          // and keeps its 3:4 crop.
           <Image
             // The real, purpose-made small thumbnail when one exists (see
             // Listing.coverThumbnailUrl's own comment for why only the
@@ -273,14 +340,14 @@ export default function ListingCard({
             // thumbnail in too: it's a no-op for a Bunny URL today, but
             // costs nothing and stays correct if picsum seed data is ever
             // mixed back in.
-            source={{ uri: sizedPhotoUrl(listing.coverThumbnailUrl ?? listing.photos[0], PHOTO_WIDTHS.card)! }}
+            source={{ uri: sizedPhotoUrl(listing.coverThumbnailUrl ?? listing.photos[0], drawnPhotoWidth)! }}
             style={styles.thumbImg}
             resizeMode="cover"
           />
         ) : (
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
         )}
-        {previewing && <CardPreview photos={listing.photos} spinSets={listing.spinSets ?? []} />}
+        {previewing && <CardPreview photos={listing.photos} spinSets={listing.spinSets ?? []} photoWidth={drawnPhotoWidth} />}
         {/* Only ever true for a 'multiple' stock-mode listing a seller has
             stocked down to zero -- every 'unique'-mode listing defaults to
             (and stays at) stockQty 1, so this never fires for the vast
@@ -406,9 +473,20 @@ export default function ListingCard({
 
         {/* District and relative post time ("3 days ago", not a date -- on a
             grid the question is "is this still going?") share one line. */}
+        {/* Two lines allowed, not one. This line is what actually truncated
+            on the photo-left card -- "Beit ech Chaar · 3 day…" -- and the fix
+            is to let it wrap rather than to win pixels back off the photo.
+            Still ONE Text: splitting the district and the time into two
+            elements in a flexWrap row was tried and does the same job worse.
+            It forces the break at the separator rather than wherever the
+            line actually runs out, and in Arabic it makes the placement of
+            that separator depend on bidi resolution rather than on the
+            layout. (It also usually avoids a stranded "· " at the head of
+            line two -- usually, not always: a district that exactly fills
+            line one still puts it there.) */}
         <View style={[styles.metaRow, mirrorRow(isRTL)]}>
           <Icon name="location" size={12} color={colors.inkSoft} />
-          <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={1}>
+          <Text style={[styles.district, isRTL && styles.rtlText]} numberOfLines={2}>
             {listingDistrict(listing, language)} · {relativeTimeFrom(listing.createdAt, language)}
           </Text>
         </View>
@@ -462,27 +540,33 @@ const styles = StyleSheet.create({
   // fixed-width box with an aspectRatio has to fight the stretch to stay
   // square. Pinning it to the top settles it.
   cardHorizontal: { flexDirection: 'row', alignItems: 'flex-start' },
-  // Square 1:1, derived from the card's own width rather than a fixed
-  // height. The old fixed 120/150px meant the shape changed with every
-  // context the card appeared in -- roughly square in a 2-column grid,
-  // letterboxed in a wide carousel, different again on desktop -- so the
-  // same listing looked like a different product depending on where you
-  // met it, and a grid of them had no consistent rhythm.
+  // 4:3 landscape, derived from the card's own width rather than a fixed
+  // height, so the same listing is the same shape in every context it
+  // appears in.
   //
-  // This used to be 3:4, chosen to match the source photos (seeded
-  // catalogue at 900x1200, and phone cameras shoot 3:4 by default). But
-  // marketplace sellers -- unlike social media -- overwhelmingly still
-  // shoot horizontally, carried over from posting the same photos on
-  // Facebook Marketplace/OLX, where the common frame is landscape. A
-  // portrait 3:4 card cropped a lot off the sides of those shots. Square
-  // is the middle ground: it crops a vertical shot's top/bottom and a
-  // horizontal shot's left/right by roughly the same amount, so neither
-  // orientation is the "wrong" one to have shot in. Deliberately scoped
-  // to just the card thumbnail -- the listing detail page's own photo
-  // display (ListingDetailScreen.tsx) keeps its original 3:4 crop, where
-  // there's room for a taller frame and no grid rhythm to keep uniform.
+  // This was 1:1 until the browse grid went to one column on a phone, and the
+  // reasoning genuinely changed with it rather than being overruled. The
+  // square was chosen (28 Aug) because Lebanese sellers still shoot landscape
+  // out of Facebook/OLX habit, and at a 175px two-column card a square crops
+  // a landscape shot and a portrait shot by about the same amount -- a fair
+  // middle when the frame is small either way.
+  //
+  // At full width that argument stops paying. A 354px card with a square
+  // photo is 354px of photo before a word of text, so barely one listing
+  // fits on a phone screen; and at that size the crop is no longer a
+  // rounding error -- taking the sides off a landscape photo of a room
+  // removes the room. 4:3 matches the shape the photos were actually taken
+  // in, and gives back about 90px of height per card.
+  //
+  // The cost, stated: a portrait-shot photo now loses more top and bottom
+  // than it used to. That is the same trade as before, further along, and it
+  // falls on the minority orientation rather than the majority one.
+  //
+  // Deliberately scoped to the card. ListingDetailScreen keeps its own 3:4
+  // display, where there is room for a taller frame and no grid rhythm to
+  // hold.
   thumb: {
-    aspectRatio: 1,
+    aspectRatio: 4 / 3,
     backgroundColor: colors.surface,
     alignItems: 'center',
     justifyContent: 'center',
@@ -502,21 +586,17 @@ const styles = StyleSheet.create({
     overflow: 'hidden',
   },
   thumbImg: { width: '100%', height: '100%' },
-  // A fixed-width column instead of the vertical card's full-bleed
-  // square -- this thumbnail now shares the row with a details column
-  // instead of owning the card's whole top edge, so it needs its own
-  // bounded width rather than stretching to `card`'s width. Same 1:1
-  // ratio as `thumb` above, for the same reasoning as that style's own
-  // comment. Height follows from the ratio; the text
-  // column beside it (infoHorizontal) simply grows to whatever its content
-  // needs, which since the two-line title and the spec row is usually a
-  // little more than this.
-  // 128, up from 112. The text column grew by a line of title and a row of
-  // specs, and at 112 the photo was left floating in the corner of a card
-  // nearly twice its height. This does not make them equal -- the column is
-  // still taller -- but it keeps the photo a substantial part of the card
-  // rather than a stamp on it.
-  thumbHorizontal: { width: 128, aspectRatio: 1 },
+  // A bounded column instead of the vertical card's full-bleed frame: this
+  // thumbnail shares the row with a details column rather than owning the
+  // card's whole top edge. Only the RATIO lives here; the width is computed
+  // from the card at render time (thumbWidth, near the top of the component)
+  // because a fixed 128 on a fixed 300px card was most of what was wrong
+  // with this shape.
+  //
+  // It stays 1:1 rather than following the vertical card's 4:3. A
+  // side-by-side row wants a photo that is tall relative to its width, or
+  // the text column beside it towers over the picture.
+  thumbHorizontal: { aspectRatio: 1 },
   spinBadge: {
     position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
@@ -626,10 +706,15 @@ const styles = StyleSheet.create({
   // never flips -- see ListingDetailScreen's rtlText comment for the full
   // story). This explicit override is the real fix.
   rtlText: { textAlign: 'right', writingDirection: 'rtl' },
-  metaRow: { flexDirection: 'row', alignItems: 'center', gap: 3 },
-  // Carries the relative post time too ("West Hills · 3 days ago", was two
-  // separate lines).
-  district: { ...type.tiny },
+  // flex-start, because the text beside the pin is allowed two lines now and
+  // a centred icon against a two-line block floats in the middle of it. The
+  // explicit lineHeight is what keeps the one-line case (every grid card)
+  // looking right anyway: type.tiny sets no leading, so the line box came out
+  // ~15px against a 12px icon and the pin sat high.
+  metaRow: { flexDirection: 'row', alignItems: 'flex-start', gap: 3 },
+  // flex: 1 so the text takes the width the icon leaves and wraps inside it,
+  // rather than laying out at its intrinsic width and ellipsising.
+  district: { ...type.tiny, flex: 1, lineHeight: 13 },
   // Shop-name pill -- same pill shape as ListingDetailScreen's aiTag
   // (warnBg fill, radius.pill) as the visual basis, at a smaller
   // card-appropriate scale. No standalone "Storefront" label next to it

@@ -56,7 +56,7 @@ import { useSavedSearches } from '../store/SavedSearchesStore';
 import { useCollections } from '../store/CollectionsStore';
 import { RootStackParamList, HomeStackParamList } from '../navigation/types';
 import { Category, CategoryAttribute, CategoryId, FilterFacet, Listing, SavedSearchCriteria } from '../types';
-import { useIsDesktop, useGridColumns } from '../hooks/useResponsive';
+import { useIsDesktop, useListingGridColumns, useGridColumns } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { haversineKm, LatLng } from '../lib/geo';
 import { matchesConditionFilter } from '../lib/rentTerms';
@@ -148,7 +148,7 @@ export default function HomeScreen() {
   // the category carousels further down, and that logic is untouched).
   const [searchFocused, setSearchFocused] = useState(false);
   const isDesktop = useIsDesktop();
-  const columns = useGridColumns(2, 4);
+  const columns = useListingGridColumns();
   const catColumns = useGridColumns(3, 6);
   // The desktop category strip, driven by its own arrows. The offset is
   // tracked in a ref rather than state: it changes on every scroll frame
@@ -894,7 +894,12 @@ export default function HomeScreen() {
       keyExtractor={(item) => item.id}
       numColumns={columns}
       style={styles.list}
-      columnWrapperStyle={{ justifyContent: 'space-between' }}
+      // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
+      // _checkProps throws "columnWrapperStyle not supported for single column
+      // lists" via invariant(), which is NOT stripped in production. Without
+      // this guard a one-column grid is a red screen on native and a blank
+      // page on web -- on every listing surface in the app.
+      columnWrapperStyle={columns > 1 ? { justifyContent: 'space-between' } : undefined}
       contentContainerStyle={[styles.grid, isDesktop ? styles.gridDesktop : { paddingTop: mobileChromeHeight }]}
       onScroll={!isDesktop ? onChromeScroll : undefined}
       onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
@@ -1744,8 +1749,8 @@ const styles = StyleSheet.create({
   // filters looked like they were being crowded out by the grid rather
   // than sitting beside it. Whitespace is what separates them -- there is
   // no divider or panel background here -- so it has to be enough to do
-  // that job on its own. It costs the grid 44px, which the four columns
-  // absorb as ~11px each.
+  // that job on its own. It costs the grid 44px, which the three columns
+  // absorb as ~15px each.
   body: { flex: 1 },
   bodyDesktop: { flexDirection: 'row', gap: 72 },
   sidebar: { width: 240, flexGrow: 0, flexShrink: 0 },

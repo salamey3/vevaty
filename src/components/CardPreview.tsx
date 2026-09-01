@@ -1,7 +1,7 @@
 import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, StyleSheet, View } from 'react-native';
 import { SpinSet } from '../types';
-import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
+import { sizedPhotoUrl } from '../lib/photoSize';
 
 // The hover/long-press preview on a listing card -- a quick look at more
 // of the listing without leaving the grid. Mounted by ListingCard only
@@ -18,12 +18,35 @@ import { sizedPhotoUrl, PHOTO_WIDTHS } from '../lib/photoSize';
 // listing with only flat photos previews those instead. A single photo or
 // zero photos has nothing to preview, so this renders null and the
 // static thumbnail underneath just keeps showing.
-export default function CardPreview({ photos, spinSets }: { photos: string[]; spinSets: SpinSet[] }) {
+// `photoWidth` is the width this preview is actually drawn at, handed down
+// by the card rather than assumed. It is the most memory-sensitive request
+// in the app: a slideshow mounts up to five frames at once and a spin set
+// mounts all of them, and RN decodes each at its SOURCE resolution however
+// small the view is (see photoSize.ts). Asking one card-sized constant for
+// every card in the app meant a 140pt related-listing preview paid the same
+// decoded bitmap as a full-width grid card.
+//
+// Worth knowing how far it goes: sizedPhotoUrl only rewrites the seeded
+// picsum URLs, so this bounds the seed catalogue and nothing else. A real
+// upload comes back from Bunny exactly as stored, and THIS component gets
+// listing.photos -- the 1600px originals, not the baked thumbnail -- so a
+// spin set here still mounts every frame at full size. That is the actual
+// hazard on this path and it is untouched; a per-photo preview thumbnail is
+// the fix, and it is not built.
+export default function CardPreview({
+  photos,
+  spinSets,
+  photoWidth,
+}: {
+  photos: string[];
+  spinSets: SpinSet[];
+  photoWidth: number;
+}) {
   if (spinSets.length > 0) {
-    return <SpinPreview spinSets={spinSets} />;
+    return <SpinPreview spinSets={spinSets} photoWidth={photoWidth} />;
   }
   if (photos.length > 1) {
-    return <PhotoSlideshow photos={photos.slice(0, PHOTO_PREVIEW_MAX)} />;
+    return <PhotoSlideshow photos={photos.slice(0, PHOTO_PREVIEW_MAX)} photoWidth={photoWidth} />;
   }
   return null;
 }
@@ -31,7 +54,7 @@ export default function CardPreview({ photos, spinSets }: { photos: string[]; sp
 const PHOTO_PREVIEW_MAX = 5;
 const PHOTO_SLIDE_MS = 700;
 
-function PhotoSlideshow({ photos }: { photos: string[] }) {
+function PhotoSlideshow({ photos, photoWidth }: { photos: string[]; photoWidth: number }) {
   const [width, setWidth] = useState(0);
   const translateX = useRef(new Animated.Value(0)).current;
   const indexRef = useRef(0);
@@ -87,7 +110,7 @@ function PhotoSlideshow({ photos }: { photos: string[] }) {
           {frames.map((uri, i) => (
             <Image
               key={`${uri}-${i}`}
-              source={{ uri: sizedPhotoUrl(uri, PHOTO_WIDTHS.card)! }}
+              source={{ uri: sizedPhotoUrl(uri, photoWidth)! }}
               style={{ width, height: '100%' }}
             />
           ))}
@@ -102,7 +125,7 @@ function PhotoSlideshow({ photos }: { photos: string[] }) {
 // own frames.
 const SPIN_FRAME_MS = 90;
 
-function SpinPreview({ spinSets }: { spinSets: SpinSet[] }) {
+function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth: number }) {
   const [setIndex, setSetIndex] = useState(0);
   const [frameIndex, setFrameIndex] = useState(0);
 
@@ -142,7 +165,7 @@ function SpinPreview({ spinSets }: { spinSets: SpinSet[] }) {
       {frames.map((uri, i) => (
         <Image
           key={uri}
-          source={{ uri: sizedPhotoUrl(uri, PHOTO_WIDTHS.card)! }}
+          source={{ uri: sizedPhotoUrl(uri, photoWidth)! }}
           style={[StyleSheet.absoluteFill, { opacity: i === frameIndex ? 1 : 0 }]}
         />
       ))}

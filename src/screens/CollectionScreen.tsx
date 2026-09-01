@@ -9,7 +9,7 @@ import ListingCard from '../components/ListingCard';
 import { colors, type, radius } from '../theme/theme';
 import { useCollections } from '../store/CollectionsStore';
 import { useSettings } from '../store/SettingsStore';
-import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
 import { cornerBadgeFor } from '../lib/collectionBadge';
@@ -32,7 +32,7 @@ export default function CollectionScreen({ route, navigation }: Props) {
   const { domainOfCategory } = useSettings();
   const { language, t } = useLanguage();
   const isDesktop = useIsDesktop();
-  const columns = useGridColumns(2, 4);
+  const columns = useListingGridColumns();
   const goBack = useGoBack();
 
   const collection = collectionBySlug(slug);
@@ -146,7 +146,12 @@ export default function CollectionScreen({ route, navigation }: Props) {
         data={items}
         keyExtractor={(item) => item.id}
         numColumns={columns}
-        columnWrapperStyle={items.length > 0 ? { justifyContent: 'space-between' } : undefined}
+        // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
+        // _checkProps throws "columnWrapperStyle not supported for single column
+        // lists" via invariant(), which is NOT stripped in production. Without
+        // this guard a one-column grid is a red screen on native and a blank
+        // page on web -- on every listing surface in the app.
+        columnWrapperStyle={columns > 1 && items.length > 0 ? { justifyContent: 'space-between' } : undefined}
         ListHeaderComponent={listHeader}
         contentContainerStyle={[styles.grid, isDesktop && styles.gridDesktop]}
         ListEmptyComponent={

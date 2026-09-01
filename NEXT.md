@@ -78,6 +78,14 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**Browse grid widened**, 1 Sep 2026. One column on a phone and three on
+desktop (was two and four), and the card photo moved from 1:1 to 4:3 — at
+full width a square photo is taller than a phone screen has to spare, and 4:3
+is the shape sellers actually shoot in. The photo-left carousel card now sizes
+itself instead of sitting at a flat 300px, which is why its district line
+truncated. @CARDS.md carries the arithmetic, including what did NOT truncate
+and was only getting taller.
+
 **Listing cards rebuilt**, 1 Sep 2026. One surface instead of a forest-green
 band and a white half, with the green doing the work as the kind pill, the
 spec glyphs and the price. A category pill that says "Apartment" rather than

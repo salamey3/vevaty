@@ -403,7 +403,7 @@ export interface Listing {
   lat: number | null;
   lng: number | null;
   photos: string[]; // local file uris
-  // The first gallery photo's small (~400px) card-thumbnail variant, if one
+  // The first gallery photo's small (~640px) card-thumbnail variant, if one
   // was generated at upload time -- null for any listing posted before this
   // existed (see the listing_photos.thumbnail_url migration) or while a
   // brand-new listing's photos are still uploading in the background. Cards

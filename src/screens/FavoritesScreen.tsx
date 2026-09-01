@@ -12,7 +12,7 @@ import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useSavedSearches } from '../store/SavedSearchesStore';
 import { useSettings } from '../store/SettingsStore';
-import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from '../navigation/types';
 import { SavedSearch } from '../types';
@@ -41,7 +41,7 @@ export default function FavoritesScreen({ navigation }: Props) {
   const { savedSearches, loading: searchesLoading, loaded: searchesLoaded, loadSavedSearches, deleteSavedSearch } = useSavedSearches();
   const { categoryById } = useSettings();
   const isDesktop = useIsDesktop();
-  const columns = useGridColumns(2, 4);
+  const columns = useListingGridColumns();
   const [tab, setTab] = useState<'saved' | 'searches'>('saved');
 
   useFocusEffect(
@@ -175,7 +175,12 @@ export default function FavoritesScreen({ navigation }: Props) {
         data={favoritedListings}
         keyExtractor={(item) => item.id}
         numColumns={columns}
-        columnWrapperStyle={{ justifyContent: 'space-between' }}
+        // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
+        // _checkProps throws "columnWrapperStyle not supported for single column
+        // lists" via invariant(), which is NOT stripped in production. Without
+        // this guard a one-column grid is a red screen on native and a blank
+        // page on web -- on every listing surface in the app.
+        columnWrapperStyle={columns > 1 ? { justifyContent: 'space-between' } : undefined}
         contentContainerStyle={[styles.grid, isDesktop && styles.gridDesktop]}
         renderItem={({ item }) => (
           <ListingCard columns={columns} listing={item} onPress={() => navigation.navigate('ListingDetail', { listingId: item.id })} />

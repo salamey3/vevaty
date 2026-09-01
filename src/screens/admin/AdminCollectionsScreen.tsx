@@ -9,7 +9,14 @@ import Icon from '../../icons/Icon';
 import { colors, type, radius } from '../../theme/theme';
 import { useAppStore } from '../../store/AppStore';
 import { useCollections } from '../../store/CollectionsStore';
-import { sizedPhotoUrl, PHOTO_WIDTHS } from '../../lib/photoSize';
+import { sizedPhotoUrl } from '../../lib/photoSize';
+
+// This list's row thumbnail, in points. Named here for the same reason
+// ListingCard measures its own: a photo is decoded at its source resolution
+// however small the view is, so a 44px admin row asking for a browse-card
+// width would decode a bitmap tens of times the area it draws. See
+// photoSize.ts.
+const ADMIN_ROW_THUMB = 56;
 import { Collection, CollectionKind, Listing } from '../../types';
 import { RootStackParamList } from '../../navigation/types';
 
@@ -149,7 +156,7 @@ export default function AdminCollectionsScreen() {
   const renderThumb = (listing: Listing) => (
     <View style={styles.thumb}>
       {listing.photos[0] ? (
-        <Image source={{ uri: sizedPhotoUrl(listing.photos[0], PHOTO_WIDTHS.card)! }} style={styles.thumbImg} />
+        <Image source={{ uri: sizedPhotoUrl(listing.photos[0], ADMIN_ROW_THUMB)! }} style={styles.thumbImg} />
       ) : (
         <Icon name="bag" size={18} color={colors.inkSoft} />
       )}

@@ -12,7 +12,7 @@ import RangeSlider from '../components/RangeSlider';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
-import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
@@ -102,7 +102,7 @@ export default function StorefrontScreen({ route, navigation }: Props) {
   const { resolveAttributesForCategory } = useSettings();
   const { t, language } = useLanguage();
   const isDesktop = useIsDesktop();
-  const columns = useGridColumns(2, 4);
+  const columns = useListingGridColumns();
 
   const [shop, setShop] = useState<Shop | null>(null);
   const [loading, setLoading] = useState(true);
@@ -582,7 +582,12 @@ export default function StorefrontScreen({ route, navigation }: Props) {
         data={filteredListings}
         keyExtractor={(item) => item.id}
         numColumns={columns}
-        columnWrapperStyle={filteredListings.length > 0 ? { justifyContent: 'space-between' } : undefined}
+        // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
+        // _checkProps throws "columnWrapperStyle not supported for single column
+        // lists" via invariant(), which is NOT stripped in production. Without
+        // this guard a one-column grid is a red screen on native and a blank
+        // page on web -- on every listing surface in the app.
+        columnWrapperStyle={columns > 1 && filteredListings.length > 0 ? { justifyContent: 'space-between' } : undefined}
         ListHeaderComponent={listHeader}
         contentContainerStyle={[styles.grid, isDesktop && styles.gridDesktop]}
         ListEmptyComponent={

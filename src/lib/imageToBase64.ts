@@ -107,7 +107,7 @@ export async function photosForVision(uris: string[], max: number): Promise<Visi
 // as a file, see photoUpload.ts). Sellers' camera/gallery photos routinely
 // come in at 4000x3000+ (several MB each); storage serves back exactly
 // what it was given, and every listing card/carousel on the app requests
-// that same full-size original just to paint a 148px-wide thumbnail. That mismatch -- dozens of
+// that same full-size original just to paint a thumbnail a few hundred points wide at most. That mismatch -- dozens of
 // multi-megabyte photos decoded at once for tiny cards -- is what actually
 // made scrolling/swiping feel heavy on-device (confirmed via screen
 // recording), not just a cold-start blip. 1600px longest-edge at quality
@@ -137,10 +137,29 @@ export async function resizePhotoForUpload(uri: string, maxDim = 1600, quality =
 // tested against. Every real photo goes to Bunny, which serves back exactly
 // the bytes it was given -- there is no fetch-time resizing to ask for, so
 // the only way to make a card actually decode a small image is to make a
-// genuinely small file exist. 400px covers every card/carousel thumbnail
-// slot at this app's max 2x pixel-density scale (PHOTO_WIDTHS.card=200,
-// MAX_SCALE=2 in photoSize.ts) with room to spare.
-export async function resizeThumbnailForUpload(uri: string, maxDim = 400, quality = 0.7): Promise<string> {
+// genuinely small file exist.
+//
+// 640px, raised from 400 when the browse grid went to one column on a phone.
+// 400 was sized for a two-column card (~175pt, so 350 device px at this app's
+// max 2x scale) and had room to spare; a full-width card is ~354pt, which
+// wants ~708, and a 400px q0.7 JPEG stretched to that is visibly soft on the
+// app's primary browse surface -- the one the wider cards were meant to
+// improve.
+//
+// 640 rather than 708-and-up, and the difference is the point. This is a
+// single file serving every card in the app, and Bunny returns exactly the
+// bytes it was given, so a carousel thumbnail decodes the same bitmap a
+// full-width card does -- 640x480 costs ~1.2 MB of Android bitmap heap
+// against 400x300's ~0.5 MB, where 800px would have cost ~1.9 MB. At 640 a
+// full-width card upscales by about 1.1x, which is not visible, and the heap
+// cost stays close to what a one-column grid gives back by mounting roughly
+// half as many cards at once. 800 bought a difference nobody can see for a
+// cost the mid-range Android this file exists for would feel.
+//
+// NOTE, because it will look like a bug: this only affects photos uploaded
+// from here on. Every listing posted before this keeps its 400px thumbnail
+// and will look soft on a full-width card until its photos are re-uploaded.
+export async function resizeThumbnailForUpload(uri: string, maxDim = 640, quality = 0.7): Promise<string> {
   try {
     const resizeAction = await computeResizeAction(uri, maxDim);
     const result = await ImageManipulator.manipulateAsync(uri, resizeAction, {

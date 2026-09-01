@@ -8,7 +8,7 @@ import Icon from '../icons/Icon';
 import ListingCard from '../components/ListingCard';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
-import { useGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
@@ -28,7 +28,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   const { listings } = useAppStore();
   const { t, language } = useLanguage();
   const isDesktop = useIsDesktop();
-  const columns = useGridColumns(2, 4);
+  const columns = useListingGridColumns();
 
   // The listings this seller currently has live -- the same "what a buyer
   // can actually see" set every other screen in the app already shows
@@ -228,7 +228,12 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
         data={sellerListings}
         keyExtractor={(item) => item.id}
         numColumns={columns}
-        columnWrapperStyle={sellerListings.length > 0 ? { justifyContent: 'space-between' } : undefined}
+        // columnWrapperStyle is ONLY legal when numColumns > 1: FlatList's own
+        // _checkProps throws "columnWrapperStyle not supported for single column
+        // lists" via invariant(), which is NOT stripped in production. Without
+        // this guard a one-column grid is a red screen on native and a blank
+        // page on web -- on every listing surface in the app.
+        columnWrapperStyle={columns > 1 && sellerListings.length > 0 ? { justifyContent: 'space-between' } : undefined}
         ListHeaderComponent={listHeader}
         contentContainerStyle={[styles.grid, isDesktop && styles.gridDesktop]}
         ListEmptyComponent={

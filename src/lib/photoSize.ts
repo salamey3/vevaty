@@ -55,11 +55,13 @@ export function sizedPhotoUrl(url: string | null | undefined, displayWidth: numb
 // Widths the app actually draws photos at, kept here so the call sites read
 // as intent ("this is a card thumbnail") rather than a magic number, and so
 // they can be tuned in one place.
+// There is deliberately no `card` entry any more. Every card now measures the
+// width it actually draws its photo at and passes that (see ListingCard's
+// drawnPhotoWidth): one constant for every card in the app meant a 140pt
+// related-listing thumbnail requesting the same bitmap as a full-width grid
+// card, and RN decodes at the source resolution whatever size the view is,
+// which is the entire premise of this file.
 export const PHOTO_WIDTHS = {
-  // Grid cards are ~48% of screen width; carousel cards are a fixed 148.
-  // One request size covers both so the same photo stays a cache hit when
-  // it appears in a carousel and the grid.
-  card: 200,
   // Listing detail hero / gallery, roughly full screen width.
   detail: 420,
 } as const;

@@ -1,5 +1,5 @@
 import React from 'react';
-import { StyleSheet, Text, View } from 'react-native';
+import { StyleSheet, Text, View, useWindowDimensions } from 'react-native';
 // react-native-gesture-handler's ScrollView, not core RN's -- this row
 // renders inside HomeScreen's outer vertical FlatList on both mobile and
 // desktop (also migrated, see that file's renderCarousels comment), and
@@ -52,6 +52,7 @@ export default function CollectionCarouselSection({
   // matching comment for why this uses the gesture-lifecycle pair rather
   // than onChromeScroll.
   const isDesktop = useIsDesktop();
+  const { width } = useWindowDimensions();
   const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
 
   // Card shape, per the approved "Editor's Picks / Hot Deals go
@@ -65,6 +66,18 @@ export default function CollectionCarouselSection({
   // kind is the fixed curated/price_drop/recent enum, slug and title are
   // both admin-editable free text.
   const useHorizontalCards = collection.kind === 'price_drop' || collection.kind === 'recent' || (isDesktop && collection.kind === 'curated');
+
+  // How wide a photo-left card is. It was a flat 300 everywhere, which is
+  // where the truncation on this card came from: 300 minus a 128px photo, minus 24px
+  // of padding and 2px of border, left 146px of text, and a two-line title, three specs and a
+  // district all need more than that.
+  //
+  // On desktop there is room to simply give it more. On a phone there is not
+  // -- 400 would run off the screen -- so it takes the screen width less a
+  // margin and a peek of the next card, which is both as wide as it can
+  // honestly be and a better carousel affordance than a card that ends
+  // exactly at the edge.
+  const horizontalCardWidth = isDesktop ? 400 : Math.min(width - 52, 380);
   // Just Listed gets two rows instead of one -- unlike Editor's Picks and
   // Hot Deals, which stay single-row everywhere. Columns of 2 (stacked
   // vertically) rather than a true 2-row grid, so the whole thing still
@@ -108,10 +121,10 @@ export default function CollectionCarouselSection({
                     // CategoryCarouselSection's cards -- only reachable
                     // for a vertical-layout card (useHorizontalCards
                     // false), which today is Editor's Picks on mobile;
-                    // 300 (Hot Deals, Just Listed, Editor's Picks on
-                    // desktop) is a separate photo-left card shape,
-                    // untouched by this change.
-                    width={useHorizontalCards ? 300 : 192}
+                    // The photo-left card (Hot Deals, Just Listed, Editor's
+                    // Picks on desktop) sizes itself -- see
+                    // horizontalCardWidth above.
+                    width={useHorizontalCards ? horizontalCardWidth : 192}
                     layout={useHorizontalCards ? 'horizontal' : 'vertical'}
                     onPress={() => onPressListing(item)}
                     cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
@@ -124,8 +137,8 @@ export default function CollectionCarouselSection({
                 key={item.id}
                 listing={item}
                 // 192 = 160 * 1.2 -- see the twoRowColumns branch above
-                // for why, and why 300 is untouched.
-                width={useHorizontalCards ? 300 : 192}
+                // for why, and why the photo-left branch is sized separately.
+                width={useHorizontalCards ? horizontalCardWidth : 192}
                 layout={useHorizontalCards ? 'horizontal' : 'vertical'}
                 onPress={() => onPressListing(item)}
                 cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}

@@ -97,14 +97,85 @@ There is a second reason, worth recording because it is not visible yet: the
 per-domain colour study still has an open decision behind it. A thin accent
 recolours per domain gracefully. A solid block of colour recolours loudly.
 
-**The photo stays 1:1.** Going wider was considered and rejected. The square
-was chosen on 28 Aug on real evidence — Lebanese sellers still shoot
-landscape out of Facebook/OLX habit, and a square crops a landscape and a
-portrait shot by roughly the same amount. A landscape card would flatter
-property and vehicle photos and punish fashion, furniture and anything shot
-vertically. The vertical room the card needed was cheaper to find in the info
-block, which was paying for two padded halves and a colour change between
-them.
+## How wide a card is, and why the photo changed shape
+
+These two are one decision, and the first was made wrong for a while.
+
+**One column on a phone, three on desktop** (was two and four). A
+two-column phone card is about 175px. Everything the card says fits at that
+width — but the moment it had more to say, the *horizontal* card at 300px
+did not, and the vertical one was only ever a few characters from the same
+fate. The cost is real and was accepted knowingly: roughly two listings per
+phone screen instead of four, so browsing takes more scrolling. It is the
+shape Dubizzle and OLX use on mobile in this market.
+
+`useListingGridColumns()` is the one place that decides it, rather than the
+five listing screens each spelling out the rule. It reads the window width
+directly rather than going through `useGridColumns`, because "phone" and "not
+desktop" are not the same thing: a single 860px breakpoint gave an iPad in
+portrait and an 800px browser window one 730px card with a photo taller than
+most of the viewport. Below 600 is one column, 600–1099 is two, 1100 and up is three.
+
+Three waits for 1100 rather than for the 860 desktop breakpoint on purpose:
+at 860 the desktop layout also switches on a 232px nav sidebar, a 240px
+filter sidebar and a 72px gutter, so the grid gets 316px of that window, and
+three columns of it is a 104px card — narrower than the two-column phone card
+this whole change exists to replace.
+
+Stated honestly, because waiting does not fix it: two columns of 316px is
+still only 156px. **Home in a narrow desktop window is cramped by its own two
+sidebars**, and this change makes that less bad rather than good. Every other
+grid screen reserves no sidebar, so a card there is ~362px at 1100. Home's
+sidebar arithmetic is the real fix and is not attempted here.
+
+Shop cards are not part of this — `ShopsDirectoryScreen` keeps its own 2/4
+grid, because a logo and a name do not want the room.
+
+**The photo became 4:3, having been 1:1, and the reason genuinely changed
+rather than being overruled.** The square was chosen on 28 Aug because
+Lebanese sellers still shoot landscape out of Facebook/OLX habit, and at a
+175px card a square crops a landscape and a portrait shot by about the same
+amount — a fair middle when the frame is small either way.
+
+At full width that stops paying. A 354px card with a square photo is 354px
+of photo before a word of text, so barely one listing reaches a phone
+screen; and at that size the crop is no longer a rounding error, because
+taking the sides off a landscape photo of a room removes the room. 4:3
+matches the shape the photos were taken in and gives back about 90px of
+height per card.
+
+The cost, stated plainly: a portrait-shot photo now loses more top and
+bottom than it did. Same trade as before, further along, and it falls on the
+minority orientation rather than the majority one.
+
+The listing detail page keeps its own 3:4 display — there is room for a
+taller frame there and no grid rhythm to hold.
+
+**The photo-left card sizes itself now**, and the thing that was actually
+wrong with it was subtler than it first looked. At a flat 300px, minus a
+128px photo, minus 24px of padding and 2px of border, the text column was
+**146px**. But of the three things that looked broken in it, only one was
+losing information: the title wraps at two lines and the spec row has
+`flexWrap`, so both were merely getting taller. The district was the only
+`numberOfLines={1}` on the card, and the only thing truly truncating —
+"Beit ech Chaar · 3 day…".
+
+So the fix is not to win pixels back off the photo: that line is simply
+allowed two lines now instead of one. The card is 400px on desktop and, on a
+phone, the screen width less a margin and a peek of the next card, capped at
+380; the photo takes 38% of that, never less than 128.
+
+To be exact about what that did and did not fix — the title is still capped
+at two lines and the district at two, and a long enough one of either still
+ellipsises. What changed is that the line which clipped on an *ordinary*
+listing at an ordinary width no longer does.
+
+The floor matters more than the percentage. A bare share made the photo
+*smaller* than the 128 it had been on every phone narrower than about 388px —
+117px on a 360px one — which is below the width this same card had already
+rejected once as "a stamp on the card". Trading photo size for text width was
+the wrong trade, and once the text stopped truncating there was nothing to
+trade for.
 
 ## Known limits
 
@@ -136,6 +207,22 @@ them.
   falls through to Area and View. Two attributes may not share a number; the
   admin blocks it, because a tie is resolved by inheritance depth, which is
   not a decision anyone made.
+- **Below about 376px of screen, the photo-left card's spec row takes two
+  lines.** A 375px phone leaves it 169px against the ~170 three specs need,
+  and a 360px one leaves 154. Nothing clips — the row wraps and the card is
+  simply taller — and the alternative was shrinking the photo below the size
+  this card had already rejected once. Stated because it will look like an
+  oversight on an iPhone SE or a 360px Android and it is not.
+- **Photos on listings posted before 1 Sep 2026 look soft at full width.**
+  The card thumbnail is baked at upload time, and it was baked at 400px for a
+  175px two-column card. New uploads bake at 640px; old ones keep the 400 they
+  have until their photos are re-uploaded. 640 rather than the ~708 a
+  full-width card would want at 2x, because one file serves every card in the
+  app and Bunny returns exactly the bytes it was given — a carousel thumbnail
+  decodes the same bitmap a grid card does, so the last 10% of sharpness would
+  have cost every card in the app 50% more heap. There is no migration for this —
+  the original full-size photo is still on Bunny, but re-deriving thumbnails
+  for every listing is a job worth doing deliberately, not as a side effect.
 - **No reference number.** The card that prompted this shows one (`#BJ94898`)
   because an agency reads it out on the phone. A C2C marketplace has no such
   workflow, and it would be a line of clutter.
