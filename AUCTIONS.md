@@ -1,9 +1,11 @@
 # Auctions
 
-Written 2 Sep 2026. Nothing here is reachable from the app yet — the
-section is off behind a setting, and the first auction has not been
-assembled. This is the record of what was decided and why, so the next
-person to open the engine does not undo a rule by accident.
+Written 2 Sep 2026. The section is built — schema, engine, buyer screens
+and admin screens — and switched OFF behind
+`site_settings.auctions_enabled`, so nothing is reachable until somebody
+turns it on in Admin → Auctions. No auction has been assembled yet. This
+is the record of what was decided and why, so the next person to open the
+engine does not undo a rule by accident.
 
 ## What it is
 
@@ -79,6 +81,10 @@ reasons it is not client-side logic are worth stating:
   An **exhausted** proxy's ceiling is published, and deliberately: when a
   challenger is outbid on arrival their bid row stands at their own max,
   because that is what a losing bid is and every auction house shows it.
+  The bid sheet's copy says exactly this — "while you're winning nobody
+  sees it" — and it took a review to catch that an earlier draft promised
+  "nobody sees the number", which the engine breaks within seconds of a
+  losing bid.
   The price can also land exactly on a beaten leader's ceiling. Neither
   tells anyone anything about a bidder who is still in the running, which
   is the only secret that matters — but the distinction is worth stating,
@@ -191,6 +197,50 @@ commissions, and around the custody model that is the whole reason the
 feature exists. It is now pinned to `status = 'active'`, which is the only
 state where a contact button is rendered anyway.
 
+## The admin half writes through functions, not tables
+
+Worth its own note because the first version of these screens did not, and
+none of it worked.
+
+`authenticated` has no INSERT, UPDATE or DELETE on any auction table —
+deliberately, since a grant nobody needs is a leak waiting for a policy
+change. The admin screens were written against those tables anyway, on the
+assumption that the `admins manage …` policies would allow it. **They
+cannot: a policy filters rows, it does not confer a privilege.** Every
+admin action failed with `42501`, including reading the lot list, which
+named `reserve_price` — a column granted to `service_role` alone, and
+naming one ungranted column fails the whole statement (@AGENTS.md).
+
+So creating an auction, adding a lot, removing a lot, withdrawing a lot and
+listing lots with their reserves are five `SECURITY DEFINER` functions that
+check `myazar.admins` (six with `publish_auction`). Three of them exist as
+functions for a second reason as well: they are pairs that must not
+half-complete.
+
+- **Adding** a lot inserts it AND flips its listing to status `'auction'`.
+  Apart, either half is wrong in a way somebody has to notice: a lot whose
+  listing is still active puts a consigned item into the browse grid and
+  Hot Deals, and a flipped listing with no lot is invisible to the
+  marketplace, invisible to the auction, and reachable from no screen in
+  the app. The lot NUMBER is assigned in there too, under the auction's
+  row lock — the client was reading it off the list it had already
+  rendered, which races the unique constraint with two tabs open.
+- **Withdrawing** a lot from a published auction is a third function
+  (`cancel_auction_lot`), and it is not a delete: bids may have been
+  placed, and the lot has to stay readable so the people who placed them
+  can see what became of it. The item goes back to the marketplace the same
+  way a draft removal returns it. This existed as a *rendered state* before
+  it existed as an action — the cards already knew how to draw
+  `cancelled` — which is the half-built mechanism @AGENTS.md warns about,
+  found in review.
+- **Removing** one restores the listing, closes the lot-number gap so
+  `publish_auction` does not stamp a hole in the staggered closes, and
+  **restamps `expires_at`**. That last one is not housekeeping:
+  `set_listing_expiry` only restamps on a category change or out of
+  `'draft'`, so a listing that spent three weeks in consignment would come
+  back to the marketplace already past its expiry and be swept by the
+  nightly job within hours.
+
 ## What is deliberately not built yet
 
 - **Seller submission.** v1 has the admin creating lots directly, which is
@@ -202,13 +252,6 @@ state where a contact button is rendered anyway.
   waiting on a real payment provider rather than on design.
 - **Notifications.** Outbid and won are the two that matter, and both want
   the WhatsApp channel Meta still will not approve (@LIFECYCLE.md).
-- **The buyer-facing screens.** This patch is the schema, the engine and
-  the client layer; the gate tile, the auction page, the lot page, the bid
-  sheet and the admin screens are the next one. The engine was built first
-  on purpose — it is the part that is hard to get right and impossible to
-  check by looking at it, and it has been exercised against the live
-  database rather than reasoned about: proxy resolution, the tie, the
-  reserve lift, anti-snipe extension, the close, and every rejection code.
 - **A settled lot's listing has no terminal status.** It sits at 'auction'
   after the lot is won or unsold, which keeps it publicly readable
   indefinitely. That is right while results are being shown and wrong

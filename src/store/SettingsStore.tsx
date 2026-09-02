@@ -1076,12 +1076,25 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.logoEnUrl !== undefined) dbPatch.logo_en_url = patch.logoEnUrl;
       if (patch.logoArUrl !== undefined) dbPatch.logo_ar_url = patch.logoArUrl;
       if (patch.faviconUrl !== undefined) dbPatch.favicon_url = patch.faviconUrl;
+      if (patch.auctionsEnabled !== undefined) dbPatch.auctions_enabled = patch.auctionsEnabled;
 
+    const previous = siteSettings;
       const next = { ...siteSettings, ...patch };
       applySiteSettings(next);
 
-      const { error } = await supabase.from('site_settings').update(dbPatch).eq('id', true);
-      if (error) throw new Error(friendlyError(error, 'category'));
+      // .select('id') and a row check, not just an error check. The
+      // policies on this table FILTER rows -- a caller who is not a
+      // current-aal2 admin gets a 204 with no error and nothing written,
+      // which is @AGENTS.md's "it matched no row" verbatim, on the switch
+      // that decides whether a whole section of the app exists.
+      const { data, error } = await supabase
+        .from('site_settings').update(dbPatch).eq('id', true).select('id');
+      if (error || !data || data.length === 0) {
+        // And put the optimistic change back, or the device goes on
+        // showing a setting the database never accepted.
+        applySiteSettings(previous);
+        throw new Error(error ? friendlyError(error, 'category') : 'Not saved.');
+      }
       AsyncStorage.setItem(KEYS.siteSettings, JSON.stringify(next)).catch(() => {});
     },
     [siteSettings, applySiteSettings]

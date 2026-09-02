@@ -459,7 +459,20 @@ function videoFromRows(rows: any): ListingVideo | null {
   };
 }
 
-function dbListingToLocal(row: any): Listing {
+// The embed list every listing read uses, and the mapper that turns a row
+// into a Listing. Both exported for ONE caller outside this file: the
+// auction screens, whose lots are listings this store deliberately does
+// not hold (see the `.neq('status','auction')` above). They need the same
+// shape -- photos, spin sets, video -- to render the same components, and
+// a second hand-written copy of a fifteen-table embed is exactly the kind
+// of duplicate that drifts.
+export const LISTING_SELECT_HEAD =
+  '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at, avatar_url), ' +
+  'photos:listing_photos(url, sort_order, kind, spin_set_id, thumbnail_url), ' +
+  'spinSets:listing_spin_sets(id, label, sort_order), ' +
+  'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions), ';
+
+export function dbListingToLocal(row: any): Listing {
   const rows = Array.isArray(row.photos) ? row.photos : [];
   const photos = sortedByKind(rows, 'gallery');
   const coverThumbnailUrl = coverThumbnail(rows);
@@ -690,10 +703,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       const { data: listingRows, error } = await supabase
         .from('listings')
         .select(
-          '*, seller:profiles!listings_seller_id_fkey(full_name, is_phone_verified, created_at, avatar_url), ' +
-            'photos:listing_photos(url, sort_order, kind, spin_set_id, thumbnail_url), ' +
-            'spinSets:listing_spin_sets(id, label, sort_order), ' +
-            'video:listing_videos(bunny_guid, status, duration_s, width, height, resolutions), ' +
+          LISTING_SELECT_HEAD +
             // Storefronts -- null for the ~all listings with no shop_id;
             // PostgREST returns null (not []) for a to-one embed via a
             // plain FK, so row.shop is a single object or null, matching

@@ -23,6 +23,8 @@ export const ICON_NAMES = [
   // short text label, which is why this set stays small and legible at 12px
   // rather than trying to cover all 157 attributes.
   'bed', 'bath', 'gauge', 'calendar', 'fuel', 'transmission', 'ruler', 'tag',
+  // Auctions.
+  'gavel',
 ] as const;
 
 export type IconName = (typeof ICON_NAMES)[number];
@@ -50,6 +52,18 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
   };
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
+      {name === 'gavel' && (
+        <>
+          {/* Head, handle and sound block. Drawn as a parallelogram rather
+              than a rotated Rect: react-native-svg's transform handling
+              differs enough between the native renderer and the web one
+              that a rotated shape is the kind of thing that looks right in
+              a browser and sits at the wrong angle in the app. */}
+          <Path d="M15.5 2.5 21.5 8.5 19.4 10.6 13.4 4.6Z" {...common} />
+          <Path d="M14.6 9.4 6.5 17.5" {...common} />
+          <Path d="M3.5 20.5h9" {...common} />
+        </>
+      )}
       {name === 'home' && (
         <>
           <Path d="M3 11.5 12 4l9 7.5" {...common} />

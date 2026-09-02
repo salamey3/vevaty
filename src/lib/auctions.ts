@@ -1,4 +1,6 @@
 import { supabase } from './supabase';
+import { LISTING_SELECT_HEAD, dbListingToLocal } from '../store/AppStore';
+import { Listing } from '../types';
 import {
   Auction, AuctionBidHistoryEntry, AuctionLot, AuctionLotStatus, AuctionStatus, SavedCard,
 } from '../types';
@@ -26,7 +28,10 @@ export type AuctionErrorCode =
   | 'payment_method_invalid' | 'card_invalid' | 'phone_not_verified'
   | 'auction_not_found' | 'auction_not_open_for_registration'
   | 'not_admin' | 'already_published' | 'schedule_incomplete'
-  | 'closes_before_opens' | 'no_lots'
+  | 'closes_before_opens' | 'no_lots' | 'title_required'
+  | 'listing_not_found' | 'already_a_lot' | 'start_price_invalid'
+  | 'reserve_below_start' | 'listing_not_active' | 'lot_already_sold'
+  | 'auction_still_draft'
   | 'unknown';
 
 export class AuctionError extends Error {
@@ -52,7 +57,10 @@ const KNOWN_CODES = new Set<string>([
   'payment_method_invalid', 'card_invalid', 'phone_not_verified',
   'auction_not_found', 'auction_not_open_for_registration',
   'not_admin', 'already_published', 'schedule_incomplete',
-  'closes_before_opens', 'no_lots',
+  'closes_before_opens', 'no_lots', 'title_required',
+  'listing_not_found', 'already_a_lot', 'start_price_invalid',
+  'reserve_below_start', 'listing_not_active', 'lot_already_sold',
+  'auction_still_draft',
 ]);
 
 function toAuctionError(error: any): AuctionError {
@@ -159,6 +167,63 @@ export async function fetchAuctionLots(auctionId: string, signedIn: boolean): Pr
   return (lots.data || []).map((r) => toLot(r, leadingIds));
 }
 
+// One auction by id. Its own query because the alternative -- fetch every
+// auction and find this one -- is what fetchAuctionLot below exists to
+// avoid, and the auction screen polls on the same cadence. It also shows a
+// CANCELLED auction, which fetchAuctions deliberately hides from the
+// browse list: a bidder who registered for one needs to be told, not shown
+// "not found".
+export async function fetchAuction(auctionId: string): Promise<Auction | null> {
+  const { data, error } = await supabase
+    .from('auctions')
+    .select(AUCTION_COLUMNS)
+    .eq('id', auctionId)
+    .maybeSingle();
+  if (error) throw error;
+  return data ? toAuction(data) : null;
+}
+
+// One lot and the auction it belongs to, by lot id.
+//
+// Its own query because the alternative the lot screen started with --
+// walk every auction, fetch its lots, look for this one -- is O(auctions)
+// round trips, and the lot screen re-runs it every few seconds while a lot
+// is live. That is a poll that gets more expensive with every auction ever
+// held, on the screen where responsiveness matters most.
+export async function fetchAuctionLot(
+  lotId: string,
+  signedIn: boolean
+): Promise<{ lot: AuctionLot; auction: Auction } | null> {
+  // `as any` on the row: PostgREST's generated types resolve a
+  // maybeSingle() on a column list this long to an error union, and the
+  // mapper below is the real contract either way.
+  const { data: lotRowRaw, error } = await supabase
+    .from('auction_lots')
+    .select(
+      'id, auction_id, listing_id, lot_number, start_price, has_reserve, ' +
+      'reserve_met, current_price, bid_count, closes_at, status, winning_amount'
+    )
+    .eq('id', lotId)
+    .maybeSingle();
+  if (error) throw error;
+  if (!lotRowRaw) return null;
+  const lotRow = lotRowRaw as any;
+
+  const [auctionRes, leading] = await Promise.all([
+    supabase.from('auctions').select(AUCTION_COLUMNS).eq('id', lotRow.auction_id).maybeSingle(),
+    signedIn
+      ? supabase.rpc('my_leading_lots', { p_auction_id: lotRow.auction_id })
+      : Promise.resolve({ data: [], error: null } as any),
+  ]);
+  if (auctionRes.error) throw auctionRes.error;
+  if (!auctionRes.data) return null;
+  if (leading.error) throw leading.error;
+  const leadingIds = new Set<string>(
+    (leading.data || []).map((r: any) => (typeof r === 'string' ? r : r.my_leading_lots))
+  );
+  return { lot: toLot(lotRow, leadingIds), auction: toAuction(auctionRes.data) };
+}
+
 export async function fetchLotBidHistory(lotId: string, limit = 30): Promise<AuctionBidHistoryEntry[]> {
   const { data, error } = await supabase.rpc('auction_lot_bid_history', {
     p_lot_id: lotId,
@@ -238,7 +303,16 @@ export function bidIncrement(price: number): number {
   return 250;
 }
 
-export function nextMinimumBid(lot: AuctionLot): number {
+// The smallest bid the engine will accept from THIS viewer.
+//
+// `myMax` matters and leaving it out was a bug worth naming: for the
+// current leader, place_bid does not compare against the price, it
+// compares against their own standing ceiling (`max_not_higher`). A leader
+// holding $1,000 on a lot showing $520 was offered "minimum next bid $530",
+// which the engine then refused -- the one number on the screen the bidder
+// has no way to second-guess.
+export function nextMinimumBid(lot: AuctionLot, myMax: number | null = null): number {
+  if (lot.viewerIsLeading && myMax !== null) return myMax + bidIncrement(myMax);
   if (lot.currentPrice === null) return lot.startPrice;
   return lot.currentPrice + bidIncrement(lot.currentPrice);
 }
@@ -339,4 +413,126 @@ export async function fetchMyRegistration(
     .maybeSingle();
   if (error) throw error;
   return data ? (data.status as 'approved' | 'pending' | 'blocked') : null;
+}
+
+// The listings behind a set of lots.
+//
+// A separate fetch because AppStore deliberately does NOT hold these rows
+// -- an auction lot must never reach a browse grid, so its status is
+// excluded there (see that file). The embed and the mapper are imported
+// from AppStore rather than rewritten, so a lot renders through exactly
+// the same ListingCard, PhotoGallery and SpinViewer as anything else and
+// a change to the shape cannot reach one and miss the other.
+export async function fetchLotListings(listingIds: string[]): Promise<Listing[]> {
+  if (listingIds.length === 0) return [];
+  const { data, error } = await supabase
+    .from('listings')
+    .select(LISTING_SELECT_HEAD + 'shop:shops(slug, name_en, name_ar)')
+    .in('id', listingIds);
+  if (error) throw error;
+  return (data || []).map(dbListingToLocal);
+}
+
+// Money, for the auction surfaces only.
+//
+// A local helper rather than a shared one because priceDisplay's job is
+// listing money -- offer types, rent periods, "Free" -- and none of that
+// applies to a hammer price. Matching its `$${n.toLocaleString()}` shape
+// exactly, so the two never render the same number differently.
+export function formatBidAmount(n: number): string {
+  return `$${Math.round(n).toLocaleString()}`;
+}
+
+// ---------------------------------------------------------------------
+// Admin
+// ---------------------------------------------------------------------
+//
+// Every one of these is an RPC rather than a table write, and that is not
+// a style choice: `authenticated` has no INSERT, UPDATE or DELETE on any
+// auction table, deliberately, and an RLS policy cannot give a privilege
+// back -- it filters rows. The first version of these screens wrote
+// directly and every admin action failed with 42501.
+
+export type AdminLotRow = {
+  id: string;
+  listingId: string;
+  lotNumber: number;
+  startPrice: number;
+  // Readable HERE and nowhere else in the app. The column is granted to
+  // service_role only, so this comes back through a SECURITY DEFINER
+  // function that checks myazar.admins -- there is no client role that can
+  // select it.
+  reservePrice: number | null;
+  status: string;
+  currentPrice: number | null;
+  bidCount: number;
+};
+
+export async function fetchAdminAuctionLots(auctionId: string): Promise<AdminLotRow[]> {
+  const { data, error } = await supabase.rpc('admin_auction_lots', { p_auction_id: auctionId });
+  if (error) throw toAuctionError(error);
+  return (data || []).map((r: any) => ({
+    id: r.id,
+    listingId: r.listing_id,
+    lotNumber: r.lot_number,
+    startPrice: Number(r.start_price),
+    reservePrice: r.reserve_price === null ? null : Number(r.reserve_price),
+    status: r.status,
+    currentPrice: r.current_price === null ? null : Number(r.current_price),
+    bidCount: r.bid_count ?? 0,
+  }));
+}
+
+export async function createAuction(input: {
+  titleEn: string; titleAr: string; opensAt: string; firstLotClosesAt: string;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc('create_auction', {
+    p_title_en: input.titleEn,
+    p_title_ar: input.titleAr,
+    p_opens_at: input.opensAt,
+    p_first_lot_closes_at: input.firstLotClosesAt,
+  });
+  if (error) throw toAuctionError(error);
+  return data as string;
+}
+
+// Adding a lot flips its listing out of the marketplace, and the two must
+// not be able to disagree -- so both happen inside one function, in one
+// transaction. The lot NUMBER is assigned there too, under a lock: the
+// client used to read it off the list it had already rendered, which races
+// the unique constraint the moment two tabs are open.
+export async function addAuctionLot(input: {
+  auctionId: string; listingId: string; startPrice: number; reservePrice: number | null;
+}): Promise<string> {
+  const { data, error } = await supabase.rpc('add_auction_lot', {
+    p_auction_id: input.auctionId,
+    p_listing_id: input.listingId,
+    p_start_price: input.startPrice,
+    p_reserve_price: input.reservePrice,
+  });
+  if (error) throw toAuctionError(error);
+  return data as string;
+}
+
+// Removing one restores the listing AND restamps its expiry, which is not
+// housekeeping: a listing that spent three weeks in consignment keeps the
+// expires_at it was posted with, so without the restamp it would return to
+// the marketplace already past it and be swept by the nightly job within
+// hours.
+export async function removeAuctionLot(lotId: string): Promise<void> {
+  const { error } = await supabase.rpc('remove_auction_lot', { p_lot_id: lotId });
+  if (error) throw toAuctionError(error);
+}
+
+// Withdrawing a lot from a PUBLISHED auction. Not a delete: bids were
+// placed, and the lot has to stay readable so the people who placed them
+// can see what became of it.
+export async function cancelAuctionLot(lotId: string): Promise<void> {
+  const { error } = await supabase.rpc('cancel_auction_lot', { p_lot_id: lotId });
+  if (error) throw toAuctionError(error);
+}
+
+export async function publishAuction(auctionId: string): Promise<void> {
+  const { error } = await supabase.rpc('publish_auction', { p_auction_id: auctionId });
+  if (error) throw toAuctionError(error);
 }

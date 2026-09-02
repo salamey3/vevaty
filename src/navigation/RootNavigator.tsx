@@ -36,6 +36,12 @@ import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
 import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
 import AdminCollectionsScreen from '../screens/admin/AdminCollectionsScreen';
 import AdminBannersScreen from '../screens/admin/AdminBannersScreen';
+import AuctionsScreen from '../screens/AuctionsScreen';
+import AuctionScreen from '../screens/AuctionScreen';
+import AuctionLotScreen from '../screens/AuctionLotScreen';
+import AuctionRegisterScreen from '../screens/AuctionRegisterScreen';
+import AdminAuctionsScreen from '../screens/admin/AdminAuctionsScreen';
+import AdminAuctionLotsScreen from '../screens/admin/AdminAuctionLotsScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
@@ -102,6 +108,17 @@ const linking: LinkingOptions<RootStackParamList> = {
       AdminReports: 'admin/reports',
       AdminCollections: 'admin/collections',
       AdminBanners: 'admin/banners',
+      // Auctions. Without these the web build falls back to
+      // '/Auction?auctionId=...' from the route name, which
+      // getStateFromPath has no pattern for -- so reloading or sharing
+      // either URL lands the visitor on Home. A fortnightly event is the
+      // single most link-shared thing in the app.
+      Auctions: 'auctions',
+      Auction: 'auction/:auctionId',
+      AuctionLot: 'auction/lot/:lotId',
+      AuctionRegister: 'auction/:auctionId/register',
+      AdminAuctions: 'admin/auctions',
+      AdminAuctionLots: 'admin/auctions/:auctionId/lots',
     },
   },
 };
@@ -153,6 +170,16 @@ export default function RootNavigator() {
         <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
         <Stack.Screen name="AdminCollections" component={AdminCollectionsScreen} />
         <Stack.Screen name="AdminBanners" component={AdminBannersScreen} />
+        {/* Auctions. Registration is a modal because it interrupts an
+            auction the bidder is already looking at and has to return
+            them to it; everything else is a push, so back goes where
+            they came from. */}
+        <Stack.Screen name="Auctions" component={AuctionsScreen} />
+        <Stack.Screen name="Auction" component={AuctionScreen} />
+        <Stack.Screen name="AuctionLot" component={AuctionLotScreen} />
+        <Stack.Screen name="AuctionRegister" component={AuctionRegisterScreen} options={{ presentation: 'modal' }} />
+        <Stack.Screen name="AdminAuctions" component={AdminAuctionsScreen} />
+        <Stack.Screen name="AdminAuctionLots" component={AdminAuctionLotsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

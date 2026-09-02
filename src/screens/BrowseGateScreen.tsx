@@ -111,12 +111,16 @@ function GateRow({
   );
 }
 
+// The synthetic tile id. Not a row in listing_domains and deliberately
+// not one -- see openDomain below.
+const AUCTIONS_TILE_ID = '__auctions__';
+
 export default function BrowseGateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const homeNav = useNavigation<NativeStackNavigationProp<HomeStackParamList>>();
   const route = useRoute<RouteProp<HomeStackParamList, 'HomeRoot'>>();
   const { listings: allListings, profile } = useAppStore();
-  const { domains, domainOfCategory } = useSettings();
+  const { domains, domainOfCategory, siteSettings } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const isDesktop = useIsDesktop();
   const goHome = useGoHome();
@@ -159,11 +163,33 @@ export default function BrowseGateScreen() {
   }, [listings, domainOfCategory]);
 
   const countLabel = (d: ListingDomain) => {
+    // The auctions tile counts nothing: its lots are not in `listings` by
+    // design, and a live count there would mean a second query on the
+    // gate for a number that is either 0 or 15. It says what it is
+    // instead, which is more use than a count anyway.
+    if (d.id === AUCTIONS_TILE_ID) return t('home.gate.auctionsNote');
     const n = byDomain.get(d.id)?.length ?? 0;
     if (n === 0) return t('home.gate.countNone');
     if (n === 1) return t('home.gate.countOne');
     return t('home.gate.countMany', { n });
   };
+
+  // The three real sections, plus Auctions when it is switched on. Off by
+  // default, so nothing about the gate changes until somebody flips the
+  // flag in Admin -> Auctions.
+  const gateTiles = useMemo<ListingDomain[]>(
+    () => (siteSettings.auctionsEnabled
+      ? [...domains, {
+          id: AUCTIONS_TILE_ID,
+          nameEn: 'Auctions',
+          nameAr: 'مزادات',
+          icon: 'gavel',
+          sortOrder: 999,
+          active: true,
+        }]
+      : domains),
+    [domains, siteSettings.auctionsEnabled]
+  );
 
   const newest = useMemo(
     () => [...listings].sort((a, b) => b.createdAt - a.createdAt).slice(0, NEWEST_ROW_CAP),
@@ -187,8 +213,19 @@ export default function BrowseGateScreen() {
       .filter((g) => g.items.length > 0);
   }, [q, domains, byDomain]);
 
-  const openDomain = (domainId: string) =>
+  // AUCTIONS_TILE_ID is not a domain and must never become one: a
+  // listing's domain is derived from its category, and an auction lot's
+  // category is whatever the thing actually is -- a watch is still
+  // Classifieds. It rides in the tiles row as a synthetic entry purely so
+  // the buyer's gate can offer it as a peer of the three real sections,
+  // which is what it is to a buyer.
+  const openDomain = (domainId: string) => {
+    if (domainId === AUCTIONS_TILE_ID) {
+      navigation.navigate('Auctions');
+      return;
+    }
     homeNav.navigate('HomeDomain', { domain: domainId, ...(q ? { q: query } : {}) });
+  };
 
   const domainName = (d: ListingDomain) => (language === 'ar' ? d.nameAr : d.nameEn);
   const openListing = (l: Listing) => navigation.navigate('ListingDetail', { listingId: l.id });
@@ -255,7 +292,7 @@ export default function BrowseGateScreen() {
         ) : (
           <>
             <Text style={styles.lede}>{t('home.gate.subtitle')}</Text>
-            <DomainTiles domains={domains} onChoose={openDomain} noteFor={countLabel} style={styles.tiles} />
+            <DomainTiles domains={gateTiles} onChoose={openDomain} noteFor={countLabel} style={styles.tiles} />
             {newest.length > 0 && (
               <GateRow
                 heading={t('home.gate.newest')}

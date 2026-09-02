@@ -109,6 +109,23 @@ export type RootStackParamList = {
   // Managed banners across the sidebar/listing-detail placements -- see
   // myazar.banners and BannerStore.tsx.
   AdminBanners: undefined;
+
+  // ---- Auctions (@AUCTIONS.md) ----
+  // The section's front door, reached from the fourth tile on the browse
+  // gate. No params: it always shows every auction the viewer may see.
+  Auctions: undefined;
+  // One auction event and its lots.
+  Auction: { auctionId: string };
+  // One lot. Keyed by LOT id, not listing id: the lot is the thing being
+  // bid on, and the same item consigned again in a later auction is a
+  // different lot with a different history.
+  AuctionLot: { lotId: string };
+  // Save a card and register to bid, per auction. Modal, and it takes the
+  // auction it came from so it can return the viewer straight to it.
+  AuctionRegister: { auctionId: string };
+  // Building an auction: create the event, add lots, set prices, publish.
+  AdminAuctions: undefined;
+  AdminAuctionLots: { auctionId: string };
 };
 
 export type MainTabParamList = {
