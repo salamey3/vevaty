@@ -58,6 +58,45 @@ export const CAROUSEL_ROW_GAP = 6;
 // that is not flush the trailing inset adds to it, so a phone shows about 56.
 export const CAROUSEL_PEEK = 44;
 
+// The width three specs need to sit on one line: roughly 170 for typical
+// property or vehicle values plus the 21 the icon discs cost. Derived once in
+// CARDS.md's known limit on the wrap threshold, named here because the
+// secondary card below is defined as "wide enough for this".
+const THREE_SPEC_ROW_WIDTH = 191;
+
+// A vertical card's own chrome, taken off the card to get its text column:
+// `info`'s 10px each side plus the card's 1px border each side.
+const VERTICAL_CARD_CHROME = 22;
+
+// A SECONDARY strip's card -- the related-listings rows under a listing page,
+// which are not a browse surface and deliberately do not take a full grid
+// card's width the way every other carousel now does.
+//
+// This is the app's third card width and the only one that is not derived
+// from the grid, so it owes an argument. It was a flat 140, which left a
+// 118px text column: the title wrapped mid-word, the three specs wrapped to
+// two lines, and "Beit ech Chaar / 3 days ago" wrapped as well -- three
+// wrapped lines in a card meant to be glanced at while reading a different
+// listing. Full parity with the other carousels would have fixed that by
+// making it ~304 on a phone, which shows exactly one alternative at a time on
+// the screen where comparing alternatives is the entire point.
+//
+// So it is defined as one 8px step above the narrowest width that fits three
+// specs on one line. The narrowest is 216 -- their 191 plus the card's own 22
+// of chrome, rounded up to the step carouselCardWidth quantises to; this is
+// 224, giving 202 of text against a requirement of 191.
+//
+// The spare step is the point of the +1. 191 is itself an estimate -- "three
+// specs with typical property or vehicle values" -- so landing three pixels
+// above it would be a guarantee resting on a guess. A title still wraps to
+// its two lines at this width and always will; that is numberOfLines, not
+// width, and no width fixes it.
+//
+// About one and a half cards visible on a phone, where 140 showed two and a
+// half badly and full parity (~304) would show one well.
+export const SECONDARY_CARD_WIDTH =
+  Math.ceil((THREE_SPEC_ROW_WIDTH + VERTICAL_CARD_CHROME) / 8) * 8 + 8;
+
 // Nothing below this, however small the box we are measured in. A card
 // narrower than this cannot hold a two-line title and a spec row, and the
 // only way to reach it is a container that measured wrong -- at which point

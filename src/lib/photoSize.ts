@@ -57,7 +57,7 @@ export function sizedPhotoUrl(url: string | null | undefined, displayWidth: numb
 // they can be tuned in one place.
 // There is deliberately no `card` entry any more. Every card now measures the
 // width it actually draws its photo at and passes that (see ListingCard's
-// drawnPhotoWidth): one constant for every card in the app meant a 140pt
+// drawnPhotoWidth): one constant for every card in the app meant a small
 // related-listing thumbnail requesting the same bitmap as a full-width grid
 // card, and RN decodes at the source resolution whatever size the view is,
 // which is the entire premise of this file.

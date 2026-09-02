@@ -75,6 +75,7 @@ interface CreateCategoryInput {
   conditionMode: ConditionMode | null;
   listingLifetimeDays: number | null;
   cardKindSlug: string | null;
+  cardConditionSlug: string | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -96,6 +97,7 @@ interface UpdateCategoryPatch {
   conditionMode: ConditionMode | null;
   listingLifetimeDays: number | null;
   cardKindSlug: string | null;
+  cardConditionSlug: string | null;
   domainId: string | null;
   titleExampleEn: string | null;
   titleExampleAr: string | null;
@@ -171,6 +173,9 @@ interface SettingsValue {
   // to use the category's own name. Inherited nearest-ancestor-first --
   // see Category.cardKindSlug for why the two collapsed categories need it.
   cardKindSlugForCategory: (categoryId: string) => string | null;
+  // Which attribute supplies the card's condition badge here -- see
+  // Category.cardConditionSlug for why two categories need one at all.
+  cardConditionSlugForCategory: (categoryId: string) => string | null;
   // Days a listing in this category lives before expiring. Display only
   // -- the database decides the real expiry. See LIFECYCLE.md.
   lifetimeDaysForCategory: (categoryId: string) => number;
@@ -279,6 +284,7 @@ function dbToCategory(row: any): Category {
     isService: !!row.is_service,
     conditionMode: (row.condition_mode as ConditionMode) ?? null,
     cardKindSlug: row.card_kind_slug || null,
+    cardConditionSlug: row.card_condition_slug || null,
     listingLifetimeDays: typeof row.listing_lifetime_days === 'number' ? row.listing_lifetime_days : null,
     domainId: row.domain_id || null,
     titleExampleEn: row.title_example_en || null,
@@ -654,6 +660,23 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [buildAncestorChain, categoryById]
   );
 
+  // The condition badge's counterpart to cardKindSlugForCategory above, walked
+  // the same way and for the same reason. Kept as its own function rather than
+  // one generic "resolve a card slug" helper taking a field name: two callers
+  // is not enough shared shape to be worth a layer of indirection between an
+  // admin toggle and what a buyer reads on a card.
+  const cardConditionSlugForCategory = useCallback(
+    (categoryId: string): string | null => {
+      const chain = buildAncestorChain(categoryId);
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const slug = categoryById(chain[i])?.cardConditionSlug;
+        if (slug) return slug;
+      }
+      return null;
+    },
+    [buildAncestorChain, categoryById]
+  );
+
   const usesOfferTypeCategory = useCallback(
     (categoryId: string): boolean => conditionModeForCategory(categoryId) === 'offer_type',
     [conditionModeForCategory]
@@ -791,6 +814,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         is_service: input.isService,
         condition_mode: input.conditionMode,
         card_kind_slug: input.cardKindSlug,
+        card_condition_slug: input.cardConditionSlug,
         listing_lifetime_days: input.listingLifetimeDays,
         domain_id: input.domainId,
         title_example_en: input.titleExampleEn,
@@ -823,6 +847,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.conditionMode !== undefined) dbPatch.condition_mode = patch.conditionMode;
       if (patch.listingLifetimeDays !== undefined) dbPatch.listing_lifetime_days = patch.listingLifetimeDays;
       if (patch.cardKindSlug !== undefined) dbPatch.card_kind_slug = patch.cardKindSlug;
+      if (patch.cardConditionSlug !== undefined) dbPatch.card_condition_slug = patch.cardConditionSlug;
       if (patch.domainId !== undefined) dbPatch.domain_id = patch.domainId;
       if (patch.titleExampleEn !== undefined) dbPatch.title_example_en = patch.titleExampleEn;
       if (patch.titleExampleAr !== undefined) dbPatch.title_example_ar = patch.titleExampleAr;
@@ -1231,6 +1256,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       isServiceCategory,
       conditionModeForCategory,
       cardKindSlugForCategory,
+      cardConditionSlugForCategory,
       lifetimeDaysForCategory,
       usesOfferTypeCategory,
       domains,
@@ -1281,6 +1307,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       isServiceCategory,
       conditionModeForCategory,
       cardKindSlugForCategory,
+      cardConditionSlugForCategory,
       lifetimeDaysForCategory,
       usesOfferTypeCategory,
       domains,

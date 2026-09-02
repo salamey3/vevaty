@@ -245,6 +245,18 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
       : null),
     [cardKindSlug, editingSlug, ownAttributes]
   );
+  // The same three values for the condition badge. Two near-identical blocks
+  // rather than one parameterised helper: they are two switches an admin sets
+  // independently on the same form, and folding them together would save six
+  // lines here at the cost of every read of them being indirect.
+  const cardConditionSlug = category?.cardConditionSlug || null;
+  const isCardCondition = !!cardConditionSlug && !!editingSlug && cardConditionSlug === editingSlug;
+  const otherCardConditionAttr = useMemo(
+    () => (cardConditionSlug && cardConditionSlug !== editingSlug
+      ? ownAttributes.find((a) => a.slug === cardConditionSlug) || null
+      : null),
+    [cardConditionSlug, editingSlug, ownAttributes]
+  );
   // Every attribute that could ever end up in the same resolved set as one
   // defined here: this category's own, its ancestors' (which resolve INTO
   // here), and its descendants' (which this one resolves INTO). Anything
@@ -281,6 +293,19 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
       Alert.alert('Could not save', e?.message || String(e));
     } finally {
       setSavingCardKind(false);
+    }
+  };
+
+  const [savingCardCondition, setSavingCardCondition] = useState(false);
+  const toggleCardCondition = async (next: boolean) => {
+    if (!editingSlug) return;
+    setSavingCardCondition(true);
+    try {
+      await updateCategory(categoryId, { cardConditionSlug: next ? editingSlug : null });
+    } catch (e: any) {
+      Alert.alert('Could not save', e?.message || String(e));
+    } finally {
+      setSavingCardCondition(false);
     }
   };
 
@@ -388,6 +413,9 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
         if (isCardKind && form.type !== 'select') {
           await updateCategory(categoryId, { cardKindSlug: null });
         }
+        if (isCardCondition && form.type !== 'select') {
+          await updateCategory(categoryId, { cardConditionSlug: null });
+        }
       }
       cancel();
     } catch (e: any) {
@@ -425,6 +453,13 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
             // impossible to correct without a migration.
             if (category?.cardKindSlug === a.slug) {
               await updateCategory(categoryId, { cardKindSlug: null });
+            }
+            // Same for the condition badge, and it matters slightly more:
+            // cardConditionLabel has no category-name fallback to hide
+            // behind, so a dangling slug there is simply a card with no
+            // badge and no clue why.
+            if (category?.cardConditionSlug === a.slug) {
+              await updateCategory(categoryId, { cardConditionSlug: null });
             }
             await deleteAttribute(a.id);
           } catch (e: any) {
@@ -599,6 +634,29 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
         </View>
       )}
 
+      {/* The card's condition badge. Select-only for the same reason as the
+          label above -- it has to resolve to one short word. Relevant only
+          where the universal Condition field is asking something else: on a
+          New/Used or graded category the badge is already the answer and
+          this would be a second, competing one. See
+          Category.cardConditionSlug. */}
+      {form.type === 'select' && !creating && (
+        <View style={styles.switchRow}>
+          <View style={{ flex: 1, paddingRight: 12 }}>
+            <Text style={styles.fieldLabel}>Use as the card's condition badge</Text>
+            <Text style={styles.rowSub}>
+              {isCardCondition
+                ? `Cards in ${category?.nameEn || 'this category'} show this field's value as their condition badge.`
+                : otherCardConditionAttr
+                ? `"${otherCardConditionAttr.labelEn}" is already the condition badge here -- turning this on replaces it.`
+                : `For a category whose Condition field asks something else. Vehicles and Properties ask Sale or Rent there, so their cards had no New/Used on them at all until this pointed at the field that holds it.`}
+            </Text>
+            <Text style={styles.rowSub}>Applies immediately -- this one is not part of Save.</Text>
+          </View>
+          <Switch value={isCardCondition} onValueChange={toggleCardCondition} disabled={savingCardCondition} />
+        </View>
+      )}
+
       <View style={styles.formActions}>
         <Pressy onPress={cancel} style={styles.cancelBtn}>
           <Text style={styles.cancelBtnText}>Cancel</Text>
@@ -739,6 +797,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
                       field at a time. */}
                   {a.cardPriority !== null ? ` · Card ${a.cardPriority}` : ''}
                   {cardKindSlug === a.slug ? ' · Card label' : ''}
+                  {cardConditionSlug === a.slug ? ' · Card condition' : ''}
                 </Text>
               </View>
               <View style={styles.rowControls}>

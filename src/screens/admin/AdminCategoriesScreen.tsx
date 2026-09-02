@@ -290,10 +290,13 @@ export default function AdminCategoriesScreen() {
       await createCategory({
         id,
         parentId,
-        // Which attribute labels a card is chosen on the ATTRIBUTES screen
-        // (there is nothing to choose from until the category has some),
-        // so a brand-new category always starts labelled by its own name.
+        // Which attribute labels a card, and which supplies its condition
+        // badge, are both chosen on the ATTRIBUTES screen (there is nothing
+        // to choose from until the category has some), so a brand-new
+        // category starts labelled by its own name with its badge coming
+        // from the universal condition column.
         cardKindSlug: null,
+        cardConditionSlug: null,
         ...buildCategoryPatch(form),
       });
       cancel();

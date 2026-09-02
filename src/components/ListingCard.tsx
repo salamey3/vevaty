@@ -15,10 +15,8 @@ import { listingTitle, listingDistrict, listingShopName } from '../lib/listingTe
 import { mirrorRow } from '../lib/mirrorRow';
 import { sizedPhotoUrl } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
-import { cardKindLabel, resolveCardSpecs } from '../lib/cardSpecs';
+import { cardKindLabel, cardConditionLabel, resolveCardSpecs } from '../lib/cardSpecs';
 import { listingPriceLines } from '../lib/priceDisplay';
-import { conditionShownInPrice } from '../lib/rentTerms';
-import { conditionCardLabel } from '../lib/conditionModes';
 import { gridCardWidthPct } from '../lib/cardWidth';
 import { RootStackParamList } from '../navigation/types';
 
@@ -61,13 +59,17 @@ export type CornerBadge = { icon: IconName; color: string } | { text: string; co
 // category makes it ask -- New/Used, Sale/Rent/Both, sale-or-rehome, or a
 // wear grade. See Listing.condition and ConditionMode in src/types.
 //
-// In practice the card only reaches the New/Used and graded arms now:
-// properties carry their offer in the price lines instead and render no
-// pill at all (see the call site). The lookup covers the whole union
-// regardless -- the pill is one styling decision away from coming back,
-// and a silent fall-through to "Used" is exactly the bug it replaced.
-// It lives in src/lib/conditionModes.ts with every other per-value list,
-// so a new mode cannot light up a picker and leave this behind.
+// The badge only ever prints the New/Used and graded arms of it: a
+// property's or a car's offer type is already in the price lines, and a
+// pet's rehoming is the word "Free" there. Where that leaves a category
+// with no badge at all, the category can nominate an attribute to supply
+// one instead -- see cardConditionLabel, and Category.cardConditionSlug for
+// why a car had no New/Used anywhere on its card until it could.
+//
+// The value-to-label lookup lives in src/lib/conditionModes.ts with every
+// other per-value list, so a new mode cannot light up a picker and leave
+// this behind -- a silent fall-through to "Used" is exactly the bug that
+// arrangement replaced.
 
 export default function ListingCard({
   listing,
@@ -106,7 +108,7 @@ export default function ListingCard({
   cornerBadge?: CornerBadge;
   layout?: 'vertical' | 'horizontal';
 }) {
-  const { categoryById, resolveAttributesForCategory, cardKindSlugForCategory } = useSettings();
+  const { categoryById, resolveAttributesForCategory, cardKindSlugForCategory, cardConditionSlugForCategory } = useSettings();
   const { isVerified, profile } = useAppStore();
   const { isFavorite, toggleFavorite } = useFavorites();
   const { language, isRTL, t } = useLanguage();
@@ -154,7 +156,7 @@ export default function ListingCard({
   //
   // It matters more than bandwidth. RN decodes a remote bitmap at its SOURCE
   // resolution however small the view is -- the whole premise of
-  // photoSize.ts -- so a 140pt related-listing card handed a grid-sized
+  // photoSize.ts -- so a 224pt related-listing card handed a grid-sized
   // request pays a grid-sized decoded bitmap. With one shared constant,
   // widening the browse grid would have raised the cost on every carousel in
   // the app at once, the touch-preview path included, which mounts five
@@ -233,9 +235,17 @@ export default function ListingCard({
     () => cardKindLabel(cat, cardKindSlugForCategory(listing.cat), cardAttrs, listing, language),
     [cat, cardKindSlugForCategory, listing, cardAttrs, language]
   );
+  const conditionSlug = useMemo(
+    () => cardConditionSlugForCategory(listing.cat),
+    [listing.cat, cardConditionSlugForCategory]
+  );
+  const conditionLabel = useMemo(
+    () => cardConditionLabel(listing, conditionSlug, cardAttrs, language, t),
+    [listing, conditionSlug, cardAttrs, language, t]
+  );
   const cardSpecs = useMemo(
-    () => resolveCardSpecs(cardAttrs, listing, language, fullTitle),
-    [cardAttrs, listing, language, fullTitle]
+    () => resolveCardSpecs(cardAttrs, listing, language, fullTitle, conditionSlug),
+    [cardAttrs, listing, language, fullTitle, conditionSlug]
   );
 
   // Shop attribution -- only present on listings posted through a shop
@@ -425,19 +435,22 @@ export default function ListingCard({
             name, but the attribute value for the two categories collapsed
             into one postable leaf, so this reads "Apartment" rather than
             "Properties". */}
-        {(!!kindLabel || (listing.condition && !conditionShownInPrice(listing.condition))) && (
+        {(!!kindLabel || !!conditionLabel) && (
           <View style={[styles.pillRow, mirrorRow(isRTL)]}>
             {!!kindLabel && (
               <View style={styles.kindPill}>
                 <Text style={[styles.kindPillText, isRTL && styles.rtlText]} numberOfLines={1}>{kindLabel}</Text>
               </View>
             )}
-            {/* Null for a listing posted before this field existed, and
-                deliberately absent wherever the price lines already say it
-                ("Buy for $450,000" makes a "For sale" pill a repetition). */}
-            {listing.condition && !conditionShownInPrice(listing.condition) && (
+            {/* Usually listing.condition, but the attribute a category
+                nominates wherever that column is answering a different
+                question -- see cardConditionLabel, which decides between
+                them. Still absent where the price lines already say it
+                ("Buy for $450,000" makes a "For sale" pill a repetition),
+                and on a listing posted before the field existed. */}
+            {!!conditionLabel && (
               <View style={styles.tag}>
-                <Text style={[styles.tagText, isRTL && styles.rtlText]} numberOfLines={1}>{conditionCardLabel(listing.condition, t)}</Text>
+                <Text style={[styles.tagText, isRTL && styles.rtlText]} numberOfLines={1}>{conditionLabel}</Text>
               </View>
             )}
           </View>

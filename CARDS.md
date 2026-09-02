@@ -80,6 +80,65 @@ Null everywhere else. Inherited nearest-ancestor-first, like `condition_mode`
 and `listing_lifetime_days`, so it is read through
 `cardKindSlugForCategory` and never off the row.
 
+## The badge says what STATE it is in
+
+Normally `listings.condition`, which is the universal field every category
+answers. The card prints it whenever it is genuinely about condition — New,
+Used, or one of Fashion's wear grades.
+
+It refuses to print the other two things that column can hold. Vehicles and
+Properties are `offer_type`, so theirs says sale/rent/both; Pets are
+`rehome`, so theirs says sale/free. Both are already in the price lines, and
+"Buy for $22,000" beside a "For sale" pill is one sentence written twice.
+
+That refusal had a cost nobody had looked for: **a car card carried no
+New/Used anywhere**, even though the question is required at posting and
+every seller had answered it — into `vehicle_condition`, an attribute the
+card did not read. Properties had the same hole with `construction_status`.
+
+The two are not equally closed, and the difference is worth stating.
+`vehicle_condition` is required, so every vehicle gets a badge.
+`construction_status` is optional AND conditional on `property_type`, so it
+only exists for an apartment, villa, chalet, building or commercial unit —
+land, rooms and vacation rentals still get no badge at all, and any of the
+five whose seller skipped the field gets none either. That is the honest
+state, not an oversight: making it required would put "Off-plan vs New
+handover vs Secondary" in front of a private seller re-listing their own
+flat.
+
+`categories.card_condition_slug` closes it, and is a deliberate mirror of
+`card_kind_slug` — same column shape, same nearest-ancestor inheritance,
+same admin switch beside it on the attribute form. Vehicles points at
+`vehicle_condition` (New / Used); Properties at `construction_status`
+(Off-plan / New handover / Newly renovated / Secondary).
+
+One of those labels changed and one option is new, both on 2 Sep, once this
+attribute became something a buyer reads rather than a field buried in a spec
+list. "Used"
+became **"Secondary"** — the word this market actually uses for a resale
+unit, where "used" describes the state of the building rather than which
+market it is in. The stored VALUE is still `used`: renaming it would orphan
+every listing already carrying it, and the badge prints a select's option
+label rather than its value, so there is nothing to gain and a backfill to
+risk. **"Newly renovated"** was added as the real state between a new
+handover and a plain resale, and one sellers here advertise explicitly.
+
+Two decisions inside that are worth keeping:
+
+**The universal column wins where both exist.** It is the only one of the two
+guaranteed present on every listing in its category, so a category that
+somehow has both keeps the reliable answer rather than the more specific one.
+
+**Pets get nothing, and should.** A puppy is not new or used. This is opt-in
+per category rather than a fallback that hunts the attributes for something
+condition-shaped, precisely so that stays true — a heuristic would have found
+`sex` or `vaccinated` and printed one of them.
+
+The nominated attribute is also excluded from the spec row. Neither category
+gives it a `card_priority` today, but both could tomorrow from a screen where
+those are two separate switches, and the result would be one of three spec
+slots spent saying "Secondary" a second time four lines below the badge.
+
 ## Why the green band went, and why the photo did not
 
 The card used to be two zones: price and title in white on a forest-green
@@ -203,12 +262,46 @@ the shared default for a full-page browse surface, not an enforced cap:
 `Screen` still takes any number, and the narrower surfaces — a payment
 sheet, an admin form, a chat thread — deliberately pass their own.
 
-**The listing page's related strips are deliberately NOT part of this.**
-Similar Listings, Editor's Picks and Hot Deals under a listing stay at
-140px. They are a footnote under something you are already reading, not a
-browse surface, and a full-size card there would compete with the listing
-the page exists to show. It is the one place in the app where a listing card
-is a different size on purpose, which is why it is written down here.
+**The listing page's related strips take a third width**, and it is the only
+card width in the app not derived from the grid, so it owes an argument.
+
+They were left out of the change above on the reasoning that a strip under
+something you are already reading is a footnote rather than a browse
+surface, and that a full-size card there would compete with the listing the
+page exists to show. That was half right. At 140px the text column was 118:
+the title wrapped mid-word, the three specs wrapped to two lines, and "Beit
+ech Chaar · 3 days ago" wrapped as well — three wrapped lines in a card meant
+to be taken in at a glance. Being a footnote is not a reason to be
+illegible.
+
+Full parity would have made it ~304 on a phone, which shows exactly one
+alternative at a time on the screen where comparing alternatives is the
+whole point. So `SECONDARY_CARD_WIDTH` is defined as the narrowest width at
+which three specs fit on one line, plus one more of the 8px steps the
+carousels quantise to. The narrowest is 216 — the 191 they need plus the
+card's own 22 of chrome, rounded up; the width used is one step above it, at
+224, giving 202 of text. The spare step is deliberate: 191 is itself an
+estimate, so landing three pixels above it would be a guarantee resting on a
+guess. A
+title still wraps to its two lines, which is `numberOfLines` and not width.
+About one and a half cards visible on a phone, where 140 showed two and a
+half badly and 304 would show one well.
+
+Its own photo cost, since the previous change's paragraph does not cover it:
+these cards go from a 160px request to 240, so about 2.25× the decoded
+pixels — and `sizedPhotoUrl` doubles the request width again on a retina
+screen, which is four times the pixels, not two. Across three strips that
+are not virtualised. Same seeded-only scope as the rest — a real upload's
+thumbnail is baked at 640 whatever is asked for.
+
+The strip keeps `alignItems: 'flex-start'`, so its cards do not stretch to a
+common height, and that is no longer the main source of raggedness it was: a
+card with an explicit width has all three reservations on, and the title and
+price are capped at two lines each. Three blocks are still free to differ —
+the pill row (which the badge change above puts a second pill into), the
+district's
+two-line meta row, and a spec row that wraps on a long value. So expect the
+occasional uneven bottom there rather than none.
 
 **The cost, stated:** a carousel card's photo request goes from 200px to
 320 on a 390pt phone and to as much as 400 (the cap) at two and three
@@ -411,20 +504,15 @@ another.
   smaller disc that stops reading as a disc, or shrinking the photo below a
   size this card has already rejected once.
 
-- **The small vertical cards are tighter still, and always were.** A vertical
-  card's text column is the card less 22 (`info`'s 10 each side, plus the
-  border). The 192px carousel card therefore has 170, and the 140px
-  related-listings cards on the listing page have 118 — both under the ~191
-  three specs now ask for, on every screen size rather than only narrow ones.
-  Only one of the two is a regression. The 140px card had 118 against the
-  ~170 three specs needed and always wrapped; the discs only make its wrapped
-  row about 4px taller, since a spec line goes from 18 to 20. The 192px card
-  had exactly the 170 it needed and sat on the boundary, and the discs push it
-  over. Worth recording alongside this: the related-listings row sets
-  `alignItems: 'flex-start'`, so nothing there equalises the ragged bottoms
-  that result. The lever, if it ever matters enough, is those cards' widths
-  rather than the disc — 192 is 160 × 1.2, chosen for the photo and not for
-  the text under it.
+- **Any vertical card narrower than 213 wraps its spec row.** Its text column
+  is the card less 22 (`info`'s 10 each side, plus the border), against the
+  ~191 three specs ask for. No card in the app is below that line today: the
+  two that were are the 192px carousel card, which every carousel replaced
+  with a derived width on 2 Sep, and the 140px related-listings card, now
+  `SECONDARY_CARD_WIDTH` — which is *defined* as the width that keeps this
+  bullet empty. It stays written down because it is the constraint those two
+  numbers exist to satisfy, and the next person adding a card size needs it
+  before they pick one, not after.
 - **Photos on listings posted before 1 Sep 2026 look soft at full width.**
   The card thumbnail is baked at upload time, and it was baked at 400px for a
   175px two-column card. New uploads bake at 640px; old ones keep the 400 they

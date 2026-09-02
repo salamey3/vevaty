@@ -95,6 +95,22 @@ export interface Category {
   // Inherits nearest-ancestor-first, so it is read through
   // cardKindSlugForCategory in SettingsStore, never off the row.
   cardKindSlug: string | null;
+  // Which attribute supplies the card's CONDITION badge. Null means the
+  // universal `listings.condition` column is the badge, which is the normal
+  // case and covers most of the catalogue.
+  //
+  // It exists because that column asks four different questions depending on
+  // conditionMode, and two of them are not about condition at all. Vehicles
+  // and Properties are `offer_type`, so their column holds sale/rent/both --
+  // which the card deliberately does not print, because the price lines
+  // already say it ("Buy for $22,000" beside a "For sale" pill is the same
+  // sentence twice). Their real new-or-used answer sits in an attribute
+  // instead: vehicle_condition on one, construction_status on the other. A
+  // car with no New/Used on its card was the visible cost.
+  //
+  // Same shape and the same nearest-ancestor inheritance as cardKindSlug --
+  // read through cardConditionSlugForCategory, never off the row.
+  cardConditionSlug: string | null;
   // How many days a listing here stays active before it expires. Null
   // inherits from the nearest ancestor that names one, and 14 if none
   // does -- the same nullable-inherits shape as conditionMode, and for

@@ -23,7 +23,7 @@ import { sizedPhotoUrl } from '../lib/photoSize';
 // in the app: a slideshow mounts up to five frames at once and a spin set
 // mounts all of them, and RN decodes each at its SOURCE resolution however
 // small the view is (see photoSize.ts). Asking one card-sized constant for
-// every card in the app meant a 140pt related-listing preview paid the same
+// every card in the app meant a small related-listing preview paid the same
 // decoded bitmap as a full-width grid card.
 //
 // Worth knowing how far it goes: sizedPhotoUrl only rewrites the seeded

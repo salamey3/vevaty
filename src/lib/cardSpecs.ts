@@ -1,6 +1,8 @@
 import { AttributeValue, Category, CategoryAttribute, Listing } from '../types';
 import { IconName } from '../icons/Icon';
 import { attrHasValue, formatAttrValue } from './attributeFormat';
+import { conditionShownInPrice } from './rentTerms';
+import { conditionCardLabel } from './conditionModes';
 import { resolveVisibleAttrs } from './attributeVisibility';
 
 // Everything a listing card says about WHAT the thing is, decided in one
@@ -111,6 +113,75 @@ export function cardKindLabel(
   return (language === 'ar' ? category.nameAr : category.nameEn) || null;
 }
 
+// The condition badge: what STATE the thing is in.
+//
+// Normally `listings.condition` itself, which is what every ordinary
+// category answers New/Used (or, on Fashion, with a wear grade).
+//
+// The exception is the categories where that column is not answering a
+// condition question at all. It carries four different questions depending
+// on the category's conditionMode (see ConditionMode), and two of them are
+// about the OFFER rather than the item: Vehicles and Properties are
+// `offer_type`, so their column holds sale/rent/both, and Pets are `rehome`,
+// holding sale/free. The card already refuses to print those, because the
+// price lines say the same thing in more words -- "Buy for $22,000" beside a
+// "For sale" pill is one sentence twice.
+//
+// The cost of that was invisible until someone looked for it: a car card had
+// no New/Used on it anywhere, though every seller had answered the question
+// -- into `vehicle_condition`, an attribute nothing on the card read. Same
+// for a property's construction_status. `cardConditionSlug` points at
+// whichever attribute holds the real answer, and it is resolved by the
+// caller through the store's nearest-ancestor walk for the same reason
+// cardKindSlug is: a leaf inherits it from the branch it hangs off.
+//
+// Pets get nothing from this and should: a puppy is not new or used. The
+// mechanism is opt-in per category rather than a fallback that hunts for
+// something condition-shaped, precisely so that stays true.
+export function cardConditionLabel(
+  listing: Listing,
+  cardConditionSlug: string | null,
+  attrs: CategoryAttribute[],
+  language: 'en' | 'ar',
+  t: (key: string) => string
+): string | null {
+  // The universal column wins wherever it is genuinely about condition. It
+  // is the only one of the two that is guaranteed present on every listing
+  // in its category, so a category that has both keeps the reliable one.
+  if (listing.condition && !conditionShownInPrice(listing.condition)) {
+    return conditionCardLabel(listing.condition, t);
+  }
+  if (!cardConditionSlug || !listing.attributes) return null;
+  // resolveVisibleAttrs, NOT a plain find. construction_status is hidden for
+  // a plot of land, a room and a vacation rental (depends_on_slug), and a
+  // seller who picks Apartment, answers it, then switches to Land leaves the
+  // value behind in the row -- the form stops asking, but nothing deletes
+  // what was already typed. Reading the raw attribute would print SECONDARY
+  // on a card for a field of dirt, and this would be the only surface in the
+  // app doing so: the create form, the AI schema, the review summary and the
+  // spec row all go through this same filter.
+  const attr = resolveVisibleAttrs(attrs, listing.attributes, listing.condition)
+    .find((a) => a.slug === cardConditionSlug);
+  if (!attr) return null;
+  const value = listing.attributes[attr.slug];
+  // Same two guards cardKindLabel applies, and for the same reasons: a
+  // multiselect joins with commas and would overflow a pill sized for one
+  // word, and formatAttrValue falls back to String(value) for a select whose
+  // option an admin has since renamed, which would print a raw snake_case
+  // slug where a buyer expects a word.
+  //
+  // Only multiselect is rejected outright, not every non-select. A boolean
+  // would print a tick, a number "94,975 km", a text field whatever the
+  // seller typed -- all wrong in a badge, none of them reachable from the
+  // admin, whose switch is select-only and clears itself when a field's type
+  // changes. Same gap cardKindLabel has, named here rather than defended
+  // against twice.
+  if (attr.type === 'multiselect' || !attrHasValue(value)) return null;
+  if (attr.type === 'select' && !attr.options.some((o) => o.value === value)) return null;
+  const text = formatAttrValue(attr, value, language).trim();
+  return text || null;
+}
+
 // The spec row.
 //
 // Order is `cardPriority` ascending, and ONLY attributes that have one --
@@ -125,7 +196,20 @@ export function resolveCardSpecs(
   // The listing's own title, to suppress specs that merely repeat it. A car
   // titled "Honda Civic 2018" showing "2018" beside it wastes one of three
   // slots restating what the line above already said.
-  title: string
+  title: string,
+  // The attribute this category NOMINATES for the condition badge, if any.
+  // Excluded here for the same reason the title is: the badge sits four
+  // lines above the spec row, so a category whose admin gives that attribute
+  // a cardPriority as well would spend one of three slots saying "Secondary"
+  // twice. Neither category does today; both could tomorrow, from a screen
+  // where the two settings are separate switches.
+  //
+  // Dropped whether or not the badge actually printed -- when the universal
+  // column won it, when the value is missing, when the option was renamed.
+  // The alternative is threading the badge's rendered source down here, and
+  // "the field this category treats as its condition" is a better thing for
+  // the spec row to be blind to than "the field that happened to render".
+  cardConditionSlug: string | null = null
 ): CardSpec[] {
   if (!listing.attributes) return [];
   const haystack = title.toLowerCase();
@@ -136,6 +220,9 @@ export function resolveCardSpecs(
   // printing two blanks or, worse, values left behind by a seller who
   // changed the property type halfway through posting.
   return resolveVisibleAttrs(attrs, listing.attributes, listing.condition)
+    // Whatever the badge above is for -- see this function's own parameter
+    // doc for why it goes whether or not the badge printed.
+    .filter((a) => a.slug !== cardConditionSlug)
     // `!= null`, not `!== null`: an attribute reaching here with an
     // UNDEFINED cardPriority (a fixture, a future mapper that forgets the
     // field) would otherwise pass this filter and then make the comparator

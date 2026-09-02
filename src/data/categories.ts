@@ -38,8 +38,10 @@ function topLevel(
     iconUrl: null,
     icon,
     // No collapsed categories in the offline fallback set -- every tile here
-    // is labelled by its own name. See Category.cardKindSlug.
+    // is labelled by its own name, and its condition badge comes from the
+    // universal column. See Category.cardKindSlug / cardConditionSlug.
     cardKindSlug: null,
+    cardConditionSlug: null,
     supports3d: false,
     shotListEn,
     shotListAr,

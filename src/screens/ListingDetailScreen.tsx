@@ -27,6 +27,7 @@ import SpinViewer from '../components/SpinViewer';
 import VideoPlayer from '../components/VideoPlayer';
 import { nudgeVideoStatus } from '../lib/bunnyVideo';
 import ListingCard from '../components/ListingCard';
+import { SECONDARY_CARD_WIDTH } from '../lib/cardWidth';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useChat } from '../store/ChatStore';
@@ -864,7 +865,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <ListingCard
             key={item.id}
             listing={item}
-            width={140}
+            width={SECONDARY_CARD_WIDTH}
             onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
           />
         ))}
@@ -901,7 +902,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <ListingCard
             key={item.id}
             listing={item}
-            width={140}
+            width={SECONDARY_CARD_WIDTH}
             cornerBadge={cornerBadgeFor(editorsPicksCollection, item, priceDropPercent)}
             onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
           />
@@ -934,7 +935,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <ListingCard
             key={item.id}
             listing={item}
-            width={140}
+            width={SECONDARY_CARD_WIDTH}
             cornerBadge={cornerBadgeFor(hotDealsCollection, item, priceDropPercent)}
             onPress={() => navigation.push('ListingDetail', { listingId: item.id })}
           />

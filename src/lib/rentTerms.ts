@@ -93,8 +93,8 @@ export function rentPerPeriodLabelKey(p: RentPeriod): string {
 }
 
 // The same figure abbreviated for a browse card -- "$12,000/yr" rather
-// than "$12,000 / year". The narrowest cards in the app are the 140pt
-// related-listing ones on the detail page (~118pt of text) and a desktop grid
+// than "$12,000 / year". The narrowest cards in the app are the 224pt
+// related-listing ones on the detail page (~202pt of text) and a desktop grid
 // card in a small window, and once the figure also carries a "Rent for"
 // label the long form overruns it and ellipsises the number itself,
 // which is the whole problem the label was added to solve.
