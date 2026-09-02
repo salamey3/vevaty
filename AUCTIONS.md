@@ -407,6 +407,27 @@ already-hosted urls without re-uploading, and the video goes LAST — it is
 the only step measured in minutes and the only one whose failure leaves
 something usable behind.
 
+**Both ways in, on both surfaces, through the seller's own components.**
+Photos and 360 frames can be picked from the library OR shot in-app, on the
+create form and in the lot editor alike. Nothing was written to do it:
+`CameraCapture` and `SpinPreviewModal` are the components the posting
+wizard already mounts, generic in their props and working on native and
+web, and `SPIN_MIN_FRAMES` / `SPIN_MAX_FRAMES` moved into
+`src/lib/listingMedia.ts` so both flows read one number.
+
+That is worth recording as a mistake, not a feature. The first version of
+the admin media offered library-pick only, because the guided camera was
+assumed to be welded into the wizard. It was not — it had been extracted
+long before, precisely so it could be reused, and the assumption was never
+checked. **Before deciding a capability is expensive to reuse, open the
+file.**
+
+Every route into a spin — picked or shot, create form or editor — ends at
+the same preview, so the assembled rotation is judged turning before
+anything is written. A spin is the one kind of media that cannot be judged
+from thumbnails: a frame out of order, or one bad exposure, only shows up
+in motion.
+
 **Media is written straight to its tables.** Photos,
 a 360 set and a video all hang off the lot's listing, and all three are
 written straight to their tables rather than through a function: RLS allows
@@ -499,11 +520,6 @@ changed, not to the parent.
   ways, which is how the first few will actually run — sourced and curated
   by hand. A submit-for-review queue roughly doubles v1 and is almost
   entirely admin screens rather than auction.
-- **Guided spin capture on an admin lot.** Frames are picked from the
-  library, in order, up to 24 — which is how a consigned item is actually
-  shot: on a real camera, on a turntable, then transferred. The seller
-  flow's guided in-app camera, which walks somebody around an item with the
-  phone in their hand, is not lifted out of the wizard for this.
 - **Category attributes on a from-scratch lot.** The form writes title,
   description, category, condition, district and price, and no
   `attributes` — so a lot built here has an empty spec row on its card

@@ -20,6 +20,7 @@ import { RootStackParamList } from '../navigation/types';
 import { AttributeValue, Category, CategoryId, ConditionMode, Listing, ListingVariant, ListingVideo, SpinSet } from '../types';
 import { attrHasValue, formatAttrValue } from '../lib/attributeFormat';
 import { resolveVisibleAttrs } from '../lib/attributeVisibility';
+import { SPIN_MAX_FRAMES, SPIN_MIN_FRAMES } from '../lib/listingMedia';
 import { buildDomainCandidates } from '../lib/domainCandidates';
 import { useShopFallbackCategory } from '../hooks/useShopFallbackCategory';
 import { domainIdFromSentinel } from '../lib/classifyPhotos';
@@ -79,8 +80,7 @@ const PHOTOS_MAX = 6;
 // of a hedge against any single bad photo) to actually identify it, rather
 // than firing on the first tap and guessing from a single so-so frame.
 const PHOTOS_MIN_FOR_AI = 3;
-const SPIN_MIN_FRAMES = 12;
-const SPIN_MAX_FRAMES = 24;
+
 
 // Quick-pick name suggestions for a spin set, shown as tappable chips in
 // SpinPreviewModal alongside free typing -- e.g. a car seller doing

@@ -6,13 +6,15 @@ import * as ImagePicker from 'expo-image-picker';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
 import Icon from '../../icons/Icon';
+import CameraCapture from '../../components/CameraCapture';
+import SpinPreviewModal from '../../components/SpinPreviewModal';
 import { Alert } from '../../lib/alertShim';
 import { colors, radius, type } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
 import { AuctionLotStatus, Listing } from '../../types';
 import { listingTitle } from '../../lib/listingText';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../../lib/photoUpload';
-import { SPIN_MAX_FRAMES, deleteSpinSet, nextSpinSortOrder, writeSpinSets } from '../../lib/listingMedia';
+import { SPIN_MAX_FRAMES, SPIN_MIN_FRAMES, deleteSpinSet, nextSpinSortOrder, writeSpinSets } from '../../lib/listingMedia';
 import {
   BUNNY_MEDIA_HEADERS, MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, UploadHandle,
   createVideoUploadTicket, deleteVideo, fetchVideoStatus, isUploadAborted,
@@ -52,6 +54,16 @@ import { RootStackParamList } from '../../navigation/types';
 // and rebuilt instead.
 const MAX_LOT_PHOTOS = 8;
 
+// Quick-pick names for a spin, the admin equivalent of the category-aware
+// chips the seller gets. Deliberately generic: a consignment catalogue is
+// watches one fortnight and cars the next, so a fixed set that reads
+// sensibly for any object beats one keyed to a category the lot may not
+// even have yet when the spin is shot.
+// '360' is deliberately NOT here: it is already the automatic default, so
+// offering it as a chip is a one-tap route to two sets called the same
+// thing, on a screen whose only way to tell them apart is that name.
+const SPIN_LABEL_SUGGESTIONS = ['Exterior', 'Interior', 'Detail', 'Movement'];
+
 // One picked video, held locally until there is a lot to attach it to.
 // Kept as the fields validation needs rather than the whole asset, because
 // what comes back from the picker differs by platform and only these three
@@ -71,6 +83,9 @@ type ScratchForm = {
   // the auction is actually built around was a worse answer, and it read
   // as the feature simply not being there.
   spinFrames: string[];
+  // Whatever the preview asked the admin to call it. Blank falls back to
+  // the numbered default, same as the editor's.
+  spinLabel: string;
   video: PickedVideo | null;
 };
 
@@ -84,7 +99,7 @@ const LOT_STATUSES: AuctionLotStatus[] = [
 const EMPTY_SCRATCH: ScratchForm = {
   titleEn: '', titleAr: '', descriptionEn: '', descriptionAr: '',
   categoryId: '', district: '', condition: '',
-  startPrice: '', reserve: '', photos: [], spinFrames: [], video: null,
+  startPrice: '', reserve: '', photos: [], spinFrames: [], spinLabel: '', video: null,
 };
 
 export default function AdminAuctionLotsScreen() {
@@ -107,6 +122,35 @@ export default function AdminAuctionLotsScreen() {
   const [reserve, setReserve] = useState('');
   const [scratch, setScratch] = useState<ScratchForm>(EMPTY_SCRATCH);
   const [catQuery, setCatQuery] = useState('');
+  // The in-app camera, shared by both media surfaces on this screen.
+  //
+  // CameraCapture is the SAME component the seller's posting flow mounts
+  // three different ways -- it takes its frame limits, its instructions and
+  // its Done wording as props and works on native and on the web build. It
+  // was always reusable; this screen simply was not using it, which is why
+  // an admin building a lot could upload from the library but not shoot.
+  //
+  // Each of these holds WHO the camera is open for: 'new' for the create
+  // form, or a lot id for the editor. One instance of each serves every
+  // row, the way the wizard's one instance serves every verification
+  // prompt.
+  const [photoCameraFor, setPhotoCameraFor] = useState<string | null>(null);
+  // Who the spin being captured or previewed belongs to, and which of the
+  // two is on screen. One target rather than one per modal, because a spin
+  // moves camera -> preview -> commit and losing the owner half way is how
+  // frames end up on the wrong lot.
+  const [spinFor, setSpinFor] = useState<string | null>(null);
+  const [spinCameraOpen, setSpinCameraOpen] = useState(false);
+  // Whether the frames in hand were SHOT or PICKED. Retake has to go back
+  // to the surface they came from: sending a library-picked draft to the
+  // camera throws away twenty selected frames and demands twelve fresh
+  // ones, with no route back to the selection.
+  const [spinFromCamera, setSpinFromCamera] = useState(false);
+  const [spinPreviewOpen, setSpinPreviewOpen] = useState(false);
+  // Frames just captured or picked, held between the camera closing and
+  // the preview being accepted. Nothing is written until Continue.
+  const [draftSpin, setDraftSpin] = useState<string[]>([]);
+  const [draftSpinLabel, setDraftSpinLabel] = useState('');
   // A video upload's progress, held at screen level rather than inside the
   // editor's render so that closing and reopening the pencil does not
   // orphan an upload that is still running. Shared by BOTH callers: the
@@ -306,6 +350,14 @@ export default function AdminAuctionLotsScreen() {
   // New/Used for a camera, Sale/Rent for a shop unit, a wear grade for
   // graded goods. Asked through the same table every other surface uses so
   // a lot cannot be saved with a value its category does not recognise.
+  // The create form holds its photos locally, so its budget is what is
+  // left of the cap; the editor uploads each batch as it is taken, so a
+  // full cap each time is right there.
+  const photoCameraRemaining =
+    photoCameraFor === 'new'
+      ? Math.max(1, MAX_LOT_PHOTOS - scratch.photos.length)
+      : MAX_LOT_PHOTOS;
+
   const conditionOptions = useMemo(
     () => (scratch.categoryId ? conditionOptionsFor(conditionModeForCategory(scratch.categoryId), t) : []),
     [scratch.categoryId, conditionModeForCategory, t]
@@ -357,24 +409,92 @@ export default function AdminAuctionLotsScreen() {
     return null;
   };
 
-  const pickScratchSpin = async () => {
+  // Library frames for a spin, for either surface. Both routes -- this and
+  // the camera -- end at the same preview, so the admin sees the assembled
+  // rotation before it is committed rather than a grid of thumbnails.
+  // Returns whether frames were actually produced, so a caller replacing an
+  // EXISTING draft can put the preview back when the picker is cancelled --
+  // which on the web build is the ordinary outcome of dismissing the file
+  // dialog, not an edge case.
+  const pickSpinFrames = async (owner: string, keepLabel = ''): Promise<boolean> => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
     if (!perm.granted) {
       Alert.alert('Photos', 'Allow photo library access to add a 360 set.');
-      return;
+      return false;
     }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.7,
-      selectionLimit: SPIN_MAX_FRAMES,
-    });
-    if (result.canceled || result.assets.length === 0) return;
+    // The web picker REJECTS on a file it cannot read -- pick "All files"
+    // in the dialog and choose something the browser types as
+    // application/octet-stream and expo-image-picker throws. Caught here
+    // rather than at each call site, so every caller gets the same plain
+    // false and none of them can leave a half-open interaction behind.
+    let result: ImagePicker.ImagePickerResult;
+    try {
+      result = await ImagePicker.launchImageLibraryAsync({
+        mediaTypes: ImagePicker.MediaTypeOptions.Images,
+        allowsMultipleSelection: true,
+        quality: 0.7,
+        selectionLimit: SPIN_MAX_FRAMES,
+      });
+    } catch (e: any) {
+      Alert.alert('Those files could not be read', `${e?.message || String(e)}\n\nPick images only.`);
+      return false;
+    }
+    if (result.canceled || result.assets.length === 0) return false;
     // selectionLimit is native-only; the web picker ignores it.
     if (result.assets.length > SPIN_MAX_FRAMES) {
-      Alert.alert('Too many frames', `You picked ${result.assets.length}. The first ${SPIN_MAX_FRAMES} will be used.`);
+      Alert.alert('Too many frames', `You picked ${result.assets.length}. Only the first ${SPIN_MAX_FRAMES} are kept.`);
     }
-    setScratch((f) => ({ ...f, spinFrames: result.assets.slice(0, SPIN_MAX_FRAMES).map((a) => a.uri) }));
+    const frames = result.assets.slice(0, SPIN_MAX_FRAMES).map((a) => a.uri);
+    // The camera enforces this with minFrames; the library cannot, so the
+    // library path is the only one that can still produce a stuttering
+    // spin -- and the only one that needs to say so.
+    if (frames.length < SPIN_MIN_FRAMES) {
+      Alert.alert(
+        'That is a short spin',
+        `${frames.length} frames will jump rather than turn. Around ${SPIN_MAX_FRAMES} evenly ` +
+          `spaced shots is what reads as a rotation, and under ${SPIN_MIN_FRAMES} shows. ` +
+          // NOT "adding them anyway": nothing is written here. The frames
+          // go to the preview, and only Continue commits them.
+          'Keeping them anyway — judge it in the preview before you continue.'
+      );
+    }
+    setSpinFor(owner);
+    setSpinFromCamera(false);
+    setDraftSpin(frames);
+    setDraftSpinLabel(keepLabel);
+    setSpinPreviewOpen(true);
+    return true;
+  };
+
+  const openSpinCamera = (owner: string, keepLabel = '') => {
+    setSpinFor(owner);
+    setSpinFromCamera(true);
+    setDraftSpin([]);
+    setDraftSpinLabel(keepLabel);
+    setSpinCameraOpen(true);
+  };
+
+  const closeSpin = () => {
+    setSpinPreviewOpen(false);
+    setSpinCameraOpen(false);
+    setSpinFor(null);
+    setSpinFromCamera(false);
+    setDraftSpin([]);
+    setDraftSpinLabel('');
+  };
+
+  // Photos straight from the camera, for either surface. The create form
+  // holds them; the editor uploads them against the lot it was opened for.
+  const onPhotosCaptured = (owner: string, uris: string[]) => {
+    setPhotoCameraFor(null);
+    if (uris.length === 0) return;
+    if (owner === 'new') {
+      setScratch((f) => ({ ...f, photos: [...f.photos, ...uris].slice(0, MAX_LOT_PHOTOS) }));
+      return;
+    }
+    const lot = lots.find((l) => l.id === owner);
+    if (lot) uploadPhotosToLot(lot, uris);
+    else Alert.alert('That lot is gone', 'It was removed while you were shooting, so nothing was saved.');
   };
 
   const pickScratchVideo = async (fromCamera: boolean) => {
@@ -406,6 +526,71 @@ export default function AdminAuctionLotsScreen() {
       ...f,
       video: { uri: asset.uri, mimeType: asset.mimeType ?? null, seconds },
     }));
+  };
+
+  // Where a finished spin goes, whichever surface asked for it and however
+  // the frames were obtained. The create form holds them until the lot
+  // exists; the editor has a lot already and writes them now.
+  const commitSpin = async (owner: string, frames: string[], label: string) => {
+    if (frames.length === 0) return;
+    if (owner === 'new') {
+      setScratch((f) => ({ ...f, spinFrames: frames, spinLabel: label.trim() }));
+      return;
+    }
+    const lot = lots.find((l) => l.id === owner);
+    if (!lot) {
+      // The list reloads on its own while a video encodes, so a lot removed
+      // from another device can disappear while the camera is open. Twenty
+      // frames vanishing without a word is the wrong way to find that out.
+      Alert.alert('That lot is gone', 'It was removed while you were shooting, so nothing was saved.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const nextOrder = await nextSpinSortOrder(lot.listingId);
+      // The default is derived from the same strictly-increasing number the
+      // ORDER comes from, so it never repeats. A typed one can, though --
+      // the label field is free text -- and two sets called the same thing
+      // are indistinguishable in the list and in the delete confirmation,
+      // which is the one place it matters. So a duplicate gets a suffix.
+      const taken = new Set((lotListings[lot.listingId]?.spinSets ?? []).map((set) => set.label));
+      const wanted = label.trim() || (nextOrder === 0 ? '360' : `360 (${nextOrder + 1})`);
+      let unique = wanted;
+      for (let n = 2; taken.has(unique); n++) unique = `${wanted} (${n})`;
+      const written = await writeSpinSets(
+        lot.listingId,
+        [{
+          id: '',
+          label: unique,
+          frames,
+        }],
+        { startSortOrder: nextOrder, strict: true, silent: true }
+      );
+      if (written[0] && written[0].frames.length < frames.length) {
+        Alert.alert(
+          'The 360 set is missing frames',
+          `${written[0].frames.length} of ${frames.length} uploaded — a spin with gaps in it ` +
+            'jumps. Remove the set and add it again.'
+        );
+      }
+    } catch (e: any) {
+      if (!mountedRef.current) return;
+      // The listing behind a CONSIGNED lot can belong to another seller --
+      // add_auction_lot takes any listing id -- and RLS refuses media on
+      // it. That is not something a retry fixes, so it is named.
+      const denied = /row-level security|permission|policy/i.test(e?.message || '');
+      Alert.alert(
+        'Could not add the 360 set',
+        denied
+          ? "This lot's item belongs to another seller, so its media cannot be edited here."
+          : e?.message || String(e)
+      );
+    } finally {
+      if (mountedRef.current) {
+        setBusy(false);
+        load();
+      }
+    }
   };
 
   const parsePrices = (startText: string, reserveText: string) => {
@@ -580,7 +765,11 @@ export default function AdminAuctionLotsScreen() {
     // those and uploads nothing, so this is two inserts, not another wait.
     if (spinUrls.length > 0) {
       try {
-        await writeSpinSets(listingId, [{ id: '', label: '360', frames: spinUrls }], { strict: true });
+        await writeSpinSets(
+          listingId,
+          [{ id: '', label: scratch.spinLabel.trim() || '360', frames: spinUrls }],
+          { strict: true }
+        );
         if (spinUrls.length < scratch.spinFrames.length) {
           problems.push(
             `Only ${spinUrls.length} of ${scratch.spinFrames.length} 360 frames uploaded — a spin ` +
@@ -838,17 +1027,24 @@ export default function AdminAuctionLotsScreen() {
       selectionLimit: MAX_LOT_PHOTOS,
     });
     if (result.canceled || result.assets.length === 0) return;
+    uploadPhotosToLot(lot, result.assets.map((a) => a.uri));
+  };
 
+  // The upload half, shared by the library picker above and the camera --
+  // the two differ only in where the local uris came from.
+  const uploadPhotosToLot = async (lot: AdminLotRow, uris: string[]) => {
     setBusy(true);
     try {
-      const uploaded = await uploadPhotosWithThumbnails(result.assets.map((a) => a.uri));
+      const uploaded = await uploadPhotosWithThumbnails(uris);
       if (uploaded.length === 0) {
         setBusy(false);
         // Same reason as createFromScratch: the helper's own alert says
         // "the listing was saved without them — open the listing, tap Edit
         // and add them again", and no screen in this app opens a listing at
         // status 'auction'. Say what actually happened instead.
-        Alert.alert('No photos were added', 'None of them uploaded. Check the connection and try again.');
+        if (mountedRef.current) {
+          Alert.alert('No photos were added', 'None of them uploaded. Check the connection and try again.');
+        }
         return;
       }
       const existing = lotListings[lot.listingId]?.photos?.length ?? 0;
@@ -863,10 +1059,16 @@ export default function AdminAuctionLotsScreen() {
       );
       if (error) throw error;
     } catch (e: any) {
-      Alert.alert('Could not add photos', e?.message || String(e));
+      if (mountedRef.current) Alert.alert('Could not add photos', e?.message || String(e));
     } finally {
-      setBusy(false);
-      load();
+      // Guarded like commitSpin's: eight photos with three retries each can
+      // run for minutes with no abort handle, and load()'s own failure
+      // raises an alert through the global host -- over whatever screen the
+      // admin walked to in the meantime.
+      if (mountedRef.current) {
+        setBusy(false);
+        load();
+      }
     }
   };
 
@@ -892,96 +1094,6 @@ export default function AdminAuctionLotsScreen() {
   // item consigned from somebody ELSE's listing is not, and the error says
   // so; that is the same boundary update_auction_lot draws around a
   // listing's title.
-
-  const addSpinSet = async (lot: AdminLotRow) => {
-    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
-    if (!perm.granted) {
-      Alert.alert('Photos', 'Allow photo library access to add a 360 set.');
-      return;
-    }
-    const result = await ImagePicker.launchImageLibraryAsync({
-      mediaTypes: ImagePicker.MediaTypeOptions.Images,
-      allowsMultipleSelection: true,
-      quality: 0.7,
-      selectionLimit: SPIN_MAX_FRAMES,
-    });
-    if (result.canceled || result.assets.length === 0) return;
-    // selectionLimit is Android/iOS-only -- on the web build the picker
-    // ignores it entirely, so the cap has to be applied here too. The
-    // seller flow clamps for the same reason (pickPhotosInto's slice).
-    const frames = result.assets.slice(0, SPIN_MAX_FRAMES).map((a) => a.uri);
-    if (result.assets.length > SPIN_MAX_FRAMES) {
-      Alert.alert(
-        'Too many frames',
-        `You picked ${result.assets.length}. The first ${SPIN_MAX_FRAMES} will be used.`
-      );
-    }
-    if (frames.length < 8) {
-      // Not a refusal -- a spin of five frames is legal, it just reads as a
-      // stutter rather than a rotation, and it is worth saying before the
-      // upload rather than after.
-      Alert.alert(
-        'That is a short spin',
-        `${frames.length} frames will jump rather than turn. Around ${SPIN_MAX_FRAMES} evenly ` +
-          'spaced shots is what reads as a rotation. Adding them anyway.'
-      );
-    }
-
-    setBusy(true);
-    try {
-      // Appended after whatever sets the listing already has. Starting at
-      // zero would give two sets the same sort_order and leave their order
-      // on screen down to whatever the database felt like returning.
-      const nextOrder = await nextSpinSortOrder(lot.listingId);
-      // strict: this is ONE set with a person waiting on it, so a refused
-      // insert has to reach them as what it is. Best-effort is right for a
-      // seller saving several at once and wrong here -- swallowing an RLS
-      // denial reported it as a connection problem, which is a thing an
-      // admin retries for ever.
-      const written = await writeSpinSets(
-        lot.listingId,
-        [{
-          id: '',
-          // Named from the same strictly-increasing number the order comes
-          // from, so two sets can never end up with the same label either.
-          label: nextOrder === 0 ? '360' : `360 (${nextOrder + 1})`,
-          frames,
-        }],
-        // silent: uploadPhotos' own alert tells the reader to open the
-        // listing and tap Edit, which cannot be done to an auction lot.
-        // The sentence below is this screen's own.
-        { startSortOrder: nextOrder, strict: true, silent: true }
-      );
-      if (written[0] && written[0].frames.length < frames.length) {
-        Alert.alert(
-          'The 360 set is missing frames',
-          `${written[0].frames.length} of ${frames.length} uploaded — a spin with gaps in it ` +
-            'jumps. Remove the set and add it again.'
-        );
-      }
-    } catch (e: any) {
-      // Twenty-four frames on a bad connection is minutes of retries, and
-      // unlike the video there is no handle to abort -- so this can very
-      // easily finish after the admin has walked away, and an alert here
-      // lands over whatever screen they are on now.
-      if (!mountedRef.current) return;
-      // The listing behind a CONSIGNED lot can belong to another seller --
-      // add_auction_lot takes any listing id -- and RLS refuses media on
-      // it. That is not something a retry fixes, so it is named.
-      const denied = /row-level security|permission|policy/i.test(e?.message || '');
-      Alert.alert(
-        'Could not add the 360 set',
-        denied
-          ? "This lot's item belongs to another seller, so its media cannot be edited here."
-          : e?.message || String(e)
-      );
-    } finally {
-      if (mountedRef.current) {
-        setBusy(false);
-        load();
-      }
-    }
-  };
 
   const confirmRemoveSpinSet = (setId: string, label: string, frames: number) => {
     Alert.alert(
@@ -1219,10 +1331,16 @@ export default function AdminAuctionLotsScreen() {
 
       <Text style={styles.fieldLabel}>Media</Text>
 
-      <Pressy onPress={() => addPhotosToLot(lot)} style={styles.mediaBtn} disabled={busy}>
-        <Icon name="plus" size={15} color={colors.primary} />
-        <Text style={styles.altText}>Add photos ({lotListings[lot.listingId]?.photos?.length ?? 0} now)</Text>
-      </Pressy>
+      <View style={styles.mediaPair}>
+        <Pressy onPress={() => addPhotosToLot(lot)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="plus" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Add photos ({lotListings[lot.listingId]?.photos?.length ?? 0})</Text>
+        </Pressy>
+        <Pressy onPress={() => setPhotoCameraFor(lot.id)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="camera" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Take photos</Text>
+        </Pressy>
+      </View>
 
       {/* 360 spins. Each set is its own row because a lot can carry more
           than one -- the watch and its movement, the car and its cabin. */}
@@ -1242,13 +1360,20 @@ export default function AdminAuctionLotsScreen() {
         </View>
       ))}
 
-      <Pressy onPress={() => addSpinSet(lot)} style={styles.mediaBtn} disabled={busy}>
-        <Icon name="plus" size={15} color={colors.primary} />
-        <Text style={styles.altText}>Add a 360 set</Text>
-      </Pressy>
+      <View style={styles.mediaPair}>
+        <Pressy onPress={() => pickSpinFrames(lot.id)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="plus" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Add 360</Text>
+        </Pressy>
+        <Pressy onPress={() => openSpinCamera(lot.id)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="camera" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Capture</Text>
+        </Pressy>
+      </View>
       <Text style={styles.hint}>
-        Pick the frames in order, up to {SPIN_MAX_FRAMES}. Around 24 evenly spaced shots of the
-        item on a turntable is what reads as a rotation; fewer than about 8 jumps.
+        Pick frames in order, or shoot them here — the guided camera counts you round the item.
+        Up to {SPIN_MAX_FRAMES}; around {SPIN_MAX_FRAMES} evenly spaced shots reads as a rotation,
+        fewer than about {SPIN_MIN_FRAMES} jumps. Either way you see the spin before it is saved.
       </Text>
 
       {/* Video. One per lot, and the status matters: buyers see it only
@@ -1431,9 +1556,14 @@ export default function AdminAuctionLotsScreen() {
           </Pressy>
         ))}
         {scratch.photos.length < MAX_LOT_PHOTOS && (
-          <Pressy onPress={pickPhotos} style={styles.thumbAdd}>
-            <Icon name="plus" size={16} color={colors.inkSoft} />
-          </Pressy>
+          <>
+            <Pressy onPress={pickPhotos} style={styles.thumbAdd}>
+              <Icon name="plus" size={16} color={colors.inkSoft} />
+            </Pressy>
+            <Pressy onPress={() => setPhotoCameraFor('new')} style={styles.thumbAdd}>
+              <Icon name="camera" size={16} color={colors.inkSoft} />
+            </Pressy>
+          </>
         )}
       </View>
       <Text style={styles.hint}>The first photo is the lot's cover.</Text>
@@ -1443,23 +1573,34 @@ export default function AdminAuctionLotsScreen() {
         <View style={styles.mediaRow}>
           <Icon name="rotate" size={15} color={colors.inkSoft} />
           <Text style={styles.mediaText} numberOfLines={1}>
-            {scratch.spinFrames.length} frame{scratch.spinFrames.length === 1 ? '' : 's'} ready
-            {scratch.spinFrames.length < 8 ? ' — under 8 will jump rather than turn' : ''}
+            {scratch.spinLabel || '360'} · {scratch.spinFrames.length} frame
+            {scratch.spinFrames.length === 1 ? '' : 's'} ready
+            {scratch.spinFrames.length < SPIN_MIN_FRAMES ? ' — short, it will jump' : ''}
           </Text>
-          <Pressy onPress={() => setScratch((f) => ({ ...f, spinFrames: [] }))} style={styles.iconAction} disabled={busy}>
+          <Pressy onPress={() => setScratch((f) => ({ ...f, spinFrames: [], spinLabel: '' }))} style={styles.iconAction} disabled={busy}>
             <Icon name="close" size={14} color={colors.danger} />
           </Pressy>
         </View>
       ) : null}
-      <Pressy onPress={pickScratchSpin} style={styles.mediaBtn} disabled={busy}>
-        <Icon name="plus" size={15} color={colors.primary} />
-        <Text style={styles.altText}>
-          {scratch.spinFrames.length > 0 ? 'Pick different frames' : 'Pick 360 frames'}
-        </Text>
-      </Pressy>
+      <View style={styles.mediaPair}>
+        {/* The held spin's name is carried into a re-pick or a re-shoot.
+            These replace the same draft Retake does, and dropping the label
+            there silently reverted a spin the admin had named. */}
+        <Pressy onPress={() => pickSpinFrames('new', scratch.spinLabel)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="plus" size={15} color={colors.primary} />
+          <Text style={styles.altText}>
+            {scratch.spinFrames.length > 0 ? 'Pick again' : 'Pick frames'}
+          </Text>
+        </Pressy>
+        <Pressy onPress={() => openSpinCamera('new', scratch.spinLabel)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="camera" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Capture</Text>
+        </Pressy>
+      </View>
       <Text style={styles.hint}>
-        In order, up to {SPIN_MAX_FRAMES}. Around {SPIN_MAX_FRAMES} evenly spaced shots of the item
-        on a turntable is what reads as a rotation.
+        Pick frames in order, or shoot them here — the guided camera counts you round the item.
+        Up to {SPIN_MAX_FRAMES}; around {SPIN_MAX_FRAMES} evenly spaced shots of the item on a
+        turntable reads as a rotation. You see the spin turning before it is kept.
       </Text>
 
       <Text style={styles.fieldLabel}>Video</Text>
@@ -1604,6 +1745,106 @@ export default function AdminAuctionLotsScreen() {
           </>
         )}
       </ScrollView>
+
+      {/* The seller flow's camera, unchanged, mounted twice for this
+          screen's two jobs. One instance each serves every lot AND the
+          create form -- which is why both carry an owner rather than a
+          boolean. */}
+      <CameraCapture
+        visible={photoCameraFor !== null}
+        minFrames={1}
+        // What the form can still KEEP, not the flat cap. The create form
+        // appends then clamps, so a camera allowed to hand back eight when
+        // seven are already held drops the seven it just took -- after
+        // telling the admin it would use them. The seller flow passes its
+        // own remaining count for exactly this reason.
+        maxFrames={photoCameraRemaining}
+        instructions="Photograph the lot from every angle a bidder would ask about."
+        progressHint={(count) =>
+          count === 0
+            ? `Room for ${photoCameraRemaining} more`
+            : `${count} taken · ${photoCameraRemaining - count} left`
+        }
+        finishLabel={(count) => (count === 1 ? 'Use 1 photo' : `Use ${count} photos`)}
+        onFinish={(uris) => {
+          const owner = photoCameraFor;
+          if (owner) onPhotosCaptured(owner, uris);
+          else setPhotoCameraFor(null);
+        }}
+        onCancel={() => setPhotoCameraFor(null)}
+        onFallbackToLibrary={() => {
+          const owner = photoCameraFor;
+          setPhotoCameraFor(null);
+          if (owner === 'new') pickPhotos();
+          else {
+            const lot = lots.find((l) => l.id === owner);
+            if (lot) addPhotosToLot(lot);
+          }
+        }}
+      />
+
+      <CameraCapture
+        visible={spinCameraOpen}
+        minFrames={SPIN_MIN_FRAMES}
+        maxFrames={SPIN_MAX_FRAMES}
+        onFinish={(frames) => {
+          setSpinCameraOpen(false);
+          if (frames.length === 0) { closeSpin(); return; }
+          setDraftSpin(frames);
+          setSpinPreviewOpen(true);
+        }}
+        onCancel={closeSpin}
+        onFallbackToLibrary={() => {
+          const owner = spinFor;
+          setSpinCameraOpen(false);
+          // With the label, like every other route into the picker: the
+          // camera was opened carrying it, and dropping it here reverted a
+          // named spin to the default without saying so.
+          if (owner) pickSpinFrames(owner, draftSpinLabel);
+          else closeSpin();
+        }}
+      />
+
+      {/* The same preview the seller gets: the assembled rotation, drag to
+          turn, before anything is written. A spin is the one kind of media
+          you cannot judge from thumbnails -- a frame out of order or one
+          bad exposure only shows up in motion. */}
+      <SpinPreviewModal
+        visible={spinPreviewOpen}
+        frames={draftSpin}
+        label={draftSpinLabel}
+        onChangeLabel={setDraftSpinLabel}
+        labelSuggestions={SPIN_LABEL_SUGGESTIONS}
+        onRetake={() => {
+          setSpinPreviewOpen(false);
+          if (spinFromCamera) {
+            setDraftSpin([]);
+            setSpinCameraOpen(true);
+            return;
+          }
+          // Picked, not shot: back to the library, carrying the label they
+          // typed. The frames stay in state, and if the picker is
+          // cancelled -- on the web build, simply dismissing the file
+          // dialog -- the preview comes back rather than leaving the
+          // selection stranded behind a closed modal with no way to reach
+          // it. Same shape the seller's spin step uses.
+          const owner = spinFor;
+          if (!owner) { closeSpin(); return; }
+          pickSpinFrames(owner, draftSpinLabel)
+            .catch(() => false)
+            .then((got) => {
+              if (!got && mountedRef.current) setSpinPreviewOpen(true);
+            });
+        }}
+        onContinue={() => {
+          const owner = spinFor;
+          const frames = draftSpin;
+          const label = draftSpinLabel;
+          closeSpin();
+          if (owner) commitSpin(owner, frames, label);
+        }}
+        onClose={closeSpin}
+      />
     </Screen>
   );
 }

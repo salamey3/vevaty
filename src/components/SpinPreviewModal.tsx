@@ -38,8 +38,13 @@ type Props = {
 // A listing can have more than one spin (see SpinSet in types/index.ts --
 // e.g. "Exterior"/"Interior" for a car, one per room for a property), so
 // this also carries a name field for the spin being previewed. "Retake"
-// discards these frames and reopens the guided camera (keeping whatever
-// label is currently typed). "Continue" commits this set (frames + label)
+// hands back to the CALLER and does not itself decide what happens, so the
+// two callers differ: the seller's Spin step always discards the frames
+// and reopens the guided camera, while the admin auction screen returns to
+// whichever surface the frames came from -- the camera for a captured set,
+// the library for a picked one, keeping those frames until a replacement
+// actually arrives so a cancelled picker does not cost a selection. Both
+// keep whatever label is currently typed. "Continue" commits this set (frames + label)
 // into the seller's list of spins on the Spin step -- it does NOT by
 // itself advance the wizard to the next step anymore now that there can be
 // more than one spin to add; the seller uses the step's own Continue

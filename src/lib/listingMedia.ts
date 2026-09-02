@@ -17,6 +17,11 @@ import { SpinSet } from '../types';
 // to exist before its frames can point at it, and the frames are ordinary
 // listing_photos rows with kind='spin' and a spin_set_id.
 
+// A spin below this many frames stutters rather than turns; above it the
+// upload cost stops buying anything a viewer can see. Both live here
+// rather than in the create-listing wizard because the admin auction
+// screens capture spins too, through the same CameraCapture component.
+export const SPIN_MIN_FRAMES = 12;
 export const SPIN_MAX_FRAMES = 24;
 
 // Frames may be a mix of already-hosted URLs (kept from a previous save)
