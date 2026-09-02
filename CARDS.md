@@ -318,6 +318,35 @@ crop of what a seller's own camera usually shoots landscape. That is the accepte
 having the gap, and the lever if it reads as too tight is the thumbnail's 38%
 share of the card, not the ratio.
 
+**Nothing in flow inside that frame may have a height of its own**, which
+shipped broken once and is worth the paragraph. The photo was `width:
+'100%', height: '100%'`, and the card ran off the bottom of a phone screen
+in the app while looking perfect in a browser.
+
+Yoga and CSS resolve a percentage against different things. CSS resolves
+`height: 100%` against the containing block's height, which here is `auto`,
+so the rule does not apply — and react-native-web paints an Image as a
+background on a div, which has no intrinsic size, so it contributed nothing
+and the row took its height from the text. That was the behaviour we wanted,
+arrived at by a rule we were not relying on. Yoga resolves the same
+percentage against the *available* inner height handed down from the
+ancestors, which on a phone is the screen less the chrome — so the photo
+measured at the whole remaining viewport, the thumbnail took that, and the
+row and the details column stretched to match. The card's height tracked the
+phone rather than the photo.
+
+Worth recording because it was the first guess and it is wrong: this is not
+the photo's own pixels. A React Native `Image` is a leaf Yoga node with no
+measure function, so a remote source contributes no intrinsic size at all.
+
+The photo is absolutely positioned now, like every other child of that frame
+already was — a child outside the parent's measurement cannot define the box
+it exists to fill. The one thing still in flow there is the placeholder glyph
+shown when a listing has no photo, which is safe only because 30pt can never
+exceed the details column beside it. The general rule, since this will come
+up again: a view whose height comes from a sibling should hold nothing in
+flow, and anything that must be there needs a bound of its own.
+
 The shop pill moved inside that pinned footer at the same time. Left hanging
 below it, a shop-sourced card's district line sat ~26px above a plain card's
 in the same row — the pinning would have swapped one misalignment for

@@ -675,7 +675,37 @@ const styles = StyleSheet.create({
   // because CSS resolves stretch-versus-aspect-ratio the opposite way to
   // Yoga. Two renderers agreeing by accident is not agreement.
   thumbVertical: { aspectRatio: 4 / 3 },
-  thumbImg: { width: '100%', height: '100%' },
+  // Absolutely filling the thumb, NOT `width: '100%', height: '100%'`, and
+  // that difference is the whole reason the photo-left card ran off the
+  // bottom of a phone screen while looking perfect in a browser.
+  //
+  // Yoga and CSS resolve a percentage against different things, and this is
+  // the case where it shows. CSS resolves `height: 100%` against the
+  // containing block's height; here that is `auto`, so the rule does not
+  // apply, and react-native-web's Image (a div with a background image, no
+  // intrinsic size) contributed nothing -- the row took its height from the
+  // text, which is what we wanted, by a rule we were not relying on. Yoga
+  // resolves it against the AVAILABLE inner height propagated down from the
+  // ancestors, which on a phone is the screen less the chrome. So the photo
+  // measured at the whole remaining viewport, the thumb took that, and the
+  // row and the details column beside it stretched to match. The card's
+  // height tracked the phone, not the photo -- a different card on a
+  // different device, same result.
+  //
+  // (Not the photo's own pixels, which was the first guess and is wrong: a
+  // React Native Image is a leaf Yoga node with no measure function, so a
+  // remote source contributes no intrinsic size at all.)
+  //
+  // An absolutely positioned child sits outside its parent's measurement
+  // entirely, which ends the argument in both engines: the thumb has no
+  // intrinsic height now, takes the height the row gives it, and the photo
+  // fills whatever that turns out to be. Every other child of this frame --
+  // CardPreview, the out-of-stock ribbon, all three badges -- was already
+  // absolute. The one child still in flow is the placeholder glyph on the
+  // other arm of the ternary, which is fine at 30pt because it can never
+  // exceed the details column; it is an exception to watch rather than a
+  // second instance of this bug.
+  thumbImg: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
   // A bounded column instead of the vertical card's full-bleed frame: this
   // thumbnail shares the row with a details column rather than owning the
   // card's whole top edge. Its WIDTH is computed from the card at render time
@@ -683,7 +713,10 @@ const styles = StyleSheet.create({
   // fixed 300px card was most of what was wrong with this shape.
   //
   // No aspectRatio at all, and that is the point: the height comes from the
-  // row, so the photo is exactly as tall as the card. A fixed ratio meant a
+  // row, so the photo is exactly as tall as the card. It only works because
+  // nothing in flow inside the thumb has a height of its own -- see thumbImg,
+  // which is absolute for exactly this reason and was not, for one shipped
+  // version. A fixed ratio meant a
   // square photo beside a taller details column, which left a band of empty
   // white beneath the picture -- worst on the cards that have most to say,
   // which are the ones you most want to look at. `alignSelf: stretch` says so
