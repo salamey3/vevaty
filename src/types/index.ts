@@ -455,7 +455,12 @@ export interface Listing {
   // check or a human moderator (AdminModerationScreen) can move it to
   // 'active'; 'rejected' means a human moderator declined it (see
   // moderationReason) and the seller can edit and resubmit.
-  status: 'draft' | 'active' | 'sold' | 'expired' | 'removed' | 'pending_review' | 'rejected';
+  // 'auction' is a lot held in an auction event -- see AUCTIONS.md. Such a
+  // listing is NOT for sale in the ordinary sense: it has no fixed price,
+  // no contact button, and must never reach a browse grid or a collection.
+  // AppStore's fetch excludes it explicitly for that reason; the auction
+  // surfaces read their lots through their own query.
+  status: ListingStatus;
   // Bookkeeping for WHY status is what it is -- see the moderate-listing
   // edge function and AdminModerationScreen. 'pending' = AI check hasn't
   // resolved yet, 'flagged' = AI declined and it's waiting on a human.
@@ -727,6 +732,113 @@ export interface SiteSettings {
   logoEnUrl: string | null;
   logoArUrl: string | null;
   faviconUrl: string | null;
+  // Hides the entire auction section -- the gate tile, the routes, the
+  // admin entry point. Off by default in the database so a deploy can
+  // never expose a half-assembled auction, and the one switch that has to
+  // be thrown to demonstrate the feature. See AUCTIONS.md.
+  auctionsEnabled: boolean;
+}
+
+// Every value listings.status can hold, as ONE list.
+//
+// It was written out by hand in three places -- the Listing type, the
+// admin moderation filter, and AppStore's defensive whitelist -- and
+// adding 'auction' to a subset of them is precisely the failure @AGENTS.md
+// records for conditionModes: two of six copies were missed, and a listing
+// saved as 'free' came back as null. The whitelist in particular coerces
+// anything unrecognised to 'active', so a missed entry there does not
+// throw, it silently mislabels an auction lot as a live listing.
+export const LISTING_STATUSES = [
+  'draft', 'active', 'sold', 'expired', 'removed',
+  'pending_review', 'rejected', 'auction',
+] as const;
+
+export type ListingStatus = (typeof LISTING_STATUSES)[number];
+
+// ---------------------------------------------------------------------
+// Auctions. See AUCTIONS.md for the reasoning behind every rule below;
+// this is only the shape.
+// ---------------------------------------------------------------------
+
+// An auction EVENT. Its status is stored rather than derived from the
+// clock on purpose: an auction that should have opened but has not been
+// advanced by the closer is a state worth being able to SEE, not one the
+// UI quietly infers away.
+export type AuctionStatus = 'draft' | 'scheduled' | 'live' | 'closed' | 'settled' | 'cancelled';
+
+export interface Auction {
+  id: string;
+  titleEn: string;
+  titleAr: string;
+  status: AuctionStatus;
+  opensAt: string | null;
+  // When LOT ONE closes. Every later lot closes lotCloseStaggerSeconds
+  // after the one before it.
+  firstLotClosesAt: string | null;
+  lotCloseStaggerSeconds: number;
+  antiSnipeSeconds: number;
+  sellerCommissionPct: number;
+  buyerPremiumPct: number;
+}
+
+export type AuctionLotStatus =
+  | 'pending' | 'live' | 'closed' | 'won' | 'unsold' | 'settled' | 'cancelled';
+
+export interface AuctionLot {
+  id: string;
+  auctionId: string;
+  // The lot's item is an ordinary Listing carrying status 'auction'.
+  listingId: string;
+  lotNumber: number;
+  startPrice: number;
+  // Whether a reserve EXISTS and whether it has been met are public; the
+  // number itself never leaves the database, which is the convention every
+  // auction house uses.
+  hasReserve: boolean;
+  reserveMet: boolean;
+  // Null until the first bid. Not the leader's ceiling -- that is the
+  // secret the whole mechanism rests on and no client ever sees it.
+  currentPrice: number | null;
+  bidCount: number;
+  closesAt: string | null;
+  status: AuctionLotStatus;
+  winningAmount: number | null;
+  // Whether the CURRENT viewer is the leading bidder. Resolved per viewer;
+  // never the leader's identity.
+  viewerIsLeading: boolean;
+}
+
+// One row of the public bid history. Deliberately narrow -- see
+// myazar.auction_lot_bid_history: no max, no user id, no name. The alias
+// is stable within one lot and unrelated across lots, which is enough to
+// follow a duel and not enough to follow a person around the site.
+export interface AuctionBidHistoryEntry {
+  bidAt: string;
+  amount: number;
+  // Placed by the house as somebody's standing proxy rather than by a
+  // person in the moment. Shown as such: implying a human acted would be a
+  // lie about the one thing an auction has to be honest about.
+  isAuto: boolean;
+  bidderAlias: number;
+  isMe: boolean;
+}
+
+// A saved card. Named SavedCard rather than PaymentMethod because that
+// name is already taken by the payment-RAIL union above (whish /
+// cash_confirmation / card) -- two different questions that would have
+// been very easy to confuse at a call site.
+//
+// NO CARD NUMBER IS EVER STORED OR SENT. This is what a gateway hands back
+// after tokenising on the client, and the demo provider produces the same
+// shape from a published test number.
+export interface SavedCard {
+  id: string;
+  provider: 'demo' | 'areeba' | 'tap' | 'paytabs';
+  brand: string;
+  last4: string;
+  expMonth: number;
+  expYear: number;
+  status: 'active' | 'expired' | 'removed';
 }
 
 // A Home-screen collection (Editor's Picks, Hot Deals, Just Listed) and its

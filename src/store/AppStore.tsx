@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ContactOutcome, ContactPrompt, Listing, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
+import { ContactOutcome, ContactPrompt, Listing, LISTING_STATUSES, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, tierForPoints } from '../data/points';
@@ -364,7 +364,7 @@ function normalizeListing(l: any): Listing {
     // Same defensive story as photos/spinSets above: a listing cached by
     // a build that predates the login-gate/expiry feature won't have
     // these fields at all.
-    status: ['draft', 'active', 'sold', 'expired', 'removed', 'pending_review', 'rejected'].includes(l?.status) ? l.status : 'active',
+    status: (LISTING_STATUSES as readonly string[]).includes(l?.status) ? l.status : 'active',
     // Content moderation -- same defensive story as status above: a
     // listing cached by a build that predates this feature won't have
     // these fields at all.
@@ -707,6 +707,15 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         // the next app reload. Nobody else's 'removed' rows were ever
         // reachable through this query to begin with.
         .neq('status', 'removed')
+        // An auction lot is a listing carrying status 'auction', and this
+        // is the ONE place it is kept out of the marketplace. Every browse
+        // surface -- the grids, search, collections, storefronts, related
+        // listings -- filters this same client-side array, so excluding it
+        // here excludes it everywhere, and forgetting it here would put a
+        // consigned watch with no price and no contact button into Hot
+        // Deals. RLS deliberately does NOT hide these rows: the auction
+        // screens have to be able to read them. See AUCTIONS.md.
+        .neq('status', 'auction')
         .order('created_at', { ascending: false });
 
       if (error) {

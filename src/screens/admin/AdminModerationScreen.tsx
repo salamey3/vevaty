@@ -10,6 +10,7 @@ import VideoPlayer from '../../components/VideoPlayer';
 import { colors, type, radius } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
 import { useSettings } from '../../store/SettingsStore';
+import { LISTING_STATUSES, ListingStatus } from '../../types';
 import { parseResolutions } from '../../lib/bunnyVideo';
 import { RootStackParamList } from '../../navigation/types';
 
@@ -26,8 +27,15 @@ import { RootStackParamList } from '../../navigation/types';
 // blip on the seller's device right after posting), this is the only place
 // it's still visible.
 
-type Status = 'draft' | 'active' | 'sold' | 'expired' | 'removed' | 'pending_review' | 'rejected';
-const STATUSES: Status[] = ['draft', 'active', 'sold', 'expired', 'removed', 'pending_review', 'rejected'];
+// 'auction' is deliberately absent from the FILTER pills below even though
+// it is a real listing status: an auction lot is curated by hand into a
+// sale that has already been agreed, it never passes through moderation,
+// and the fetch excludes it (see the query). Offering a Remove button for
+// one would set its listing to 'removed', which instantly fails the
+// auction-lot RLS policy and makes a live lot vanish for every bidder
+// mid-auction while auction_lots still points at it.
+type Status = Exclude<ListingStatus, 'auction'>;
+const STATUSES: Status[] = LISTING_STATUSES.filter((s): s is Status => s !== 'auction');
 type ModStatus = 'pending' | 'ai_approved' | 'flagged' | 'human_approved' | 'rejected';
 
 type ModListing = {
@@ -97,6 +105,7 @@ export default function AdminModerationScreen() {
               'removed_reason,removed_at,' +
               'seller:profiles(full_name),photos:listing_photos(url,kind),video:listing_videos(bunny_guid,resolutions)'
           )
+          .neq('status', 'auction')
           .order('created_at', { ascending: false }),
         supabase.from('reports').select('reported_listing_id').eq('status', 'open'),
       ]);

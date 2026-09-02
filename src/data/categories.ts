@@ -153,4 +153,8 @@ export const DEFAULT_SITE_SETTINGS = {
   logoEnUrl: null as string | null,
   logoArUrl: null as string | null,
   faviconUrl: null as string | null,
+  // Off in the offline fallback for the same reason it is off in the
+  // database: the section should never appear because a device could not
+  // reach Supabase. See AUCTIONS.md.
+  auctionsEnabled: false,
 };

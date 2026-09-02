@@ -359,6 +359,7 @@ function dbToSiteSettings(row: any): SiteSettings {
   return {
     brandPrimaryColor: row.brand_primary_color || DEFAULT_SITE_SETTINGS.brandPrimaryColor,
     brandAccentColor: row.brand_accent_color || DEFAULT_SITE_SETTINGS.brandAccentColor,
+    auctionsEnabled: row.auctions_enabled === true,
     logoEnUrl: row.logo_en_url || null,
     logoArUrl: row.logo_ar_url || null,
     faviconUrl: row.favicon_url || null,

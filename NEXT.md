@@ -28,6 +28,15 @@ Two things worth fixing:
   account phone. Both are new writes and neither has been exercised against
   the real endpoint. See @ACCOUNTS.md.
 
+- **Auctions: the screens.** The schema, the proxy-bidding engine, the
+  closer and the client layer are in and exercised against the live
+  database (@AUCTIONS.md); nothing buyer-facing exists yet. Next is the
+  gate tile, the auction page with its countdown, the lot page, the bid
+  sheet, the card/registration flow, and the admin screens that build an
+  auction and publish it. The feature is off behind
+  `site_settings.auctions_enabled`, which is what has to be switched on to
+  demonstrate it.
+
 - **The home carousels scroller is not virtualised, and cards just got 60%
   wider.** `renderCarousels` mounts every section on the page at once -- it
   was un-virtualised deliberately, because a windowed list re-mounted each row
