@@ -263,8 +263,9 @@ scratch** by `create_auction_lot`, which inserts the listing at status
 Consignment alone was the original design and it was wrong. Consignment in
 reality starts with the item arriving at our door — nobody listed it for
 sale first, and requiring them to means posting every auction item to the
-marketplace and immediately pulling it back out. The from-scratch form takes stills; the 360 spin and the
-video are added afterwards, from the lot editor.
+marketplace and immediately pulling it back out. The from-scratch form takes stills, a 360 set and a
+video; the lot editor takes the same three afterwards, which is the only
+way to correct them.
 
 Photos are uploaded **before** the lot is created, not after. Reversed, the
 lot exists first — publicly biddable, on a live auction, rendering the
@@ -392,7 +393,21 @@ time this feature shipped media that no buyer could see; the first was the
 three RLS policies. **Writing media and showing media are two jobs, and
 finishing one is not finishing the other.**
 
-**Media is added after the lot exists, and only from the editor.** Photos,
+**Both screens take the media; only the editor can fix it.** The first
+version put the 360 set and the video on the lot editor alone, on the sound
+technical ground that a video has to attach to a listing that already
+exists. What that produced in practice was an admin building a lot from
+scratch, looking at the form, and concluding the feature was not there —
+because the media lived behind a pencil on a row that did not exist yet.
+A correct place is not the same as a findable one. The create form now
+takes both, holds them locally, and writes them in the right order once the
+lot exists: stills and 360 frames upload BEFORE the lot is created (so a
+total failure creates nothing), the spin rows are written from those
+already-hosted urls without re-uploading, and the video goes LAST — it is
+the only step measured in minutes and the only one whose failure leaves
+something usable behind.
+
+**Media is written straight to its tables.** Photos,
 a 360 set and a video all hang off the lot's listing, and all three are
 written straight to their tables rather than through a function: RLS allows
 it on ownership alone (`sellers manage their own listing photos` / `... spin
@@ -417,11 +432,22 @@ outside auctions:
   retries for ever. It takes a `strict` flag for the single-set caller who
   has somebody waiting on the answer.
 
+- **Admins are exempt from the daily video ceiling.**
+  `bunny-video-token` allows ten new video objects per `seller_id` in a
+  rolling day — written for a person posting listings by hand, who cannot
+  plausibly exceed it. `create_auction_lot` makes the admin the seller of
+  every lot it builds, so one fortnightly catalogue puts fifteen videos on
+  a single `seller_id`, and every replacement burns another: against this
+  workload the ceiling stops the work rather than any abuse of it. The
+  check falls the safe way — a failed lookup counts as "not an admin", so
+  the quota applies.
 - Nothing in this project sweeps orphaned Bunny videos — the only
   scheduled jobs are the expiry reminders and the removed-listing purge —
-  so an upload abandoned mid-flight is stored and billed for ever, and has
-  already spent one of the account's ten daily video slots. The screen
-  deletes the object itself on every abort and every failure.
+  so an upload abandoned mid-flight is stored and billed for ever. The
+  screen deletes the object itself on every abort and every failure, and
+  claims the guid the instant the ticket resolves rather than after the
+  upload starts: the object comes into being during that await, so a
+  screen torn down inside it would otherwise find nothing to delete.
 - A video only leaves `uploading` / `processing` when Bunny's webhook
   arrives, and Bunny does not document whether it retries a dropped
   delivery. Our row is not evidence: re-reading it returns what it already
@@ -473,14 +499,6 @@ changed, not to the parent.
   ways, which is how the first few will actually run — sourced and curated
   by hand. A submit-for-review queue roughly doubles v1 and is almost
   entirely admin screens rather than auction.
-- **The daily video ceiling is per account, and every from-scratch lot
-  belongs to the same one.** `bunny-video-token` allows ten new video
-  objects per `seller_id` in a rolling day, written when a seller posting
-  by hand could not plausibly exceed it. `create_auction_lot` makes the
-  admin the seller of every lot it builds, so cataloguing a fifteen-lot
-  sale with video on each is within reach of it, and each replacement burns
-  a slot too. The fix is an exemption for accounts in `myazar.admins`; it
-  is an edge-function change, not an app one, and is not in this patch.
 - **Guided spin capture on an admin lot.** Frames are picked from the
   library, in order, up to 24 — which is how a consigned item is actually
   shot: on a real camera, on a turntable, then transferred. The seller

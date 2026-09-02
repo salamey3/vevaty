@@ -11,7 +11,7 @@ import { colors, radius, type } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
 import { AuctionLotStatus, Listing } from '../../types';
 import { listingTitle } from '../../lib/listingText';
-import { uploadPhotosWithThumbnails } from '../../lib/photoUpload';
+import { uploadPhotos, uploadPhotosWithThumbnails } from '../../lib/photoUpload';
 import { SPIN_MAX_FRAMES, deleteSpinSet, nextSpinSortOrder, writeSpinSets } from '../../lib/listingMedia';
 import {
   BUNNY_MEDIA_HEADERS, MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, UploadHandle,
@@ -52,12 +52,26 @@ import { RootStackParamList } from '../../navigation/types';
 // and rebuilt instead.
 const MAX_LOT_PHOTOS = 8;
 
+// One picked video, held locally until there is a lot to attach it to.
+// Kept as the fields validation needs rather than the whole asset, because
+// what comes back from the picker differs by platform and only these three
+// are ever read.
+type PickedVideo = { uri: string; mimeType: string | null; seconds: number | null };
+
 type ScratchForm = {
   titleEn: string; titleAr: string;
   descriptionEn: string; descriptionAr: string;
   categoryId: string; district: string; condition: string;
   startPrice: string; reserve: string;
   photos: string[];
+  // Chosen here, uploaded when Create lot is tapped. The 360 set needs a
+  // listing to hang its rows off and the video needs one to attach to, so
+  // neither can be written before the lot exists -- but making the admin
+  // create the lot and then go and find the pencil to add the two things
+  // the auction is actually built around was a worse answer, and it read
+  // as the feature simply not being there.
+  spinFrames: string[];
+  video: PickedVideo | null;
 };
 
 // Every status auction_lots allows. Same reasoning as the auction status
@@ -70,7 +84,7 @@ const LOT_STATUSES: AuctionLotStatus[] = [
 const EMPTY_SCRATCH: ScratchForm = {
   titleEn: '', titleAr: '', descriptionEn: '', descriptionAr: '',
   categoryId: '', district: '', condition: '',
-  startPrice: '', reserve: '', photos: [],
+  startPrice: '', reserve: '', photos: [], spinFrames: [], video: null,
 };
 
 export default function AdminAuctionLotsScreen() {
@@ -93,14 +107,41 @@ export default function AdminAuctionLotsScreen() {
   const [reserve, setReserve] = useState('');
   const [scratch, setScratch] = useState<ScratchForm>(EMPTY_SCRATCH);
   const [catQuery, setCatQuery] = useState('');
-  // The lot's video upload, held at screen level rather than inside the
+  // A video upload's progress, held at screen level rather than inside the
   // editor's render so that closing and reopening the pencil does not
-  // orphan an upload that is still running. `videoUploadRef` is the live
-  // tus handle, kept only so it can be aborted.
+  // orphan an upload that is still running. Shared by BOTH callers: the
+  // lot editor reports through these and so does the create form, which
+  // owns them as `videoUploadingFor === 'new'`. The upload itself lives in
+  // the owned slot below.
   const [videoProgress, setVideoProgress] = useState(0);
   const [videoUploadingFor, setVideoUploadingFor] = useState<string | null>(null);
   const [videoError, setVideoError] = useState<string | null>(null);
-  const videoUploadRef = useRef<UploadHandle | null>(null);
+  // ONE upload at a time, and it knows whose it is.
+  //
+  // These were two bare refs, and two callers could reach them: the lot
+  // editor, whose upload deliberately survives the editor being closed, and
+  // the create form, which becomes reachable again the moment it is. The
+  // second caller overwrote the first's handle and guid, so a failure in
+  // the first then read the SECOND's guid and deleted a video that was
+  // uploading fine -- while its own object was left on Bunny for ever.
+  // An owner token makes that unrepresentable: a claim fails if the slot is
+  // taken, and only the owner can release it.
+  const uploadRef = useRef<{ owner: string; handle: UploadHandle | null; guid: string | null } | null>(null);
+
+  const claimUpload = (owner: string): boolean => {
+    if (uploadRef.current) return false;
+    uploadRef.current = { owner, handle: null, guid: null };
+    return true;
+  };
+  // Returns the guid this owner still holds, and gives the slot back. Null
+  // if somebody else holds it, or if it was already released -- which is
+  // exactly what stops a second deleteVideo on the same object.
+  const releaseUpload = (owner: string): string | null => {
+    if (uploadRef.current?.owner !== owner) return null;
+    const guid = uploadRef.current.guid;
+    uploadRef.current = null;
+    return guid;
+  };
   // The lot currently being corrected, and the form behind it.
   const [editingLot, setEditingLot] = useState<AdminLotRow | null>(null);
   const [lotEdit, setLotEdit] = useState({
@@ -120,7 +161,7 @@ export default function AdminAuctionLotsScreen() {
   // either -- CreateListingScreen polls the same way. Without this the
   // editor's own hint ("reopening this lot re-reads it") is a lie: re-reading
   // our row returns what it already said, for ever, and the only recovery is
-  // to delete the video and burn another slot of the daily cap re-uploading.
+  // to delete the video and upload it again.
   const openVideo = editingLot ? lotListings[editingLot.listingId]?.video ?? null : null;
   useEffect(() => {
     // BOTH non-terminal states, not just 'processing'. The row is created
@@ -198,9 +239,7 @@ export default function AdminAuctionLotsScreen() {
   // it. The half-uploaded video object is deleted from Bunny in the same
   // breath: there is NO orphan sweep in this project -- the only scheduled
   // jobs are the expiry reminders and the removed-listing purge -- so
-  // anything left behind here is stored and billed for ever, and has also
-  // eaten one of the account's ten daily video slots.
-  const inFlightGuidRef = useRef<string | null>(null);
+  // anything left behind here is stored and billed for ever.
   // Now that an abort REJECTS rather than hanging, addLotVideo resumes
   // after this screen is gone and runs its finally -- which reloads, and
   // on failure raises an alert through the global AlertHost, over whatever
@@ -209,11 +248,10 @@ export default function AdminAuctionLotsScreen() {
   const mountedRef = useRef(true);
   useEffect(() => () => {
     mountedRef.current = false;
-    videoUploadRef.current?.abort();
-    videoUploadRef.current = null;
-    const guid = inFlightGuidRef.current;
-    inFlightGuidRef.current = null;
-    if (guid) deleteVideo(guid).catch(() => {});
+    const slot = uploadRef.current;
+    uploadRef.current = null;
+    slot?.handle?.abort();
+    if (slot?.guid) deleteVideo(slot.guid).catch(() => {});
   }, []);
 
   // The admin's OWN listings, whatever state they are in. The ownership
@@ -304,6 +342,72 @@ export default function AdminAuctionLotsScreen() {
     }
   };
 
+  // One rule, and both pickers ask it -- the create form's and the
+  // editor's. Checked before a byte is sent: neither the web capture
+  // attribute nor Android's camera app takes a length limit from us, so
+  // this is the only point where a 90-second clip can be refused without
+  // first spending minutes of upload on it.
+  const videoRejection = (seconds: number | null, fileSize: number | undefined): string | null => {
+    if (seconds != null && seconds > MAX_VIDEO_SECONDS + 1) {
+      return `That clip is ${Math.round(seconds)}s. The limit is ${MAX_VIDEO_SECONDS}s.`;
+    }
+    if (typeof fileSize === 'number' && fileSize > MAX_VIDEO_BYTES) {
+      return 'That file is too large to upload.';
+    }
+    return null;
+  };
+
+  const pickScratchSpin = async () => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos', 'Allow photo library access to add a 360 set.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.7,
+      selectionLimit: SPIN_MAX_FRAMES,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+    // selectionLimit is native-only; the web picker ignores it.
+    if (result.assets.length > SPIN_MAX_FRAMES) {
+      Alert.alert('Too many frames', `You picked ${result.assets.length}. The first ${SPIN_MAX_FRAMES} will be used.`);
+    }
+    setScratch((f) => ({ ...f, spinFrames: result.assets.slice(0, SPIN_MAX_FRAMES).map((a) => a.uri) }));
+  };
+
+  const pickScratchVideo = async (fromCamera: boolean) => {
+    const perm = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Video', 'Allow access to add a video.');
+      return;
+    }
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          videoMaxDuration: MAX_VIDEO_SECONDS,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          allowsMultipleSelection: false,
+          selectionLimit: 1,
+        });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+    const seconds = await measureVideoSeconds(asset.uri, asset.duration ?? null);
+    // Refused at PICK time, not at save time: finding out the clip was too
+    // long only after filling in the whole form is the worse order.
+    const rejection = videoRejection(seconds, asset.fileSize);
+    if (rejection) { Alert.alert('Video', rejection); return; }
+    setScratch((f) => ({
+      ...f,
+      video: { uri: asset.uri, mimeType: asset.mimeType ?? null, seconds },
+    }));
+  };
+
   const parsePrices = (startText: string, reserveText: string) => {
     const start = Number(startText);
     const res = reserveText.trim() ? Number(reserveText) : null;
@@ -354,8 +458,18 @@ export default function AdminAuctionLotsScreen() {
     }
     const prices = parsePrices(scratch.startPrice, scratch.reserve);
     if (!prices) return;
+    if (scratch.video && videoUploadingFor) {
+      // Refused before a byte is sent rather than half way through: there
+      // is one upload slot, and the button below is disabled for the same
+      // reason -- this is the guard for the tap that got in first.
+      Alert.alert('A video is already uploading', 'Wait for it to finish before creating another lot with one.');
+      return;
+    }
 
     setBusy(true);
+    // Collected rather than alerted as they happen -- see the single report
+    // at the end of this function for why.
+    const problems: string[] = [];
 
     // Photos FIRST, and the ordering is the point. uploadPhotosWithThumbnails
     // wants no listing id -- it returns CDN urls -- and doing it after the
@@ -375,10 +489,42 @@ export default function AdminAuctionLotsScreen() {
       uploaded = await uploadPhotosWithThumbnails(scratch.photos);
       if (uploaded.length === 0) {
         setBusy(false);
-        Alert.alert(
-          'Photos did not upload',
-          'Nothing was created — the lot has not been saved. Check the connection and try again.'
-        );
+        // Guarded, like every other alert on a path that can run for
+        // minutes: eight photos with three retries each is long enough for
+        // the admin to have walked away, and AlertHost is global -- an
+        // unguarded alert lands over whatever screen they are on now.
+        if (mountedRef.current) {
+          Alert.alert(
+            'Photos did not upload',
+            'Nothing was created — the lot has not been saved. Check the connection and try again.'
+          );
+        }
+        return;
+      }
+    }
+
+    // 360 frames too, and for the same reason. uploadPhotos hands back CDN
+    // urls without needing a listing; writeSpinSets below takes them as
+    // already-hosted and re-inserts rather than re-uploading, which is the
+    // path the seller's edit flow uses. So the slow part is over before
+    // anything is created, and a total failure means no LOT exists -- the
+    // stills that did upload are already on storage with nothing pointing
+    // at them, which costs a retry rather than a wrong lot.
+    let spinUrls: string[] = [];
+    if (scratch.spinFrames.length > 0) {
+      // silent: uploadPhotos' own alert tells the reader to open the
+      // listing and tap Edit. There is no listing yet, and there will never
+      // be a screen that opens one at status 'auction'.
+      spinUrls = await uploadPhotos(scratch.spinFrames, { silent: true });
+      if (spinUrls.length === 0) {
+        setBusy(false);
+        if (mountedRef.current) {
+          Alert.alert(
+            'The 360 frames did not upload',
+            'The lot has not been created. Check the connection and try again — the photos you ' +
+              'already picked will upload again with it.'
+          );
+        }
         return;
       }
     }
@@ -403,7 +549,10 @@ export default function AdminAuctionLotsScreen() {
       listingId = created.listingId;
     } catch (e: any) {
       setBusy(false);
-      Alert.alert('Could not create lot', adminMessage(e));
+      // Same guard as the two upload failures above: by the time this can
+      // fire, minutes of uploading have happened and the admin may be two
+      // screens away.
+      if (mountedRef.current) Alert.alert('Could not create lot', adminMessage(e));
       return;
     }
 
@@ -421,16 +570,107 @@ export default function AdminAuctionLotsScreen() {
           kind: 'gallery',
         }))
       );
-      if (error) {
-        Alert.alert('Lot created, photos did not attach', `${error.message}\n\nUse Add photos on the lot to finish.`);
-      } else if (uploaded.length < scratch.photos.length) {
-        Alert.alert(
-          'Lot created without all its photos',
-          `${uploaded.length} of ${scratch.photos.length} uploaded. Use Add photos on the lot to finish.`
-        );
+      if (error) problems.push(`The photos did not attach (${error.message}).`);
+      else if (uploaded.length < scratch.photos.length) {
+        problems.push(`Only ${uploaded.length} of ${scratch.photos.length} photos uploaded.`);
       }
     }
 
+    // The 360 set, from urls that are already hosted -- writeSpinSets keeps
+    // those and uploads nothing, so this is two inserts, not another wait.
+    if (spinUrls.length > 0) {
+      try {
+        await writeSpinSets(listingId, [{ id: '', label: '360', frames: spinUrls }], { strict: true });
+        if (spinUrls.length < scratch.spinFrames.length) {
+          problems.push(
+            `Only ${spinUrls.length} of ${scratch.spinFrames.length} 360 frames uploaded — a spin ` +
+              'with gaps in it jumps.'
+          );
+        }
+      } catch (e: any) {
+        problems.push(`The 360 set was not attached (${e?.message || String(e)}).`);
+      }
+    }
+
+    // The video LAST, because it is the only step measured in minutes and
+    // the only one whose failure leaves something usable behind: by this
+    // point the lot exists with its photos and its spin, and the editor can
+    // finish the job. Blocking creation on it would be the photo-ordering
+    // mistake again, one level up.
+    // Not on a dead screen. Nothing between setBusy above and here can be
+    // aborted -- photo and spin uploads have no handle -- so this function
+    // runs on after the admin backs out, and starting a MINUTES-long video
+    // upload at that point escapes the cleanup entirely: it already ran,
+    // found an empty slot, and will never run again. The object would be
+    // orphaned on Bunny with nothing in the app able to reach it.
+    if (scratch.video && !mountedRef.current) {
+      // Nothing can be reported from here either, so the guid is the only
+      // thing worth caring about -- and there is none yet. The lot exists
+      // with its photos and its spin; the editor can finish it.
+      return;
+    }
+    // Checked, not assumed. If the claim ever failed and this ran anyway,
+    // the handle and the guid below would be recorded nowhere -- precisely
+    // the untracked upload the owned slot exists to prevent.
+    if (scratch.video && !claimUpload('new')) {
+      problems.push('The video was not uploaded — another upload was already running.');
+    } else if (scratch.video) {
+      setVideoUploadingFor('new');
+      try {
+        setVideoProgress(0);
+        const ticket = await createVideoUploadTicket({
+          title: scratch.titleEn.trim() || 'Vevaty auction lot',
+          listingId,
+        });
+        // The guid is recorded the INSTANT it exists, before a byte is
+        // sent. The mountedRef check above is a check-then-act: the object
+        // comes into being during this await, so an unmount that lands in
+        // between finds an empty slot, aborts nothing, and never runs
+        // again -- and without this, the upload would then start on a dead
+        // screen with its guid recorded nowhere. Losing the slot means
+        // somebody else owns it or the screen is gone; either way this
+        // object has to go back rather than be uploaded to.
+        if (uploadRef.current?.owner !== 'new') {
+          deleteVideo(ticket.videoId).catch(() => {});
+          return;
+        }
+        uploadRef.current.guid = ticket.videoId;
+        const { promise, handle } = uploadVideoToBunny(scratch.video.uri, ticket, {
+          mimeType: scratch.video.mimeType,
+          title: scratch.titleEn.trim() || 'Vevaty auction lot',
+          onProgress: (fraction) => setVideoProgress(fraction),
+        });
+        if (uploadRef.current?.owner === 'new') uploadRef.current.handle = handle;
+        await promise;
+        releaseUpload('new');
+        await nudgeVideoStatus(ticket.videoId);
+      } catch (e: any) {
+        // Same orphan rule as the editor: nothing sweeps Bunny, so the
+        // object this ticket created has to go back if it is not going to
+        // be used.
+        const guid = releaseUpload('new');
+        if (guid) deleteVideo(guid).catch(() => {});
+        if (!isUploadAborted(e)) problems.push(`The video did not upload (${e?.message || String(e)}).`);
+      } finally {
+        if (mountedRef.current) {
+          setVideoUploadingFor(null);
+          setVideoProgress(0);
+        }
+      }
+    }
+
+    if (!mountedRef.current) return;
+    // ONE report, at the end. AlertHost holds a single alert and a new one
+    // REPLACES it, so firing these as they happened meant the photo problem
+    // was silently overwritten by the 360 problem a fraction of a second
+    // later -- and the admin published a lot believing its gallery was
+    // complete. Everything that went wrong is said once, together.
+    if (problems.length > 0) {
+      Alert.alert(
+        'Lot created, with problems',
+        `${problems.join('\n\n')}\n\nFix what is missing from the lot editor — the pencil on its row.`
+      );
+    }
     setBusy(false);
     closeForm();
     load();
@@ -634,13 +874,16 @@ export default function AdminAuctionLotsScreen() {
   // A lot's 360 spin and its video
   // ------------------------------------------------------------------
   //
-  // Both live on the EDITOR rather than the create form, and that is not
-  // laziness. A video upload takes minutes and has to attach to a listing
-  // that already exists, so hanging it off the create form would mean a
-  // failed upload blocking a lot from being created at all -- the same
-  // mistake the photo ordering had. Putting them here also gives the only
-  // way to add media to a lot afterwards, or to fix one: no screen in this
-  // app opens a listing at status 'auction'.
+  // The create form takes all three of these too. It did not at first, on
+  // the reasoning that a video has to attach to a listing that already
+  // exists -- true, and beside the point: what it produced was an admin
+  // building a lot, looking at the form, and concluding the feature was not
+  // there, because the media lived behind a pencil on a row that did not
+  // exist yet. The ordering solves the real problem (the video goes last,
+  // after the lot is saved), not the placement.
+  //
+  // These stay, and they are the ONLY way to correct a lot's media: no
+  // screen in this app opens a listing at status 'auction'.
   //
   // Both write straight to the tables. RLS allows it on ownership alone --
   // `sellers manage their own listing spin sets` and `... videos` are ALL
@@ -811,18 +1054,20 @@ export default function AdminAuctionLotsScreen() {
     // refusing here is the only place it can happen that does not first
     // spend minutes of upload.
     const seconds = await measureVideoSeconds(asset.uri, asset.duration ?? null);
-    if (seconds != null && seconds > MAX_VIDEO_SECONDS + 1) {
-      setVideoError(`That clip is ${Math.round(seconds)}s. The limit is ${MAX_VIDEO_SECONDS}s.`);
-      return;
-    }
-    if (typeof asset.fileSize === 'number' && asset.fileSize > MAX_VIDEO_BYTES) {
-      setVideoError('That file is too large to upload.');
-      return;
-    }
+    const rejection = videoRejection(seconds, asset.fileSize);
+    if (rejection) { setVideoError(rejection); return; }
 
     const title = lotListings[lot.listingId]
       ? listingTitle(lotListings[lot.listingId], language)
       : `Lot ${lot.lotNumber}`;
+
+    // One upload at a time, screen-wide: the editor's survives the editor
+    // closing, which puts the create form back within reach, and two live
+    // uploads sharing one slot is how one of them deleted the other's video.
+    if (!claimUpload(lot.id)) {
+      Alert.alert('A video is already uploading', 'Wait for it to finish before starting another.');
+      return;
+    }
 
     try {
       setVideoProgress(0);
@@ -830,16 +1075,25 @@ export default function AdminAuctionLotsScreen() {
       // Passing the listing id is what lets the server delete the video
       // being REPLACED instead of orphaning it on Bunny and billing for it.
       const ticket = await createVideoUploadTicket({ title, listingId: lot.listingId });
+      // Recorded before a byte is sent -- see the same three lines in
+      // createFromScratch. An unmount landing inside the await above takes
+      // the slot and finds no guid to delete, so the object has to be
+      // claimed the moment it exists or given straight back.
+      if (uploadRef.current?.owner !== lot.id) {
+        deleteVideo(ticket.videoId).catch(() => {});
+        return;
+      }
+      uploadRef.current.guid = ticket.videoId;
       const { promise, handle } = uploadVideoToBunny(asset.uri, ticket, {
         mimeType: asset.mimeType ?? null,
         title,
         onProgress: (fraction) => setVideoProgress(fraction),
       });
-      videoUploadRef.current = handle;
-      inFlightGuidRef.current = ticket.videoId;
+      if (uploadRef.current?.owner === lot.id) uploadRef.current.handle = handle;
       await promise;
-      videoUploadRef.current = null;
-      inFlightGuidRef.current = null;
+      // Released BEFORE the nudge: the bytes are Bunny's now, so no later
+      // failure path may delete this object.
+      releaseUpload(lot.id);
       setVideoProgress(1);
       // Bunny having the bytes is not the video being playable. Encoding
       // follows, reported by the webhook -- ask rather than waiting for it.
@@ -847,16 +1101,13 @@ export default function AdminAuctionLotsScreen() {
       // reads it; un-awaited, the two raced and the reload usually won.
       await nudgeVideoStatus(ticket.videoId);
     } catch (e: any) {
-      videoUploadRef.current = null;
       // Whatever went wrong, the Bunny object this ticket created must not
-      // be left behind: nothing sweeps them, and it has already cost a slot
-      // of the daily cap. Whichever of this and the unmount handler reads
-      // the ref first CLAIMS the guid -- both null it before deleting, so
-      // the other finds null and does nothing. That null-out is the whole
-      // guard; the swallow below is for a delete of an object Bunny never
-      // finished creating, which 404s.
-      const guid = inFlightGuidRef.current;
-      inFlightGuidRef.current = null;
+      // be left behind: nothing sweeps them. releaseUpload hands the guid
+      // back to its OWNER and only once, so this and the unmount handler
+      // cannot both delete it -- and neither can reach another caller's,
+      // which is what the two bare refs used to allow. The swallow is for a
+      // delete of an object Bunny never finished creating, which 404s.
+      const guid = releaseUpload(lot.id);
       if (guid) deleteVideo(guid).catch(() => {});
       if (!mountedRef.current) return;
       setVideoProgress(0);
@@ -889,8 +1140,18 @@ export default function AdminAuctionLotsScreen() {
             // abort is not reported, and invisibly, since clearing
             // videoUploadingFor removed the last trace it had been running.
             if (videoUploadingFor === lot.id) {
-              videoUploadRef.current?.abort();
-              videoUploadRef.current = null;
+              // Defensive: the render shows the uploading row INSTEAD of
+              // the trash icon while this lot is uploading, so today there
+              // is no way to reach here mid-upload. Kept in the shape that
+              // would be correct if that ever changes -- released as the
+              // owner rather than nulled by hand, because nulling the ref
+              // makes the catch's releaseUpload return null and the
+              // half-uploaded object is then never deleted. The handle is
+              // read before the release, which clears the slot.
+              const handle = uploadRef.current?.owner === lot.id ? uploadRef.current.handle : null;
+              const guid = releaseUpload(lot.id);
+              handle?.abort();
+              if (guid) deleteVideo(guid).catch(() => {});
               setVideoUploadingFor(null);
             }
             setBusy(true);
@@ -1175,9 +1436,58 @@ export default function AdminAuctionLotsScreen() {
           </Pressy>
         )}
       </View>
+      <Text style={styles.hint}>The first photo is the lot's cover.</Text>
+
+      <Text style={styles.fieldLabel}>360 spin</Text>
+      {scratch.spinFrames.length > 0 ? (
+        <View style={styles.mediaRow}>
+          <Icon name="rotate" size={15} color={colors.inkSoft} />
+          <Text style={styles.mediaText} numberOfLines={1}>
+            {scratch.spinFrames.length} frame{scratch.spinFrames.length === 1 ? '' : 's'} ready
+            {scratch.spinFrames.length < 8 ? ' — under 8 will jump rather than turn' : ''}
+          </Text>
+          <Pressy onPress={() => setScratch((f) => ({ ...f, spinFrames: [] }))} style={styles.iconAction} disabled={busy}>
+            <Icon name="close" size={14} color={colors.danger} />
+          </Pressy>
+        </View>
+      ) : null}
+      <Pressy onPress={pickScratchSpin} style={styles.mediaBtn} disabled={busy}>
+        <Icon name="plus" size={15} color={colors.primary} />
+        <Text style={styles.altText}>
+          {scratch.spinFrames.length > 0 ? 'Pick different frames' : 'Pick 360 frames'}
+        </Text>
+      </Pressy>
       <Text style={styles.hint}>
-        The first photo is the lot's cover. Add a 360 set or a video from the lot editor once
-        this is created — a video has to attach to a lot that already exists.
+        In order, up to {SPIN_MAX_FRAMES}. Around {SPIN_MAX_FRAMES} evenly spaced shots of the item
+        on a turntable is what reads as a rotation.
+      </Text>
+
+      <Text style={styles.fieldLabel}>Video</Text>
+      {scratch.video ? (
+        <View style={styles.mediaRow}>
+          <Icon name="camera" size={15} color={colors.inkSoft} />
+          <Text style={styles.mediaText} numberOfLines={1}>
+            Ready to upload{scratch.video.seconds != null ? ` · ${Math.round(scratch.video.seconds)}s` : ''}
+          </Text>
+          <Pressy onPress={() => setScratch((f) => ({ ...f, video: null }))} style={styles.iconAction} disabled={busy}>
+            <Icon name="close" size={14} color={colors.danger} />
+          </Pressy>
+        </View>
+      ) : null}
+      <View style={styles.mediaPair}>
+        <Pressy onPress={() => pickScratchVideo(false)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="plus" size={15} color={colors.primary} />
+          <Text style={styles.altText}>{scratch.video ? 'Pick another' : 'Pick a video'}</Text>
+        </Pressy>
+        <Pressy onPress={() => pickScratchVideo(true)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy}>
+          <Icon name="camera" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Record</Text>
+        </Pressy>
+      </View>
+      <Text style={styles.hint}>
+        {MAX_VIDEO_SECONDS} seconds at most. Nothing is uploaded until you tap Create lot, and the
+        video goes last — if it fails, the lot and everything else is still saved and you can add
+        it from the lot editor.
       </Text>
 
       <Text style={styles.fieldLabel}>Start price (USD)</Text>
@@ -1187,8 +1497,24 @@ export default function AdminAuctionLotsScreen() {
 
       <View style={styles.formActions}>
         <Pressy onPress={closeForm} style={styles.cancelBtn} disabled={busy}><Text style={styles.cancelText}>Cancel</Text></Pressy>
-        <Pressy onPress={createFromScratch} style={styles.saveBtn} disabled={busy}>
-          <Text style={styles.saveText}>{busy ? 'Saving…' : 'Create lot'}</Text>
+        <Pressy
+          onPress={createFromScratch}
+          style={styles.saveBtn}
+          disabled={busy || (!!scratch.video && !!videoUploadingFor && videoUploadingFor !== 'new')}
+        >
+          <Text style={styles.saveText}>
+            {videoUploadingFor === 'new'
+              ? `Video ${Math.round(videoProgress * 100)}%`
+              : busy
+                ? 'Saving…'
+                : // A greyed-out button with no reason on screen is worse
+                  // than the wait: an upload started from the lot editor
+                  // survives that editor closing, and its progress row is
+                  // not visible from here.
+                  scratch.video && videoUploadingFor
+                  ? 'Waiting for the other upload…'
+                  : 'Create lot'}
+          </Text>
         </Pressy>
       </View>
     </View>
