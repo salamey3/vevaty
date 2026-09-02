@@ -263,9 +263,8 @@ scratch** by `create_auction_lot`, which inserts the listing at status
 Consignment alone was the original design and it was wrong. Consignment in
 reality starts with the item arriving at our door — nobody listed it for
 sale first, and requiring them to means posting every auction item to the
-marketplace and immediately pulling it back out. The from-scratch form
-takes stills only; the 360 spin and video still come from the posting flow,
-so an item that deserves them is posted and consigned.
+marketplace and immediately pulling it back out. The from-scratch form takes stills; the 360 spin and the
+video are added afterwards, from the lot editor.
 
 Photos are uploaded **before** the lot is created, not after. Reversed, the
 lot exists first — publicly biddable, on a live auction, rendering the
@@ -380,6 +379,83 @@ it. `draft` and `cancelled` are the two that stop a sale on their own. The
 form says so rather than the function silently rewriting a schedule nobody
 asked it to change.
 
+**A lot page that shows the media.** Adding spin and video on the admin
+side was half the job: `AuctionLotScreen` rendered `listing.photos` and
+nothing else, and `photos` is `sortedByKind(rows, 'gallery')`, so spin
+frames are filtered out of it by construction. A 24-frame spin and a
+60-second video both wrote correctly, came back correctly through
+`fetchLotListings`, and appeared nowhere — on the one page that has to sell
+the thing, for a feature whose entire pitch is the photography. The page now
+carries Photos / 360 / Video tabs, shown only when there is something to
+switch to, so an ordinary lot looks exactly as it did. This is the second
+time this feature shipped media that no buyer could see; the first was the
+three RLS policies. **Writing media and showing media are two jobs, and
+finishing one is not finishing the other.**
+
+**Media is added after the lot exists, and only from the editor.** Photos,
+a 360 set and a video all hang off the lot's listing, and all three are
+written straight to their tables rather than through a function: RLS allows
+it on ownership alone (`sellers manage their own listing photos` / `... spin
+sets` / `... videos` are ALL policies with no status test), so an item this
+account owns is editable at status `'auction'` exactly as it would be at
+`'active'`. An item consigned from somebody else's listing is not, which is
+the same boundary `update_auction_lot` draws around a listing's title.
+
+Two traps in that, both found in review and both worth remembering
+outside auctions:
+
+- `uploadPhotos` **never rejects** — it alerts and resolves with fewer URLs,
+  or none. A spin set therefore has to be written as insert-set,
+  upload-frames, and then **delete the set again if no frame landed**:
+  otherwise a total failure leaves a real `listing_spin_sets` row with zero
+  frames, which takes a sort_order, renders as an empty 360 tab, and is
+  indistinguishable from a real set. The first version told the admin the
+  set "was not added" while it sat there.
+- `writeSpinSets` is best-effort by default, because one bad set in a
+  seller's save must not lose the rest. That default swallowed an RLS
+  denial and reported it as "check your connection" — a thing an admin
+  retries for ever. It takes a `strict` flag for the single-set caller who
+  has somebody waiting on the answer.
+
+- Nothing in this project sweeps orphaned Bunny videos — the only
+  scheduled jobs are the expiry reminders and the removed-listing purge —
+  so an upload abandoned mid-flight is stored and billed for ever, and has
+  already spent one of the account's ten daily video slots. The screen
+  deletes the object itself on every abort and every failure.
+- A video only leaves `uploading` / `processing` when Bunny's webhook
+  arrives, and Bunny does not document whether it retries a dropped
+  delivery. Our row is not evidence: re-reading it returns what it already
+  said. The editor polls `nudgeVideoStatus` while a non-terminal video is
+  open, the same way the seller flow does — without it, one dropped
+  callback means a video no buyer can ever see (RLS shows `ready` only) and
+  no way to fix it but delete and re-upload. **Both** non-terminal states,
+  not just `processing`: the row is born `uploading`, and the reload after
+  an upload routinely beats the nudge that would have moved it on, so a
+  guard written for `processing` alone missed the case it existed for —
+  and missed it non-deterministically, which passes a manual test more
+  often than it fails one.
+- A screen with tabs has to open on one that has something in it. A lot
+  can carry a 24-frame spin and no stills — the create form does not
+  require photos — and defaulting to Photos showed the placeholder glyph as
+  the first thing a bidder saw.
+- A `SpinViewer` needs a `key` per set. It keeps the drag position in its
+  own state, so switching between two sets of different lengths reconciles
+  the same instance against a shorter array and every frame renders at
+  opacity 0 — a blank box and a counter reading 18/10. The component now
+  clamps as well, because a call site that forgets is not a thing to find
+  in production.
+
+The video in particular has to be here rather than on the create form. It
+uploads to Bunny over minutes and has to attach to a listing that already
+exists, so hanging it off creation would let a failed upload block a lot
+from being created — the mistake the photo ordering already made once. One
+consequence worth knowing: a video is only visible to buyers at status
+`'ready'`, which Bunny's webhook sets a minute or two after the upload
+finishes, so a freshly added one reads as `processing` until the editor is
+reopened. Removing a video deletes it from Bunny too, through
+`bunny-video-delete` — otherwise every clip anyone changed their mind about
+is stored and billed for ever.
+
 **Scoping a cascade to what it actually changed.** `update_auction`'s
 `cancelled` branch cancels the lots still running, then hands their
 consigned listings back. Written as two independent statements — the lot
@@ -397,6 +473,19 @@ changed, not to the parent.
   ways, which is how the first few will actually run — sourced and curated
   by hand. A submit-for-review queue roughly doubles v1 and is almost
   entirely admin screens rather than auction.
+- **The daily video ceiling is per account, and every from-scratch lot
+  belongs to the same one.** `bunny-video-token` allows ten new video
+  objects per `seller_id` in a rolling day, written when a seller posting
+  by hand could not plausibly exceed it. `create_auction_lot` makes the
+  admin the seller of every lot it builds, so cataloguing a fifteen-lot
+  sale with video on each is within reach of it, and each replacement burns
+  a slot too. The fix is an exemption for accounts in `myazar.admins`; it
+  is an edge-function change, not an app one, and is not in this patch.
+- **Guided spin capture on an admin lot.** Frames are picked from the
+  library, in order, up to 24 — which is how a consigned item is actually
+  shot: on a real camera, on a turntable, then transferred. The seller
+  flow's guided in-app camera, which walks somebody around an item with the
+  phone in their hand, is not lifted out of the wizard for this.
 - **Category attributes on a from-scratch lot.** The form writes title,
   description, category, condition, district and price, and no
   `attributes` — so a lot built here has an empty spec row on its card

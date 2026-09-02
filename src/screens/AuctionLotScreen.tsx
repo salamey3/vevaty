@@ -9,6 +9,8 @@ import Pressy from '../components/Pressy';
 import Button from '../components/Button';
 import Icon from '../icons/Icon';
 import AuctionCountdown from '../components/AuctionCountdown';
+import SpinViewer from '../components/SpinViewer';
+import VideoPlayer from '../components/VideoPlayer';
 import { colors, radius, type } from '../theme/theme';
 import { Alert } from '../lib/alertShim';
 import { Auction, AuctionBidHistoryEntry, AuctionLot, Listing } from '../types';
@@ -70,6 +72,13 @@ export default function AuctionLotScreen() {
   // failed first load.
   const loadedRef = useRef(false);
   const [photoIndex, setPhotoIndex] = useState(0);
+  // Null until the listing lands, then settled once from what the lot
+  // actually carries. A lot can have a 24-frame spin and no stills -- the
+  // create form does not require photos -- and opening such a page on the
+  // Photos tab shows the grey placeholder as the first thing a bidder
+  // sees, on a feature whose whole pitch is the photography.
+  const [mediaTab, setMediaTab] = useState<'photos' | 'spin' | 'video' | null>(null);
+  const [spinIndex, setSpinIndex] = useState(0);
 
   const [sheetOpen, setSheetOpen] = useState(false);
   const [bidText, setBidText] = useState('');
@@ -192,6 +201,24 @@ export default function AuctionLotScreen() {
   // catalogue gets browsed. Same predicate the card uses.
   const running = lot?.status === 'live' || lot?.status === 'pending';
   const photos = listing?.photos ?? [];
+  // The other two kinds of media a lot can carry. This page showed neither
+  // for its whole first life, which made the 360 spin -- the single most
+  // persuasive thing the auction has to show, and the reason we take the
+  // items into custody at all -- invisible on the only page that sells
+  // them. `photos` cannot carry them: it is sortedByKind(rows,'gallery'),
+  // so spin frames are filtered out of it by construction.
+  const spinSets = listing?.spinSets ?? [];
+  // 'ready' is the only status a buyer may ever see, and RLS enforces the
+  // same thing from the other side -- this is the UI half of that rule.
+  const playableVideo = listing?.video && listing.video.status === 'ready' ? listing.video : null;
+  // Tabs appear only for media that exists, so an ordinary lot with photos
+  // alone renders exactly as it did before.
+  const hasTabs = spinSets.length > 0 || !!playableVideo;
+  // Settled, not defaulted: `mediaTab` stays null until there is something
+  // to decide from, so this never picks 'photos' off an empty first render
+  // and then sticks with it.
+  const tab: 'photos' | 'spin' | 'video' =
+    mediaTab ?? (photos.length > 0 ? 'photos' : spinSets.length > 0 ? 'spin' : playableVideo ? 'video' : 'photos');
   // Every horizontal strip in the app goes through this: on native there
   // is no ambient direction, so an Arabic strip would open mid-row with
   // photo 1 on the left, while the web one opens correctly from the right.
@@ -223,8 +250,56 @@ export default function AuctionLotScreen() {
         </View>
       ) : (
         <ScrollView contentContainerStyle={[styles.body, isDesktop && styles.bodyDesktop]}>
+          {/* Only rendered when there is something to switch TO. A lot with
+              photos alone looks exactly as it did before this existed. */}
+          {hasTabs && (
+            <View style={[styles.mediaTabs, mirrorRow(isRTL)]}>
+              <Pressy
+                onPress={() => setMediaTab('photos')}
+                style={[styles.mediaTab, tab === 'photos' && styles.mediaTabOn]}
+              >
+                <Icon name="image" size={14} color={tab === 'photos' ? colors.white : colors.inkSoft} />
+                <Text style={[styles.mediaTabText, tab === 'photos' && styles.mediaTabTextOn]}>
+                  {t('listingDetail.photosTab')}
+                </Text>
+              </Pressy>
+              {spinSets.length > 0 && (
+                <Pressy
+                  onPress={() => setMediaTab('spin')}
+                  style={[styles.mediaTab, tab === 'spin' && styles.mediaTabOn]}
+                >
+                  <Icon name="rotate" size={14} color={tab === 'spin' ? colors.white : colors.inkSoft} />
+                  <Text style={[styles.mediaTabText, tab === 'spin' && styles.mediaTabTextOn]}>
+                    {t('listingDetail.spinViewTab')}
+                  </Text>
+                </Pressy>
+              )}
+              {!!playableVideo && (
+                <Pressy
+                  onPress={() => setMediaTab('video')}
+                  style={[styles.mediaTab, tab === 'video' && styles.mediaTabOn]}
+                >
+                  <Icon name="camera" size={14} color={tab === 'video' ? colors.white : colors.inkSoft} />
+                  <Text style={[styles.mediaTabText, tab === 'video' && styles.mediaTabTextOn]}>
+                    {t('listingDetail.videosTab')}
+                  </Text>
+                </Pressy>
+              )}
+            </View>
+          )}
+
           <View style={styles.photoBox}>
-            {photos.length > 0 ? (
+            {tab === 'spin' && spinSets.length > 0 ? (
+              // Keyed per set: without it React reuses the same instance
+              // across a chip tap, and its internal frame index carries
+              // over into a shorter array.
+              <SpinViewer
+                key={(spinSets[spinIndex] ?? spinSets[0]).id}
+                frames={(spinSets[spinIndex] ?? spinSets[0]).frames}
+              />
+            ) : tab === 'video' && playableVideo ? (
+              <VideoPlayer guid={playableVideo.guid} resolutions={playableVideo.resolutions} />
+            ) : photos.length > 0 ? (
               <Image
                 source={{ uri: sizedPhotoUrl(photos[photoIndex] ?? photos[0], 900)! }}
                 style={styles.photo}
@@ -234,7 +309,27 @@ export default function AuctionLotScreen() {
               <Icon name="gavel" size={36} color={colors.inkSoft} />
             )}
           </View>
-          {photos.length > 1 && (
+
+          {/* A lot can carry more than one spin -- the watch and its
+              movement, the car and its cabin -- so they get their own
+              chips rather than being flattened into the photo strip. */}
+          {tab === 'spin' && spinSets.length > 1 && (
+            <View style={[styles.spinChips, mirrorRow(isRTL)]}>
+              {spinSets.map((set, i) => (
+                <Pressy
+                  key={set.id}
+                  onPress={() => setSpinIndex(i)}
+                  style={[styles.spinChip, i === spinIndex && styles.spinChipOn]}
+                >
+                  <Text style={[styles.spinChipText, i === spinIndex && styles.spinChipTextOn]} numberOfLines={1}>
+                    {set.label}
+                  </Text>
+                </Pressy>
+              ))}
+            </View>
+          )}
+
+          {tab === 'photos' && photos.length > 1 && (
             <ScrollView
               ref={thumbRef}
               horizontal
@@ -424,6 +519,23 @@ const styles = StyleSheet.create({
     overflow: 'hidden', alignItems: 'center', justifyContent: 'center',
   },
   photo: { position: 'absolute', top: 0, left: 0, right: 0, bottom: 0 },
+  mediaTabs: { flexDirection: 'row', gap: 6, marginBottom: 10 },
+  mediaTab: {
+    flexDirection: 'row', alignItems: 'center', gap: 6,
+    paddingHorizontal: 12, height: 32, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
+  },
+  mediaTabOn: { backgroundColor: colors.primary, borderColor: colors.primary },
+  mediaTabText: { fontSize: 12.5, fontWeight: '700', color: colors.inkSoft },
+  mediaTabTextOn: { color: colors.white },
+  spinChips: { flexDirection: 'row', flexWrap: 'wrap', gap: 6, paddingVertical: 10 },
+  spinChip: {
+    paddingHorizontal: 11, height: 30, borderRadius: radius.pill, justifyContent: 'center',
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
+  },
+  spinChipOn: { borderColor: colors.primary, backgroundColor: colors.primaryTint },
+  spinChipText: { fontSize: 12, fontWeight: '700', color: colors.inkSoft },
+  spinChipTextOn: { color: colors.primary },
   thumbs: { gap: 8, paddingVertical: 10 },
   thumb: { width: 56, height: 56, borderRadius: radius.sm, backgroundColor: colors.surface },
   thumbActive: { borderWidth: 2, borderColor: colors.primary },

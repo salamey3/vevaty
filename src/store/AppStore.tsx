@@ -6,6 +6,7 @@ import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
+import { writeSpinSets } from '../lib/listingMedia';
 import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
 import { uriToCompressedBase64 } from '../lib/imageToBase64';
 import { triggerListingModeration } from '../lib/moderateListing';
@@ -901,27 +902,13 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // one level deeper since each set is its own row, not just more photos.
   // Sets with zero frames (the seller started one and backed out) are
   // skipped entirely -- nothing to create a row for.
-  const persistNewSpinSets = useCallback(async (listingId: string, sets: SpinSet[]): Promise<SpinSet[]> => {
-    const nonEmpty = sets.filter((s) => s.frames.length > 0);
-    const results: SpinSet[] = [];
-    for (let i = 0; i < nonEmpty.length; i++) {
-      const set = nonEmpty[i];
-      const { data: setRow, error: setError } = await supabase
-        .from('listing_spin_sets')
-        .insert({ listing_id: listingId, label: set.label, sort_order: i })
-        .select()
-        .single();
-      if (setError || !setRow) continue; // best-effort, same spirit as uploadPhotos skipping a failed frame
-      const hostedUrls = await uploadPhotos(set.frames);
-      if (hostedUrls.length > 0) {
-        await supabase
-          .from('listing_photos')
-          .insert(hostedUrls.map((url, frameIdx) => ({ listing_id: listingId, url, sort_order: frameIdx, kind: 'spin', spin_set_id: setRow.id })));
-      }
-      results.push({ id: setRow.id, label: set.label, frames: hostedUrls });
-    }
-    return results;
-  }, []);
+  //
+  // The loop itself moved to lib/listingMedia.ts, because the admin auction
+  // screens need exactly this and a third copy is how the second one drifts.
+  const persistNewSpinSets = useCallback(
+    (listingId: string, sets: SpinSet[]): Promise<SpinSet[]> => writeSpinSets(listingId, sets),
+    []
+  );
 
   // Diffs a listing's desired GALLERY photo set against what's on
   // Supabase: deletes rows that were removed, uploads+inserts newly-picked
@@ -1009,29 +996,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     if (existingSets && existingSets.length > 0) {
       await supabase.from('listing_spin_sets').delete().in('id', existingSets.map((s: any) => s.id));
     }
-
-    const nonEmpty = desiredSets.filter((s) => s.frames.length > 0);
-    const results: SpinSet[] = [];
-    for (let i = 0; i < nonEmpty.length; i++) {
-      const set = nonEmpty[i];
-      const { data: setRow, error: setError } = await supabase
-        .from('listing_spin_sets')
-        .insert({ listing_id: listingId, label: set.label, sort_order: i })
-        .select()
-        .single();
-      if (setError || !setRow) continue;
-      const hostedKept = set.frames.filter((p) => /^https?:\/\//.test(p));
-      const localNew = set.frames.filter((p) => !/^https?:\/\//.test(p));
-      const uploadedUrls = localNew.length > 0 ? await uploadPhotos(localNew) : [];
-      const allUrls = [...hostedKept, ...uploadedUrls];
-      if (allUrls.length > 0) {
-        await supabase
-          .from('listing_photos')
-          .insert(allUrls.map((url, frameIdx) => ({ listing_id: listingId, url, sort_order: frameIdx, kind: 'spin', spin_set_id: setRow.id })));
-      }
-      results.push({ id: setRow.id, label: set.label, frames: allUrls });
-    }
-    return results;
+    // Same writer as the create path -- it already keeps hosted frames and
+    // uploads only the newly-picked ones, which is what a replace needs.
+    return writeSpinSets(listingId, desiredSets);
   }, []);
 
   const addListing = useCallback(

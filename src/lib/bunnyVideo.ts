@@ -178,6 +178,27 @@ export interface UploadHandle {
   abort: () => void;
 }
 
+// An upload the caller cancelled, told apart from one that failed.
+//
+// tus's own abort() is deliberately silent -- it sets an internal flag and
+// its error handler returns early, so onError never fires and a promise
+// waiting on it NEVER SETTLES. Anything in a `finally` after that await is
+// simply never reached, which is how a screen ends up stuck showing
+// "Uploading 43%" with every video button disabled for the rest of its
+// life. So abort rejects, and this is how a caller knows the rejection was
+// its own doing and not worth an error message.
+export class UploadAbortedError extends Error {
+  readonly aborted = true;
+  constructor() {
+    super('upload_aborted');
+    this.name = 'UploadAbortedError';
+  }
+}
+
+export function isUploadAborted(e: unknown): boolean {
+  return !!e && typeof e === 'object' && (e as any).aborted === true;
+}
+
 // Uploads the local file to Bunny and resolves when Bunny has all the bytes.
 // Encoding happens afterwards and is reported separately (see the webhook
 // edge function) -- this resolving does NOT mean the video is playable yet.
@@ -191,8 +212,11 @@ export function uploadVideoToBunny(
   } = {}
 ): { promise: Promise<void>; handle: UploadHandle } {
   let upload: tus.Upload | null = null;
+  // Hoisted so `abort` below can settle the promise; tus never will.
+  let reject!: (e: Error) => void;
 
-  const promise = new Promise<void>((resolve, reject) => {
+  const promise = new Promise<void>((resolve, rejectFn) => {
+    reject = rejectFn;
     (async () => {
       // On web the picker hands back a blob: URL, which fetch can read. On
       // native, tus-js-client takes a { uri } object directly and reads the
@@ -231,7 +255,18 @@ export function uploadVideoToBunny(
     })().catch((e) => reject(e instanceof Error ? e : new Error(String(e))));
   });
 
-  return { promise, handle: { abort: () => { try { upload?.abort(true); } catch { /* already gone */ } } } };
+  return {
+    promise,
+    handle: {
+      abort: () => {
+        try { upload?.abort(true); } catch { /* already gone */ }
+        // Settle it ourselves. tus will not: see UploadAbortedError. A
+        // second reject after a resolve is a no-op, so racing a finishing
+        // upload is harmless.
+        reject(new UploadAbortedError());
+      },
+    },
+  };
 }
 
 // Asks the webhook function to re-read this video's real state from Bunny

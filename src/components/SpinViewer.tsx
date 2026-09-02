@@ -23,10 +23,23 @@ export default function SpinViewer({ frames }: Props) {
   const [index, setIndex] = useState(0);
   const [hasInteracted, setHasInteracted] = useState(false);
 
+  // The frame actually drawn, never the raw state. A listing can carry
+  // more than one spin set, and switching between them hands this
+  // component a SHORTER array while `index` still points into the old one
+  // -- every image then renders at opacity 0 and the box goes blank, with
+  // the counter reading 18/10, until the viewer happens to drag again.
+  // Clamped here rather than in an effect so there is no frame where the
+  // wrong thing is on screen. Call sites should also give this a `key` per
+  // set, which resets the drag position; this is the guard for when they
+  // forget.
+  const safeIndex = frames.length > 0 ? Math.min(index, frames.length - 1) : 0;
+
   const framesRef = useRef(frames);
   framesRef.current = frames;
   const indexRef = useRef(index);
-  indexRef.current = index;
+  // The clamped one, so a drag starting after a set change continues from
+  // the frame on screen rather than from an index that no longer exists.
+  indexRef.current = safeIndex;
   const grantIndexRef = useRef(0);
 
   const responderRef = useRef<ReturnType<typeof PanResponder.create> | null>(null);
@@ -68,7 +81,7 @@ export default function SpinViewer({ frames }: Props) {
         <Image
           key={uri}
           source={{ uri }}
-          style={[styles.img, styles.stacked, { opacity: i === index ? 1 : 0 }]}
+          style={[styles.img, styles.stacked, { opacity: i === safeIndex ? 1 : 0 }]}
         />
       ))}
       {!hasInteracted && (
@@ -78,7 +91,7 @@ export default function SpinViewer({ frames }: Props) {
         </View>
       )}
       <View style={styles.counterPill} pointerEvents="none">
-        <Text style={styles.counterText}>{index + 1}/{frames.length}</Text>
+        <Text style={styles.counterText}>{safeIndex + 1}/{frames.length}</Text>
       </View>
     </View>
   );

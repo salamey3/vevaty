@@ -203,7 +203,15 @@ async function uploadPhotoResilient(uri: string): Promise<string> {
 // hit "Unable to resolve host vevaty.com" a second later, and the listing
 // published with nothing to show. Mobile connections in Lebanon drop
 // packets; one attempt was never enough.
-export async function uploadPhotos(localUris: string[]): Promise<string[]> {
+// `silent` suppresses the alert below, for a caller that owns the message
+// itself. The sentence here is written for a seller posting a listing and
+// is actively wrong elsewhere: it tells the reader to open the listing and
+// tap Edit, which no screen in this app can do for an auction lot. A caller
+// that has a better sentence should say it instead of after it.
+export async function uploadPhotos(
+  localUris: string[],
+  opts: { silent?: boolean } = {}
+): Promise<string[]> {
   const urls: string[] = [];
   const failures: string[] = [];
 
@@ -217,7 +225,7 @@ export async function uploadPhotos(localUris: string[]): Promise<string[]> {
     }
   }
 
-  if (failures.length > 0) {
+  if (failures.length > 0 && !opts.silent) {
     // Lead with what the seller can actually do about it. The technical
     // detail stays -- it is what made the FormData bug diagnosable from a
     // screenshot -- but it is no longer the first thing they read, because

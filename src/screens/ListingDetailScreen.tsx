@@ -1065,7 +1065,8 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           canScrollForward={spinIndex < spinSets.length - 1}
         >
           <View style={extraStyle}>
-            <SpinViewer frames={activeSet.frames} />
+            {/* Keyed per set -- see SpinViewer's own note. */}
+            <SpinViewer key={activeSet.id} frames={activeSet.frames} />
           </View>
         </CarouselArrows>
       );

@@ -52,6 +52,7 @@ import {
   createVideoUploadTicket,
   deleteVideo,
   fetchVideoStatus,
+  isUploadAborted,
   measureVideoSeconds,
   nudgeVideoStatus,
   uploadVideoToBunny,
@@ -1067,6 +1068,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       nudgeVideoStatus(ticket.videoId);
     } catch (e: any) {
       videoUploadRef.current = null;
+      // An abort is this screen's own doing -- removeVideo below cancels
+      // the upload and has already cleared the state. Since tus went
+      // silent on abort, the promise used to hang here instead of
+      // rejecting; now that it settles, an abort must not be redressed as
+      // a failure the seller has to read about.
+      if (isUploadAborted(e)) return;
       setVideo(null);
       setVideoProgress(0);
       setVideoError(e?.message || String(e));

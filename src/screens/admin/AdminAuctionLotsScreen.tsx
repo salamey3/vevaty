@@ -1,4 +1,4 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useMemo, useRef, useState } from 'react';
 import { ActivityIndicator, Image, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
 import { useNavigation, useRoute, RouteProp } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
@@ -12,6 +12,12 @@ import { supabase } from '../../lib/supabase';
 import { AuctionLotStatus, Listing } from '../../types';
 import { listingTitle } from '../../lib/listingText';
 import { uploadPhotosWithThumbnails } from '../../lib/photoUpload';
+import { SPIN_MAX_FRAMES, deleteSpinSet, nextSpinSortOrder, writeSpinSets } from '../../lib/listingMedia';
+import {
+  BUNNY_MEDIA_HEADERS, MAX_VIDEO_BYTES, MAX_VIDEO_SECONDS, UploadHandle,
+  createVideoUploadTicket, deleteVideo, fetchVideoStatus, isUploadAborted,
+  measureVideoSeconds, nudgeVideoStatus, uploadVideoToBunny, videoThumbnailUrl,
+} from '../../lib/bunnyVideo';
 import { conditionOptionsFor } from '../../lib/conditionModes';
 import {
   AdminLotRow, addAuctionLot, cancelAuctionLot, createAuctionLot, fetchAdminAuctionLots,
@@ -87,6 +93,14 @@ export default function AdminAuctionLotsScreen() {
   const [reserve, setReserve] = useState('');
   const [scratch, setScratch] = useState<ScratchForm>(EMPTY_SCRATCH);
   const [catQuery, setCatQuery] = useState('');
+  // The lot's video upload, held at screen level rather than inside the
+  // editor's render so that closing and reopening the pencil does not
+  // orphan an upload that is still running. `videoUploadRef` is the live
+  // tus handle, kept only so it can be aborted.
+  const [videoProgress, setVideoProgress] = useState(0);
+  const [videoUploadingFor, setVideoUploadingFor] = useState<string | null>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const videoUploadRef = useRef<UploadHandle | null>(null);
   // The lot currently being corrected, and the form behind it.
   const [editingLot, setEditingLot] = useState<AdminLotRow | null>(null);
   const [lotEdit, setLotEdit] = useState({
@@ -98,6 +112,53 @@ export default function AdminAuctionLotsScreen() {
     // list happened to show when it was opened.
     statusTouched: false,
   });
+
+  // A video stuck on 'processing' for ever is the whole feature failing
+  // quietly, and it is one dropped HTTP request away: our row only leaves
+  // 'processing' when Bunny's webhook arrives, and Bunny does not document
+  // whether it retries a failed delivery. The seller flow does not trust it
+  // either -- CreateListingScreen polls the same way. Without this the
+  // editor's own hint ("reopening this lot re-reads it") is a lie: re-reading
+  // our row returns what it already said, for ever, and the only recovery is
+  // to delete the video and burn another slot of the daily cap re-uploading.
+  const openVideo = editingLot ? lotListings[editingLot.listingId]?.video ?? null : null;
+  useEffect(() => {
+    // BOTH non-terminal states, not just 'processing'. The row is created
+    // at 'uploading' and only a webhook or a nudge moves it on, and load()
+    // routinely wins the race against the nudge fired when the bytes land
+    // -- so the status this screen reads straight after an upload is
+    // usually 'uploading'. Polling only 'processing' meant the guard for a
+    // dropped webhook did not cover the case it was written for, and did
+    // it non-deterministically, which is worse than not covering it.
+    const pollable = openVideo?.status === 'processing' || openVideo?.status === 'uploading';
+    // Not while the bytes are still going up: addLotVideo owns that, and a
+    // nudge mid-upload asks Bunny about a video it has not finished
+    // receiving.
+    if (!pollable || videoUploadingFor === editingLot?.id) return;
+    const guid = openVideo!.guid;
+    // The status this poll STARTED from, not a hardcoded one. Widening
+    // `pollable` to cover 'uploading' without widening this turned the
+    // guard into a six-second reload loop: a row sitting at 'uploading' is
+    // not 'processing', so every tick called load(), load() changed
+    // neither dep, the interval survived, and on a flaky connection each
+    // one raised "Could not load lots" through the global alert host --
+    // a modal that came back six seconds after being dismissed, in exactly
+    // the failure this was written to cover.
+    const was = openVideo!.status;
+    let cancelled = false;
+    const tick = async () => {
+      await nudgeVideoStatus(guid);
+      const fresh = await fetchVideoStatus(guid);
+      if (cancelled || !fresh || fresh.status === was) return;
+      // Straight back through the normal read, so the editor and the lot
+      // list cannot disagree about what this lot carries.
+      load();
+    };
+    tick();
+    const timer = setInterval(tick, 6000);
+    return () => { cancelled = true; clearInterval(timer); };
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [openVideo?.guid, openVideo?.status, videoUploadingFor, editingLot?.id]);
 
   const load = useCallback(async () => {
     try {
@@ -131,6 +192,29 @@ export default function AdminAuctionLotsScreen() {
   }, [auctionId]);
 
   useEffect(() => { load(); }, [load]);
+
+  // Leaving the screen mid-upload aborts it rather than letting tus go on
+  // sending into a component nobody can see, and then calling setState on
+  // it. The half-uploaded video object is deleted from Bunny in the same
+  // breath: there is NO orphan sweep in this project -- the only scheduled
+  // jobs are the expiry reminders and the removed-listing purge -- so
+  // anything left behind here is stored and billed for ever, and has also
+  // eaten one of the account's ten daily video slots.
+  const inFlightGuidRef = useRef<string | null>(null);
+  // Now that an abort REJECTS rather than hanging, addLotVideo resumes
+  // after this screen is gone and runs its finally -- which reloads, and
+  // on failure raises an alert through the global AlertHost, over whatever
+  // the admin navigated to. It used to be unreachable only because the
+  // promise never settled.
+  const mountedRef = useRef(true);
+  useEffect(() => () => {
+    mountedRef.current = false;
+    videoUploadRef.current?.abort();
+    videoUploadRef.current = null;
+    const guid = inFlightGuidRef.current;
+    inFlightGuidRef.current = null;
+    if (guid) deleteVideo(guid).catch(() => {});
+  }, []);
 
   // The admin's OWN listings, whatever state they are in. The ownership
   // filter is the point: consigning flips the row out of the marketplace,
@@ -197,6 +281,7 @@ export default function AdminAuctionLotsScreen() {
     setScratch(EMPTY_SCRATCH);
     setCatQuery('');
     setEditingLot(null);
+    setVideoError(null);
   };
 
   const pickPhotos = async () => {
@@ -444,7 +529,14 @@ export default function AdminAuctionLotsScreen() {
       return;
     }
     setMode(null);
+    setVideoError(null);
     setEditingLot(lot);
+    // The media shown here comes from lotListings, which is only refetched
+    // by load(). Without this, a video that finished encoding since the
+    // screen was opened still reads "processing" no matter how many times
+    // the pencil is tapped, which is exactly what the hint tells the admin
+    // to do.
+    load();
     setLotEdit({
       titleEn: l.titleEn || '',
       titleAr: l.titleAr || '',
@@ -538,6 +630,288 @@ export default function AdminAuctionLotsScreen() {
     }
   };
 
+  // ------------------------------------------------------------------
+  // A lot's 360 spin and its video
+  // ------------------------------------------------------------------
+  //
+  // Both live on the EDITOR rather than the create form, and that is not
+  // laziness. A video upload takes minutes and has to attach to a listing
+  // that already exists, so hanging it off the create form would mean a
+  // failed upload blocking a lot from being created at all -- the same
+  // mistake the photo ordering had. Putting them here also gives the only
+  // way to add media to a lot afterwards, or to fix one: no screen in this
+  // app opens a listing at status 'auction'.
+  //
+  // Both write straight to the tables. RLS allows it on ownership alone --
+  // `sellers manage their own listing spin sets` and `... videos` are ALL
+  // policies with no status test -- so an item this account owns is
+  // editable at status 'auction' exactly as it would be at 'active'. An
+  // item consigned from somebody ELSE's listing is not, and the error says
+  // so; that is the same boundary update_auction_lot draws around a
+  // listing's title.
+
+  const addSpinSet = async (lot: AdminLotRow) => {
+    const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Photos', 'Allow photo library access to add a 360 set.');
+      return;
+    }
+    const result = await ImagePicker.launchImageLibraryAsync({
+      mediaTypes: ImagePicker.MediaTypeOptions.Images,
+      allowsMultipleSelection: true,
+      quality: 0.7,
+      selectionLimit: SPIN_MAX_FRAMES,
+    });
+    if (result.canceled || result.assets.length === 0) return;
+    // selectionLimit is Android/iOS-only -- on the web build the picker
+    // ignores it entirely, so the cap has to be applied here too. The
+    // seller flow clamps for the same reason (pickPhotosInto's slice).
+    const frames = result.assets.slice(0, SPIN_MAX_FRAMES).map((a) => a.uri);
+    if (result.assets.length > SPIN_MAX_FRAMES) {
+      Alert.alert(
+        'Too many frames',
+        `You picked ${result.assets.length}. The first ${SPIN_MAX_FRAMES} will be used.`
+      );
+    }
+    if (frames.length < 8) {
+      // Not a refusal -- a spin of five frames is legal, it just reads as a
+      // stutter rather than a rotation, and it is worth saying before the
+      // upload rather than after.
+      Alert.alert(
+        'That is a short spin',
+        `${frames.length} frames will jump rather than turn. Around ${SPIN_MAX_FRAMES} evenly ` +
+          'spaced shots is what reads as a rotation. Adding them anyway.'
+      );
+    }
+
+    setBusy(true);
+    try {
+      // Appended after whatever sets the listing already has. Starting at
+      // zero would give two sets the same sort_order and leave their order
+      // on screen down to whatever the database felt like returning.
+      const nextOrder = await nextSpinSortOrder(lot.listingId);
+      // strict: this is ONE set with a person waiting on it, so a refused
+      // insert has to reach them as what it is. Best-effort is right for a
+      // seller saving several at once and wrong here -- swallowing an RLS
+      // denial reported it as a connection problem, which is a thing an
+      // admin retries for ever.
+      const written = await writeSpinSets(
+        lot.listingId,
+        [{
+          id: '',
+          // Named from the same strictly-increasing number the order comes
+          // from, so two sets can never end up with the same label either.
+          label: nextOrder === 0 ? '360' : `360 (${nextOrder + 1})`,
+          frames,
+        }],
+        // silent: uploadPhotos' own alert tells the reader to open the
+        // listing and tap Edit, which cannot be done to an auction lot.
+        // The sentence below is this screen's own.
+        { startSortOrder: nextOrder, strict: true, silent: true }
+      );
+      if (written[0] && written[0].frames.length < frames.length) {
+        Alert.alert(
+          'The 360 set is missing frames',
+          `${written[0].frames.length} of ${frames.length} uploaded — a spin with gaps in it ` +
+            'jumps. Remove the set and add it again.'
+        );
+      }
+    } catch (e: any) {
+      // Twenty-four frames on a bad connection is minutes of retries, and
+      // unlike the video there is no handle to abort -- so this can very
+      // easily finish after the admin has walked away, and an alert here
+      // lands over whatever screen they are on now.
+      if (!mountedRef.current) return;
+      // The listing behind a CONSIGNED lot can belong to another seller --
+      // add_auction_lot takes any listing id -- and RLS refuses media on
+      // it. That is not something a retry fixes, so it is named.
+      const denied = /row-level security|permission|policy/i.test(e?.message || '');
+      Alert.alert(
+        'Could not add the 360 set',
+        denied
+          ? "This lot's item belongs to another seller, so its media cannot be edited here."
+          : e?.message || String(e)
+      );
+    } finally {
+      if (mountedRef.current) {
+        setBusy(false);
+        load();
+      }
+    }
+  };
+
+  const confirmRemoveSpinSet = (setId: string, label: string, frames: number) => {
+    Alert.alert(
+      `Remove "${label}"?`,
+      `Its ${frames} frame${frames === 1 ? '' : 's'} are deleted with it. The lot's ordinary photos are not affected.`,
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await deleteSpinSet(setId);
+            } catch (e: any) {
+              Alert.alert('Could not remove', e?.message || String(e));
+            } finally {
+              setBusy(false);
+              load();
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  // Replacing is a DELETE the admin has not been asked about: passing the
+  // listing id to createVideoUploadTicket makes the server drop the
+  // existing video from Bunny and from our table before a byte of the new
+  // one is sent. If the new upload then fails, or they back out, the old
+  // one is simply gone. Removing gets a confirmation; replacing was one
+  // tap away and got none, with a hint that framed it as tidiness.
+  const startLotVideo = (lot: AdminLotRow, fromCamera: boolean) => {
+    if (!lotListings[lot.listingId]?.video) { addLotVideo(lot, fromCamera); return; }
+    Alert.alert(
+      'Replace the video?',
+      'The current one is deleted from Bunny as soon as you pick the new file — before it ' +
+        'uploads. If the new upload fails or you leave, the old video does not come back.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        { text: 'Replace', style: 'destructive', onPress: () => addLotVideo(lot, fromCamera) },
+      ]
+    );
+  };
+
+  const addLotVideo = async (lot: AdminLotRow, fromCamera: boolean) => {
+    setVideoError(null);
+    const perm = fromCamera
+      ? await ImagePicker.requestCameraPermissionsAsync()
+      : await ImagePicker.requestMediaLibraryPermissionsAsync();
+    if (!perm.granted) {
+      Alert.alert('Video', 'Allow access to add a video.');
+      return;
+    }
+    const result = fromCamera
+      ? await ImagePicker.launchCameraAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          videoMaxDuration: MAX_VIDEO_SECONDS,
+        })
+      : await ImagePicker.launchImageLibraryAsync({
+          mediaTypes: ImagePicker.MediaTypeOptions.Videos,
+          allowsMultipleSelection: false,
+          selectionLimit: 1,
+        });
+    if (result.canceled || !result.assets?.[0]) return;
+    const asset = result.assets[0];
+
+    // Checked before a single byte is sent. Neither the web capture
+    // attribute nor Android's camera app takes a length limit from us, so
+    // refusing here is the only place it can happen that does not first
+    // spend minutes of upload.
+    const seconds = await measureVideoSeconds(asset.uri, asset.duration ?? null);
+    if (seconds != null && seconds > MAX_VIDEO_SECONDS + 1) {
+      setVideoError(`That clip is ${Math.round(seconds)}s. The limit is ${MAX_VIDEO_SECONDS}s.`);
+      return;
+    }
+    if (typeof asset.fileSize === 'number' && asset.fileSize > MAX_VIDEO_BYTES) {
+      setVideoError('That file is too large to upload.');
+      return;
+    }
+
+    const title = lotListings[lot.listingId]
+      ? listingTitle(lotListings[lot.listingId], language)
+      : `Lot ${lot.lotNumber}`;
+
+    try {
+      setVideoProgress(0);
+      setVideoUploadingFor(lot.id);
+      // Passing the listing id is what lets the server delete the video
+      // being REPLACED instead of orphaning it on Bunny and billing for it.
+      const ticket = await createVideoUploadTicket({ title, listingId: lot.listingId });
+      const { promise, handle } = uploadVideoToBunny(asset.uri, ticket, {
+        mimeType: asset.mimeType ?? null,
+        title,
+        onProgress: (fraction) => setVideoProgress(fraction),
+      });
+      videoUploadRef.current = handle;
+      inFlightGuidRef.current = ticket.videoId;
+      await promise;
+      videoUploadRef.current = null;
+      inFlightGuidRef.current = null;
+      setVideoProgress(1);
+      // Bunny having the bytes is not the video being playable. Encoding
+      // follows, reported by the webhook -- ask rather than waiting for it.
+      // AWAITED, so the row has left 'uploading' before the load() below
+      // reads it; un-awaited, the two raced and the reload usually won.
+      await nudgeVideoStatus(ticket.videoId);
+    } catch (e: any) {
+      videoUploadRef.current = null;
+      // Whatever went wrong, the Bunny object this ticket created must not
+      // be left behind: nothing sweeps them, and it has already cost a slot
+      // of the daily cap. Whichever of this and the unmount handler reads
+      // the ref first CLAIMS the guid -- both null it before deleting, so
+      // the other finds null and does nothing. That null-out is the whole
+      // guard; the swallow below is for a delete of an object Bunny never
+      // finished creating, which 404s.
+      const guid = inFlightGuidRef.current;
+      inFlightGuidRef.current = null;
+      if (guid) deleteVideo(guid).catch(() => {});
+      if (!mountedRef.current) return;
+      setVideoProgress(0);
+      // An abort is this screen's own doing -- leaving the screen, or
+      // removing the video. Not a failure to report.
+      if (!isUploadAborted(e)) setVideoError(e?.message || String(e));
+    } finally {
+      if (mountedRef.current) {
+        setVideoUploadingFor(null);
+        load();
+      }
+    }
+  };
+
+  const confirmRemoveLotVideo = (lot: AdminLotRow, guid: string) => {
+    Alert.alert(
+      'Remove the video?',
+      'It is deleted from Bunny as well as from the lot — not just hidden — so it stops being ' +
+        'stored and billed. There is no undo.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Remove',
+          style: 'destructive',
+          onPress: async () => {
+            // ONLY if the upload still running belongs to this lot. There
+            // is one ref for the whole screen and an upload deliberately
+            // survives the editor being closed, so an unconditional abort
+            // here killed a different lot's upload -- silently, since an
+            // abort is not reported, and invisibly, since clearing
+            // videoUploadingFor removed the last trace it had been running.
+            if (videoUploadingFor === lot.id) {
+              videoUploadRef.current?.abort();
+              videoUploadRef.current = null;
+              setVideoUploadingFor(null);
+            }
+            setBusy(true);
+            setVideoError(null);
+            try {
+              await deleteVideo(guid);
+            } catch (e: any) {
+              Alert.alert('Could not remove the video', e?.message || String(e));
+            } finally {
+              // Only this lot's, or removing lot B's video visibly resets
+              // the percentage on lot A's running upload.
+              if (videoUploadingFor === lot.id || !videoUploadingFor) setVideoProgress(0);
+              setBusy(false);
+              load();
+            }
+          },
+        },
+      ]
+    );
+  };
+
   const renderLotEditForm = (lot: AdminLotRow) => (
     <View style={styles.form}>
       <Text style={styles.formTitle}>Lot {lot.lotNumber}</Text>
@@ -582,10 +956,97 @@ export default function AdminAuctionLotsScreen() {
         {!lotEdit.statusTouched && ' Untouched, so this save leaves it alone.'}
       </Text>
 
-      <Pressy onPress={() => addPhotosToLot(lot)} style={styles.addPhotosBtn} disabled={busy}>
+      <Text style={styles.fieldLabel}>Media</Text>
+
+      <Pressy onPress={() => addPhotosToLot(lot)} style={styles.mediaBtn} disabled={busy}>
         <Icon name="plus" size={15} color={colors.primary} />
         <Text style={styles.altText}>Add photos ({lotListings[lot.listingId]?.photos?.length ?? 0} now)</Text>
       </Pressy>
+
+      {/* 360 spins. Each set is its own row because a lot can carry more
+          than one -- the watch and its movement, the car and its cabin. */}
+      {(lotListings[lot.listingId]?.spinSets ?? []).map((set) => (
+        <View key={set.id} style={styles.mediaRow}>
+          <Icon name="rotate" size={15} color={colors.inkSoft} />
+          <Text style={styles.mediaText} numberOfLines={1}>
+            {set.label} · {set.frames.length} frame{set.frames.length === 1 ? '' : 's'}
+          </Text>
+          <Pressy
+            onPress={() => confirmRemoveSpinSet(set.id, set.label, set.frames.length)}
+            style={styles.iconAction}
+            disabled={busy}
+          >
+            <Icon name="trash" size={14} color={colors.danger} />
+          </Pressy>
+        </View>
+      ))}
+
+      <Pressy onPress={() => addSpinSet(lot)} style={styles.mediaBtn} disabled={busy}>
+        <Icon name="plus" size={15} color={colors.primary} />
+        <Text style={styles.altText}>Add a 360 set</Text>
+      </Pressy>
+      <Text style={styles.hint}>
+        Pick the frames in order, up to {SPIN_MAX_FRAMES}. Around 24 evenly spaced shots of the
+        item on a turntable is what reads as a rotation; fewer than about 8 jumps.
+      </Text>
+
+      {/* Video. One per lot, and the status matters: buyers see it only
+          once Bunny has finished encoding and the webhook says 'ready'. */}
+      {videoUploadingFor === lot.id ? (
+        <View style={styles.mediaRow}>
+          <ActivityIndicator size="small" color={colors.primary} />
+          <Text style={styles.mediaText}>Uploading video · {Math.round(videoProgress * 100)}%</Text>
+        </View>
+      ) : lotListings[lot.listingId]?.video ? (
+        <View style={styles.mediaRow}>
+          {lotListings[lot.listingId]!.video!.status === 'ready' ? (
+            <Image
+              // headers, not just the url: Bunny's CDN checks the referer
+              // and every request 403s without it (see VideoPlayer).
+              source={{ uri: videoThumbnailUrl(lotListings[lot.listingId]!.video!.guid), headers: BUNNY_MEDIA_HEADERS }}
+              style={styles.videoThumb}
+            />
+          ) : (
+            <Icon name="camera" size={15} color={colors.inkSoft} />
+          )}
+          <Text style={styles.mediaText} numberOfLines={1}>
+            {lotListings[lot.listingId]!.video!.status === 'ready'
+              ? 'Video ready'
+              : lotListings[lot.listingId]!.video!.status === 'failed'
+                // Nothing is working on a failed encode -- the poll
+                // deliberately does not cover it -- so waiting for "ready"
+                // is waiting for something that will never come.
+                ? 'Video encoding failed — remove it and upload again'
+                : `Video ${lotListings[lot.listingId]!.video!.status} — buyers see it once it is ready`}
+          </Text>
+          <Pressy
+            onPress={() => confirmRemoveLotVideo(lot, lotListings[lot.listingId]!.video!.guid)}
+            style={styles.iconAction}
+            disabled={busy}
+          >
+            <Icon name="trash" size={14} color={colors.danger} />
+          </Pressy>
+        </View>
+      ) : null}
+
+      <View style={styles.mediaPair}>
+        <Pressy onPress={() => startLotVideo(lot, false)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy || !!videoUploadingFor}>
+          <Icon name="plus" size={15} color={colors.primary} />
+          <Text style={styles.altText}>
+            {lotListings[lot.listingId]?.video ? 'Replace video' : 'Add video'}
+          </Text>
+        </Pressy>
+        <Pressy onPress={() => startLotVideo(lot, true)} style={[styles.mediaBtn, styles.mediaBtnHalf]} disabled={busy || !!videoUploadingFor}>
+          <Icon name="camera" size={15} color={colors.primary} />
+          <Text style={styles.altText}>Record</Text>
+        </Pressy>
+      </View>
+      <Text style={styles.hint}>
+        {MAX_VIDEO_SECONDS} seconds at most. Replacing one deletes the old file from Bunny rather
+        than leaving it stored and billed. Encoding takes a minute or two after the upload
+        finishes — this checks for it while the lot is open.
+      </Text>
+      {!!videoError && <Text style={styles.errorText}>{videoError}</Text>}
 
       <View style={styles.formActions}>
         <Pressy onPress={() => setEditingLot(null)} style={styles.cancelBtn} disabled={busy}>
@@ -715,8 +1176,8 @@ export default function AdminAuctionLotsScreen() {
         )}
       </View>
       <Text style={styles.hint}>
-        The first photo is the lot's cover. For a 360 spin or a video, post the item through
-        the normal flow and consign it instead — this form takes stills only.
+        The first photo is the lot's cover. Add a 360 set or a video from the lot editor once
+        this is created — a video has to attach to a lot that already exists.
       </Text>
 
       <Text style={styles.fieldLabel}>Start price (USD)</Text>
@@ -887,11 +1348,21 @@ const styles = StyleSheet.create({
     width: 62, height: 62, borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed',
     borderColor: colors.line, alignItems: 'center', justifyContent: 'center',
   },
-  addPhotosBtn: {
+  mediaBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,
     borderRadius: radius.pill, height: 42, borderWidth: 1, borderColor: colors.primary,
-    backgroundColor: colors.primaryTint, marginTop: 14,
+    backgroundColor: colors.primaryTint, marginTop: 8,
   },
+  mediaBtnHalf: { flex: 1 },
+  mediaPair: { flexDirection: 'row', gap: 8 },
+  mediaRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 9, marginTop: 8,
+    borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
+    paddingHorizontal: 11, minHeight: 44, backgroundColor: colors.bg,
+  },
+  mediaText: { flex: 1, fontSize: 13, color: colors.ink },
+  videoThumb: { width: 34, height: 22, borderRadius: 3, backgroundColor: colors.line },
+  errorText: { ...type.tiny, color: colors.danger, marginTop: 8, lineHeight: 16 },
   formActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
   cancelBtn: { flex: 1, height: 42, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   cancelText: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
