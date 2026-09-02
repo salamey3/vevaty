@@ -38,6 +38,7 @@ import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import CategoryCard from '../components/CategoryCard';
 import CarouselArrows from '../components/CarouselArrows';
 import CategoryCarouselSection from '../components/CategoryCarouselSection';
+import { CAROUSEL_ROW_INSET } from '../lib/cardWidth';
 import CollectionCarouselSection from '../components/CollectionCarouselSection';
 import BannerSlot from '../components/BannerSlot';
 import FilterSection, { FilterOption } from '../components/FilterSection';
@@ -57,7 +58,7 @@ import { useSavedSearches } from '../store/SavedSearchesStore';
 import { useCollections } from '../store/CollectionsStore';
 import { RootStackParamList, HomeStackParamList } from '../navigation/types';
 import { Category, CategoryAttribute, CategoryId, FilterFacet, Listing, SavedSearchCriteria } from '../types';
-import { useIsDesktop, useListingGridColumns, useGridColumns } from '../hooks/useResponsive';
+import { useIsDesktop, useListingGridColumns, useGridColumns, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { haversineKm, LatLng } from '../lib/geo';
 import { matchesConditionFilter } from '../lib/rentTerms';
@@ -956,10 +957,19 @@ export default function HomeScreen() {
   // is only safe because of the item-count caps above -- at a cap of 6
   // per category (down from the original 10) this is at most roughly
   // categories.length x 6 photos requesting near-simultaneously on
-  // mount, all pre-sized to ~200px (photoSize.ts), not the "well over a
+  // mount, at card size (photoSize.ts) rather than the "well over a
   // hundred" concurrent full-size requests the original windowing was
   // built to prevent. Un-virtualizing without that cap in place would
   // likely reopen that problem.
+  //
+  // "Card size" got considerably bigger on 2 Sep, when carousel cards
+  // stopped being a flat 192 and became one grid card wide: the request per
+  // card went from ~200px to 320-400, which is roughly 2.5x the decoded
+  // bitmap. The caps still hold the COUNT down, and only seeded picsum
+  // photos are affected (a real upload's thumbnail is baked at 640 whatever
+  // is asked for), so this is recorded in NEXT.md rather than treated as a
+  // regression -- but the margin this paragraph is describing is thinner
+  // than it was.
   //
   // Collection rows (Editor's Picks / Hot Deals / Just Listed) render as a
   // plain header above the category rows, inside this same scroller --
@@ -1299,7 +1309,7 @@ export default function HomeScreen() {
   );
 
   return (
-    <Screen reserveSidebar maxWidth={1180}>
+    <Screen reserveSidebar maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       {/* Mobile brand bar. Desktop has no equivalent because the sidebar
           already carries the lockup permanently -- on a phone there is no
           sidebar, so before this the brand was visible exactly once, on the
@@ -1584,11 +1594,12 @@ const styles = StyleSheet.create({
   },
   headerDesktop: { paddingHorizontal: 0, paddingTop: 26 },
   // Mobile-only homepage ad slots (renderCollectionRows' includeBanners
-  // branch) -- paddingHorizontal: 18 matches CollectionCarouselSection's
-  // own row inset so the banner lines up with the carousels above/below
-  // it instead of running edge-to-edge, and marginTop/marginBottom give
-  // it the same breathing room ListingDetailScreen's mobileBanner uses.
-  homeBanner: { marginTop: 22, marginBottom: 20, paddingHorizontal: 18 },
+  // branch). It takes CAROUSEL_ROW_INSET itself rather than a matching 18,
+  // so the banner cannot drift away from the carousels above and below it:
+  // this alignment is the whole reason it has a horizontal inset at all.
+  // marginTop/marginBottom give it the same breathing room
+  // ListingDetailScreen's mobileBanner uses.
+  homeBanner: { marginTop: 22, marginBottom: 20, paddingHorizontal: CAROUSEL_ROW_INSET },
   // These banners are interleaved between the collection carousels, so they
   // have to take the same `flush` treatment those do -- without it the
   // carousels drop their inset inside a padded container and the banner

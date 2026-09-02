@@ -19,6 +19,7 @@ import { cardKindLabel, resolveCardSpecs } from '../lib/cardSpecs';
 import { listingPriceLines } from '../lib/priceDisplay';
 import { conditionShownInPrice } from '../lib/rentTerms';
 import { conditionCardLabel } from '../lib/conditionModes';
+import { gridCardWidthPct } from '../lib/cardWidth';
 import { RootStackParamList } from '../navigation/types';
 
 // How long the cursor has to sit still on a card before its preview
@@ -36,25 +37,12 @@ const HOVER_PREVIEW_DELAY_MS = 180;
 // phone paths that matter for memory.
 const GRID_PADDING = 18;
 
-// Gutter between cards, as a percentage of the row. 3% reads well at two
-// columns and far too wide at four or six -- the same proportion of a wider
-// row is a much bigger gap in pixels, which is what left the desktop grid
-// looking sparse. Scale it down as the columns go up.
-function gridGutterPct(columns: number): number {
-  return columns > 4 ? 0.5 : columns > 2 ? 0.7 : 1.2;
-}
-
-// How wide one grid card is, as a percentage of its row. Exported so the
-// empty boxes that pad a short last row (see padRowsToFullColumns) are exactly
-// as wide as the cards they stand in for -- if they were not, space-between
-// would go on mis-spacing the row it was added to fix.
-//
-// Not floored: rounding each card down left the remainder to space-between,
-// which quietly widened the gutters again beyond whatever was set here.
-export function gridCardWidthPct(columns: number): `${number}%` {
-  const gutter = gridGutterPct(columns);
-  return `${Number(((100 - (columns - 1) * gutter) / columns).toFixed(3))}%`;
-}
+// gridCardWidthPct is not defined here any more. The grid's percentages and
+// the carousels' pixel widths are two answers to one question -- how wide is
+// a listing card here -- and they sat in different files long enough to
+// drift badly apart. They live together in lib/cardWidth.ts now. Not
+// re-exported from here either: nothing outside this file imported it, and a
+// second name for one thing is how the drift started.
 
 // The empty box that stands in for a missing card on a short last row. Renders
 // nothing and measures exactly one card wide.

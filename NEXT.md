@@ -28,6 +28,20 @@ Two things worth fixing:
   account phone. Both are new writes and neither has been exercised against
   the real endpoint. See @ACCOUNTS.md.
 
+- **The home carousels scroller is not virtualised, and cards just got 60%
+  wider.** `renderCarousels` mounts every section on the page at once -- it
+  was un-virtualised deliberately, because a windowed list re-mounted each row
+  every time it scrolled back into view and that cost landed on the swipe.
+  That was affordable at a 192px card asking for a 200px photo. A carousel
+  card is now one grid card wide, so it asks for 320 on a 390pt phone and up
+  to 400 at two or three columns, which is
+  about 2.2MB of decoded bitmap per card there against 0.85MB before, and
+  ~2.8MB on a 412pt Android where the request rounds up to 360. A
+  six-category domain page holds six rows of six. Only seeded picsum
+  listings are affected -- a real upload's thumbnail is baked at 640
+  and Bunny returns exactly that -- so this is not urgent, and it is also not
+  something to discover on a mid-range phone later. See @CARDS.md.
+
 - **The storefront pill sits on the wrong edge in Arabic on the web.**
   `storefrontPillRTL` uses `alignSelf: 'flex-end'`, and on the web the
   document already carries `dir="rtl"`, so the cross axis is reversed and

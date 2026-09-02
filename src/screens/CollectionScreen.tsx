@@ -10,7 +10,7 @@ import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import { colors, type, radius } from '../theme/theme';
 import { useCollections } from '../store/CollectionsStore';
 import { useSettings } from '../store/SettingsStore';
-import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
 import { cornerBadgeFor } from '../lib/collectionBadge';
@@ -84,7 +84,7 @@ export default function CollectionScreen({ route, navigation }: Props) {
 
   if (!loaded) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <ActivityIndicator size="small" color={colors.ink} />
@@ -95,7 +95,7 @@ export default function CollectionScreen({ route, navigation }: Props) {
 
   if (!collection) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -141,7 +141,7 @@ export default function CollectionScreen({ route, navigation }: Props) {
   );
 
   return (
-    <Screen maxWidth={1180}>
+    <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       <FlatList
         key={columns}
         data={padRowsToFullColumns(items, columns)}

@@ -15,6 +15,7 @@ import { RootStackParamList } from '../navigation/types';
 import { ChatThread } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle } from '../lib/listingText';
+import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
 // Phase 4 item 11 -- replaces the old static placeholder. Lists every
 // thread the signed-in user is a participant in (as buyer or seller),
@@ -88,7 +89,7 @@ export default function ChatScreen() {
 
   if (!isVerified) {
     return (
-      <Screen reserveSidebar maxWidth={1180}>
+      <Screen reserveSidebar maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -104,7 +105,7 @@ export default function ChatScreen() {
 
   if (!threadsLoading && rows.length === 0) {
     return (
-      <Screen reserveSidebar maxWidth={1180}>
+      <Screen reserveSidebar maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -118,7 +119,7 @@ export default function ChatScreen() {
   }
 
   return (
-    <Screen reserveSidebar maxWidth={1180}>
+    <Screen reserveSidebar maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       {header}
       <FlatList
         data={rows}

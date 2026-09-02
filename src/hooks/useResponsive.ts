@@ -1,4 +1,6 @@
-import { useWindowDimensions } from 'react-native';
+import { useCallback, useState } from 'react';
+import { LayoutChangeEvent, useWindowDimensions } from 'react-native';
+import { carouselCardWidth, CAROUSEL_ROW_INSET } from '../lib/cardWidth';
 
 // Below this viewport width, the app renders the exact same compact,
 // phone-style layout it always has. At or above it (a laptop/desktop
@@ -60,4 +62,95 @@ export function useListingGridColumns() {
   const { width } = useWindowDimensions();
   if (width >= THREE_COLUMN_BREAKPOINT) return 3;
   return width < TWO_COLUMN_BREAKPOINT ? 1 : 2;
+}
+
+// How wide the app centres its content on a desktop window. A constant
+// rather than 1180 typed into twenty-three `Screen` calls because
+// useCarouselCardWidth below has to predict it for one frame. It is the
+// shared default for a full-page browse surface, not an enforced cap --
+// `Screen` still takes any number, and the narrower surfaces (a payment
+// sheet, an admin form, a chat thread) deliberately pass their own.
+export const DESKTOP_CONTENT_MAX_WIDTH = 1180;
+
+// The horizontal inset a page puts around itself on a phone. It is
+// CAROUSEL_ROW_INSET and not a matching literal on purpose: on the mobile
+// paths the same 36px comes from the row in one placement and from the grid
+// around it in the other, so this estimate is only correct while the two
+// numbers are the same one.
+const MOBILE_PAGE_INSET = CAROUSEL_ROW_INSET;
+
+// Comfortably wider than any scrollbar -- see the onLayout guard below.
+const SCROLLBAR_HYSTERESIS = 20;
+
+// How wide one card in a horizontal carousel row should be, plus the
+// onLayout handler that makes it true.
+//
+// The width comes from the SAME breakpoints and gutter as the browse grid
+// (see lib/cardWidth) -- one column's worth on a phone, two on a tablet,
+// three on a desktop -- less the peek that keeps the row legible as a row.
+//
+// So a listing is the same size in a row as in a grid THAT GETS THE SAME
+// WIDTH, which is every grid in the app except one: Home's filtered grid
+// gives up a 240px filter sidebar and a 72px gutter, so a card there is
+// narrower than the row that led to it. That gap is Home's sidebar
+// arithmetic, already recorded in CARDS.md as its own unsolved problem, and
+// matching it here would mean making every other row in the app narrower to
+// agree with the one cramped grid.
+//
+// `rowInset` is the horizontal padding the row itself applies, which the
+// caller knows and this cannot: these sections take a `flush` prop precisely
+// because the page inset is sometimes theirs to add and sometimes their
+// container's. Forgetting it is not a subtle error -- it double-counts 36px
+// and puts the same component at two different sizes in two placements.
+//
+// MEASURED, for the reason ListingCard measures its photo: a window width is
+// not a container width. Screen caps content at DESKTOP_CONTENT_MAX_WIDTH and
+// reserves a 232px nav sidebar on the main tabs, neither of which a window
+// width knows about, and a screen is free to pass a different cap.
+//
+// One live case proves the point rather than merely threatening to. A
+// one-category domain (Properties) renders its collection rows inside
+// HomeScreen's desktop grid branch, which also carries the 240px filter
+// sidebar and a 72px gutter -- an 868px box where the estimate says 1180,
+// wrong by 312. It is invisible today only because every collection kind is
+// photo-left on desktop and sizes itself, so the number this hook returns is
+// discarded there. Invisible by coincidence is exactly the kind of thing
+// that stops being invisible.
+//
+// The estimate covers the first frame so cards do not visibly jump. On a
+// phone in portrait it is exact on all three paths, flush or not: the 36px
+// comes from the row on one and from the grid around it on the other, so the
+// row's own usable width is the window less 36 either way. In landscape on a
+// notched phone Screen's left/right safe-area edges take another ~94, which
+// the estimate does not know about and the measurement corrects.
+export function useCarouselCardWidth(rowInset: number) {
+  const { width: windowWidth } = useWindowDimensions();
+  const isDesktop = useIsDesktop();
+  const columns = useListingGridColumns();
+  const [measured, setMeasured] = useState(0);
+
+  const onLayout = useCallback((e: LayoutChangeEvent) => {
+    const w = Math.round(e.nativeEvent.layout.width);
+    if (w <= 0) return;
+    // Hysteresis, not just an equality guard, and it is load-bearing rather
+    // than an optimisation. This width sets the card's width, which sets its
+    // height (a 4:3 photo), which sets the page's height, which on the web
+    // can bring the outer scrollbar in or out -- and that changes this width
+    // by the scrollbar's own ~15px. A page with a single short row sits
+    // close enough to that threshold to flip back and forth forever.
+    // Ignoring a change smaller than a scrollbar breaks the cycle at the one
+    // point in it that has any state to break it with. The cost is that a
+    // window resize under 20px does not resize the cards, which nobody can
+    // see.
+    setMeasured((prev) => (prev === 0 || Math.abs(w - prev) > SCROLLBAR_HYSTERESIS ? w : prev));
+  }, []);
+
+  const estimate = isDesktop
+    ? Math.min(windowWidth - SIDEBAR_WIDTH, DESKTOP_CONTENT_MAX_WIDTH) - rowInset * 2
+    : windowWidth - MOBILE_PAGE_INSET * 2;
+
+  return {
+    cardWidth: carouselCardWidth(measured ? measured - rowInset * 2 : estimate, columns),
+    onLayout,
+  };
 }

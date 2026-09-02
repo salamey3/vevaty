@@ -23,6 +23,7 @@ import { openLegalPage } from '../lib/legalLinks';
 import { shareLink } from '../lib/share';
 import ImageCropModal from '../components/ImageCropModal';
 import ActionSheet from '../components/ActionSheet';
+import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
@@ -149,7 +150,7 @@ export default function ProfileScreen() {
   };
 
   return (
-    <Screen reserveSidebar maxWidth={1180}>
+    <Screen reserveSidebar maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       <ScrollView contentContainerStyle={styles.scroll} showsVerticalScrollIndicator={false}>
         <LinearGradient colors={[colors.heroA, colors.heroB]} style={styles.hero}>
           {/* Corner button rather than a labeled pill (compare

@@ -2,10 +2,11 @@ import { useCallback, useMemo, useRef } from 'react';
 import { Platform, ScrollView } from 'react-native';
 
 // Shared plumbing for "this horizontal carousel should swipe right-to-left
-// in Arabic": the three carousels in the app (home category rows, the home
-// categories chip strip, and the related-listings row on a listing) all want
-// identical behaviour, and getting it right depends on a platform detail
-// that's easy to forget at any one of those call sites.
+// in Arabic": every horizontal row in the app -- the home category and
+// collection rows, the categories chip strip, the browse gate's rows and the
+// three related strips on a listing page -- wants identical behaviour, and
+// getting it right depends on a platform detail that is easy to forget at
+// any one of those call sites.
 //
 // WHY NOT `transform: scaleX(-1)`, which this replaced:
 // Mirroring the scroller and counter-mirroring each child works, but it is
@@ -41,8 +42,14 @@ export function useRtlCarousel<T>(items: T[], isRTL: boolean) {
   const ordered = useMemo(() => (reverse ? [...items].reverse() : items), [items, reverse]);
 
   const scrollRef = useRef<ScrollView>(null);
-  // Content size only changes when the item set does, so this re-pins to the
-  // end when the data changes without fighting an in-progress swipe.
+  // Re-pins to the end whenever the content size changes: the item set
+  // changing, and -- since carousels size their cards from a measured
+  // container (useCarouselCardWidth) -- the first layout pass and any window
+  // resize. All three want the same thing, which is the Arabic row parked at
+  // its start rather than left mid-row, and none of them can fight a swipe in
+  // progress: nothing resizes mid-gesture on a touch device, and on the web
+  // `reverse` is false so this is a no-op there anyway (the document's own
+  // dir="rtl" does the work -- see NEEDS_MANUAL_REVERSE above).
   const onContentSizeChange = useCallback(() => {
     if (reverse) scrollRef.current?.scrollToEnd({ animated: false });
   }, [reverse]);

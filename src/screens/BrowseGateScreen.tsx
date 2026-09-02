@@ -20,7 +20,8 @@ import { useGoHome } from '../hooks/useGoHome';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
-import { useIsDesktop } from '../hooks/useResponsive';
+import { useIsDesktop, useCarouselCardWidth, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
+import { CAROUSEL_ROW_INSET, CAROUSEL_ROW_GAP } from '../lib/cardWidth';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { RootStackParamList, HomeStackParamList } from '../navigation/types';
@@ -70,9 +71,15 @@ function GateRow({
 }) {
   const { t, isRTL } = useLanguage();
   const { ordered, scrollRef, onContentSizeChange } = useRtlCarousel(items, isRTL);
+  // Same rule as every other carousel in the app: one grid card's width at
+  // this window size, measured off the full-width section box rather than
+  // guessed from the window. See useCarouselCardWidth.
+  // This row always carries its own inset -- unlike the home sections, it
+  // has no `flush` variant.
+  const { cardWidth, onLayout } = useCarouselCardWidth(CAROUSEL_ROW_INSET);
 
   return (
-    <View style={styles.section}>
+    <View style={styles.section} onLayout={onLayout}>
       <View style={[styles.sectionHeader, isRTL && styles.sectionHeaderRTL]}>
         <Text style={[styles.sectionTitle, isRTL && styles.sectionTitleRTL]} numberOfLines={1}>
           {heading}
@@ -95,7 +102,7 @@ function GateRow({
           return (
             <View key={l.id} style={styles.taggedCard}>
               {!!tag && <Text style={styles.sectionTag} numberOfLines={1}>{tag}</Text>}
-              <ListingCard listing={l} width={192} onPress={() => onPressListing(l)} />
+              <ListingCard listing={l} width={cardWidth} onPress={() => onPressListing(l)} />
             </View>
           );
         })}
@@ -207,7 +214,7 @@ export default function BrowseGateScreen() {
 
 
   return (
-    <Screen reserveSidebar maxWidth={1180}>
+    <Screen reserveSidebar maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       {!isDesktop && (
         <View style={[styles.brandBar, mirrorRow(isRTL)]}>
           <BrandMark variant="sidebar" onPress={goHome} />
@@ -293,13 +300,13 @@ const styles = StyleSheet.create({
   section: { marginBottom: 20 },
   sectionHeader: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 18, marginBottom: 10,
+    paddingHorizontal: CAROUSEL_ROW_INSET, marginBottom: 10,
   },
   sectionHeaderRTL: { flexDirection: 'row-reverse' },
   sectionTitle: { ...type.h3, flex: 1 },
   sectionTitleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
-  row: { paddingHorizontal: 18, gap: 6 },
+  row: { paddingHorizontal: CAROUSEL_ROW_INSET, gap: CAROUSEL_ROW_GAP },
   taggedCard: { gap: 4 },
   sectionTag: {
     fontSize: 11, fontWeight: '700', color: colors.inkSoft,

@@ -9,7 +9,7 @@ import ListingCard, { ListingCardSpacer } from '../components/ListingCard';
 import { padRowsToFullColumns, gridRowKey } from '../lib/gridRows';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
-import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
@@ -199,7 +199,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   // name and "0 published ads" while that fetch is still in flight.
   if (fallbackLoading && sellerListings.length === 0) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <ActivityIndicator size="small" color={colors.ink} />
@@ -210,7 +210,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
 
   if (!knowSeller) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -223,7 +223,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   }
 
   return (
-    <Screen maxWidth={1180}>
+    <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       <FlatList
         key={columns}
         data={padRowsToFullColumns(sellerListings, columns)}

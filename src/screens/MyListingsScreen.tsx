@@ -15,6 +15,7 @@ import { listingActionMessage } from '../lib/listingActionMessage';
 import { useSettings } from '../store/SettingsStore';
 import { listingTitle } from '../lib/listingText';
 import { useGoBack } from '../hooks/useGoBack';
+import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
 const DAY_MS = 1000 * 60 * 60 * 24;
 
@@ -135,7 +136,7 @@ export default function MyListingsScreen() {
   };
 
   return (
-    <Screen maxWidth={1180}>
+    <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       <View style={styles.header}>
         <Pressy onPress={goBack} style={styles.backBtn}>
           <Icon name="back" size={18} />

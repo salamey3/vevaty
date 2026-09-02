@@ -15,7 +15,8 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useCollections } from '../store/CollectionsStore';
 import { cornerBadgeFor } from '../lib/collectionBadge';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
-import { useIsDesktop } from '../hooks/useResponsive';
+import { useIsDesktop, useCarouselCardWidth } from '../hooks/useResponsive';
+import { CAROUSEL_ROW_INSET, CAROUSEL_ROW_GAP } from '../lib/cardWidth';
 import { useScrollChrome } from '../store/ScrollChromeContext';
 
 // Home-screen row for one Collection (Editor's Picks / Hot Deals / Just
@@ -61,6 +62,10 @@ export default function CollectionCarouselSection({
   const isDesktop = useIsDesktop();
   const { width } = useWindowDimensions();
   const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
+  // The stacked card's width, one grid card's worth at this window size --
+  // measured on the section box, which is a full-width block child of the
+  // page's vertical scroller. See useCarouselCardWidth.
+  const { cardWidth: verticalCardWidth, onLayout } = useCarouselCardWidth(flush ? 0 : CAROUSEL_ROW_INSET);
 
   // Card shape, per the approved "Editor's Picks / Hot Deals go
   // photo-left" mockup, extended to Just Listed on request. Hot Deals
@@ -97,7 +102,7 @@ export default function CollectionCarouselSection({
     : null;
 
   return (
-    <View style={styles.section}>
+    <View style={styles.section} onLayout={onLayout}>
       <View style={[styles.headerRow, isRTL && styles.headerRowRTL, flush && styles.flush]}>
         <Text style={[styles.title, isRTL && styles.titleRTL]} numberOfLines={1}>{label}</Text>
         <Pressy onPress={onSeeAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -123,15 +128,14 @@ export default function CollectionCarouselSection({
                   <ListingCard
                     key={item.id}
                     listing={item}
-                    // 192 = 160 * 1.2 (down from an initial 1.5x/240,
-                    // which read as too big), same widening as
-                    // CategoryCarouselSection's cards -- only reachable
-                    // for a vertical-layout card (useHorizontalCards
-                    // false), which today is Editor's Picks on mobile;
-                    // The photo-left card (Hot Deals, Just Listed, Editor's
-                    // Picks on desktop) sizes itself -- see
-                    // horizontalCardWidth above.
-                    width={useHorizontalCards ? horizontalCardWidth : 192}
+                    // Always the photo-left branch in practice: this is
+                    // the two-row variant, which only Just Listed uses
+                    // (kind 'recent'), and 'recent' is photo-left
+                    // everywhere. The vertical arm is here so the two
+                    // branches of this file stay one expression rather
+                    // than diverging the day a second collection kind
+                    // wants two rows.
+                    width={useHorizontalCards ? horizontalCardWidth : verticalCardWidth}
                     layout={useHorizontalCards ? 'horizontal' : 'vertical'}
                     onPress={() => onPressListing(item)}
                     cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
@@ -143,9 +147,12 @@ export default function CollectionCarouselSection({
               <ListingCard
                 key={item.id}
                 listing={item}
-                // 192 = 160 * 1.2 -- see the twoRowColumns branch above
-                // for why, and why the photo-left branch is sized separately.
-                width={useHorizontalCards ? horizontalCardWidth : 192}
+                // One grid card wide, the same rule every carousel in the
+                // app follows now (see useCarouselCardWidth). Reached by
+                // Editor's Picks on mobile, the one collection that keeps
+                // the stacked card. The photo-left branch sizes itself --
+                // see horizontalCardWidth above.
+                width={useHorizontalCards ? horizontalCardWidth : verticalCardWidth}
                 layout={useHorizontalCards ? 'horizontal' : 'vertical'}
                 onPress={() => onPressListing(item)}
                 cornerBadge={cornerBadgeFor(collection, item, priceDropPercent)}
@@ -160,14 +167,14 @@ const styles = StyleSheet.create({
   section: { marginBottom: 20 },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 18, marginBottom: 10,
+    paddingHorizontal: CAROUSEL_ROW_INSET, marginBottom: 10,
   },
   headerRowRTL: { flexDirection: 'row-reverse' },
   title: { ...type.h3, flex: 1 },
   titleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   // Tightened from 12 -- minimal space between cards, per request.
-  row: { paddingHorizontal: 18, gap: 6 },
+  row: { paddingHorizontal: CAROUSEL_ROW_INSET, gap: CAROUSEL_ROW_GAP },
   // Drops this section's own inset, for when the CONTAINER already provides
   // one. Two cases, and they are why this is a prop rather than an
   // isDesktop check in here: on desktop the browse grid sets
@@ -179,7 +186,7 @@ const styles = StyleSheet.create({
   // container it just put this in.
   flush: { paddingHorizontal: 0 },
   // Just Listed's two-row layout -- one column per pair of cards, stacked
-  // vertically. Same 6px gap as `row` uses horizontally, for visual
-  // consistency between the two axes.
-  twoRowColumn: { gap: 6 },
+  // vertically. The same gap `row` uses horizontally, taken from the same
+  // constant rather than matched by hand, so the two axes cannot drift apart.
+  twoRowColumn: { gap: CAROUSEL_ROW_GAP },
 });

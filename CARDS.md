@@ -148,6 +148,80 @@ sidebar arithmetic is the real fix and is not attempted here.
 Shop cards are not part of this — `ShopsDirectoryScreen` keeps its own 2/4
 grid, because a logo and a name do not want the room.
 
+**Carousels take their width from the same rule**, which they did not for
+the first three rounds of this. The domain landing pages' per-category
+sections, the collection rows and the browse gate all passed a hardcoded
+`width={192}`, chosen back when a phone grid card was 175. The grid then
+went to one full-width column and to ~388px on desktop, and the carousels
+stayed at 192. The result was the thing that
+prompted this: a listing was a roomy card in the filtered grid and a card
+half that size in the row you scrolled past to reach it, which reads as two
+designs rather than one, and makes the smaller one look like a version
+somebody forgot to update.
+
+`carouselCardWidth` in `lib/cardWidth.ts` now derives it from the same
+column count and the same gutter the grid uses, less one `CAROUSEL_PEEK`
+spread across the cards in the row. One exception is worth naming rather
+than glossing: Home's own filtered grid gives up a 240px filter sidebar and
+a 72px gutter, so a card there is narrower than the row that led to it. That
+is Home's sidebar arithmetic — already recorded above as its own unsolved
+problem — and the alternative would be narrowing every row in the app to
+agree with the one cramped grid.
+
+The peek is not decoration. A carousel showing a whole number of cards and
+nothing else is indistinguishable from a list of exactly that many, and
+these rows hide their scrollbar, carry six to ten items and have no arrows —
+the sliver of the next card is the only thing saying there is more. It has
+to be taken deliberately rather than left to fall out of the arithmetic,
+because the grid's gutter is a percentage of the row and the row's gap is a
+flat 6px. What three grid-width cards leave over is `0.014 × rowWidth − 12`,
+and on desktop Home an 1180px window gives the row 948 of it — so 1.3px, and
+0.15px at the 1100 breakpoint where three columns start. 44px costs ~15 of a
+388px desktop card
+— invisible — and leaves at least 38px of the next card's photo showing once
+the row's own gap is paid, about 56 on a phone where the row's trailing
+inset adds to it.
+
+The width is **measured**, not derived from the window, for the same reason
+`ListingCard` measures its photo: a window width is not a container width.
+`Screen` caps content at 1180 and reserves a 232px nav sidebar on the main
+tabs, and any screen may pass its own cap. One live case already proves the
+point: a one-category domain (Properties) renders its collection rows inside
+Home's desktop grid branch, filter sidebar and all — an 868px box where a
+window-derived estimate says 1180. It is invisible only because every
+collection kind is photo-left on desktop and sizes itself, so the number is
+discarded there. The estimate covers the first
+frame so nothing visibly jumps, and on a phone it is exact on all three
+paths in portrait, flush or not: the 36px of inset comes from the row on one
+and from the grid around it on the other, so the row's usable width is the
+window less 36 either way. Landscape on a notched phone adds safe-area edges
+the estimate does not know about, and the measurement corrects it.
+
+`DESKTOP_CONTENT_MAX_WIDTH` is a constant now rather than `1180` typed into
+twenty-three `Screen` calls, because that estimate has to predict it. It is
+the shared default for a full-page browse surface, not an enforced cap:
+`Screen` still takes any number, and the narrower surfaces — a payment
+sheet, an admin form, a chat thread — deliberately pass their own.
+
+**The listing page's related strips are deliberately NOT part of this.**
+Similar Listings, Editor's Picks and Hot Deals under a listing stay at
+140px. They are a footnote under something you are already reading, not a
+browse surface, and a full-size card there would compete with the listing
+the page exists to show. It is the one place in the app where a listing card
+is a different size on purpose, which is why it is written down here.
+
+**The cost, stated:** a carousel card's photo request goes from 200px to
+320 on a 390pt phone and to as much as 400 (the cap) at two and three
+columns, and
+`sizedPhotoUrl` doubles that for a retina screen — so on that phone a seeded
+card's decoded bitmap goes from about 0.85MB to 2.2MB, and about 2.8MB on a
+412pt Android where the request rounds up to 360. The
+carousels scroller is not virtualised, so a six-category domain page holds
+every row at once. This only touches picsum-seeded listings: a real upload's
+thumbnail is baked at 640 and Bunny returns exactly that, so the request
+width changes nothing for it. Recorded in NEXT.md rather than fixed here —
+the fix is virtualising that scroller, which is its own change.
+
 **The photo became 4:3, having been 1:1, and the reason genuinely changed
 rather than being overruled.** The square was chosen on 28 Aug because
 Lebanese sellers still shoot landscape out of Facebook/OLX habit, and at a

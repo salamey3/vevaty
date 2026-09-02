@@ -13,7 +13,7 @@ import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useSavedSearches } from '../store/SavedSearchesStore';
 import { useSettings } from '../store/SettingsStore';
-import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from '../navigation/types';
 import { SavedSearch } from '../types';
@@ -87,7 +87,7 @@ export default function FavoritesScreen({ navigation }: Props) {
 
   if (!isVerified) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -104,7 +104,7 @@ export default function FavoritesScreen({ navigation }: Props) {
   if (tab === 'searches') {
     if (searchesLoaded && !searchesLoading && savedSearches.length === 0) {
       return (
-        <Screen maxWidth={1180}>
+        <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
           {header}
           {tabRow}
           <View style={styles.empty}>
@@ -119,7 +119,7 @@ export default function FavoritesScreen({ navigation }: Props) {
     }
 
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         {tabRow}
         <FlatList
@@ -153,7 +153,7 @@ export default function FavoritesScreen({ navigation }: Props) {
 
   if (loaded && !loading && favoritedListings.length === 0) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         {tabRow}
         <View style={styles.empty}>
@@ -168,7 +168,7 @@ export default function FavoritesScreen({ navigation }: Props) {
   }
 
   return (
-    <Screen maxWidth={1180}>
+    <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       {header}
       {tabRow}
       <FlatList

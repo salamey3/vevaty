@@ -14,7 +14,8 @@ import { colors, type } from '../theme/theme';
 import { Category, Listing } from '../types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
-import { useIsDesktop } from '../hooks/useResponsive';
+import { useIsDesktop, useCarouselCardWidth } from '../hooks/useResponsive';
+import { CAROUSEL_ROW_INSET, CAROUSEL_ROW_GAP } from '../lib/cardWidth';
 import { useScrollChrome } from '../store/ScrollChromeContext';
 
 // One home-page section for a single top-level category: a
@@ -61,9 +62,16 @@ export default function CategoryCarouselSection({
   // see that context's own comment on why TOP_SNAP_ZONE is vertical-only.
   const isDesktop = useIsDesktop();
   const { beginChromeInteraction, endChromeInteraction } = useScrollChrome();
+  // Measured on the section box below, which is a full-width block child of
+  // the page's vertical scroller -- NOT on the horizontal ScrollView's
+  // content container, whose width is the sum of the cards themselves. The
+  // inset the row will apply comes off inside the hook, which is why `flush`
+  // has to be passed through: measuring the section says nothing about how
+  // much of it the cards actually get.
+  const { cardWidth, onLayout } = useCarouselCardWidth(flush ? 0 : CAROUSEL_ROW_INSET);
 
   return (
-    <View style={styles.section}>
+    <View style={styles.section} onLayout={onLayout}>
       <View style={[styles.headerRow, isRTL && styles.headerRowRTL, flush && styles.flush]}>
         <Text style={[styles.title, isRTL && styles.titleRTL]} numberOfLines={1}>{label}</Text>
         <Pressy onPress={onSeeAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
@@ -79,7 +87,7 @@ export default function CategoryCarouselSection({
         onScrollBeginDrag={!isDesktop ? beginChromeInteraction : undefined}
         onScrollEndDrag={!isDesktop ? endChromeInteraction : undefined}
         // Back to a plain ScrollView rather than a windowed FlatList: these
-        // rows are capped at 10 items (see HomeScreen's categoryCarousels),
+        // rows are capped at 6 items (HomeScreen's CATEGORY_ROW_CAP),
         // and a FlatList that hasn't rendered its tail yet reports a content
         // size that isn't final, which would make the scroll-to-end above
         // land in the wrong place. The reason the windowing was added --
@@ -95,14 +103,13 @@ export default function CategoryCarouselSection({
         // native-negotiation fix for this same problem) is no longer
         // needed and is intentionally not set here.
       >
-        {/* 192 = 160 * 1.2 (down from an initial 1.5x/240, which read as
-            too big). Widened (and, since ListingCard's photo box keeps
-            its 3:4 ratio, proportionally taller) alongside the drop from
-            10 to 6 items per row (see HomeScreen's CATEGORY_ROW_CAP) --
-            a row of 6 wider cards reads as intentional rather than
-            sparse, which a straight count cut on its own didn't. */}
+        {/* One grid card wide, whatever that means at this window size --
+            see useCarouselCardWidth. It was a flat 192 through several
+            rounds of widening the grid, which is how a domain landing page
+            ended up showing the same listing at half the size of the page
+            it leads to. */}
         {ordered.map((item) => (
-          <ListingCard key={item.id} listing={item} width={192} onPress={() => onPressListing(item)} />
+          <ListingCard key={item.id} listing={item} width={cardWidth} onPress={() => onPressListing(item)} />
         ))}
       </ScrollView>
     </View>
@@ -113,7 +120,7 @@ const styles = StyleSheet.create({
   section: { marginBottom: 20 },
   headerRow: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingHorizontal: 18, marginBottom: 10,
+    paddingHorizontal: CAROUSEL_ROW_INSET, marginBottom: 10,
   },
   // Puts the category name on the right and "See all" on the left,
   // matching Arabic reading order -- row-reverse alone flips which side
@@ -128,7 +135,7 @@ const styles = StyleSheet.create({
   titleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   // Tightened from 12 -- minimal space between cards, per request.
-  row: { paddingHorizontal: 18, gap: 6 },
+  row: { paddingHorizontal: CAROUSEL_ROW_INSET, gap: CAROUSEL_ROW_GAP },
   // Matches CollectionCarouselSection's `flush` -- see its comment for the
   // two containers that already provide the inset themselves.
   flush: { paddingHorizontal: 0 },

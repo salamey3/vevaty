@@ -13,7 +13,7 @@ import RangeSlider from '../components/RangeSlider';
 import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
-import { useListingGridColumns, useIsDesktop } from '../hooks/useResponsive';
+import { useListingGridColumns, useIsDesktop, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 import { useLanguage } from '../i18n/LanguageContext';
 import { pickText } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
@@ -443,7 +443,7 @@ export default function StorefrontScreen({ route, navigation }: Props) {
 
   if (loading) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <ActivityIndicator size="small" color={colors.ink} />
@@ -454,7 +454,7 @@ export default function StorefrontScreen({ route, navigation }: Props) {
 
   if (!shop) {
     return (
-      <Screen maxWidth={1180}>
+      <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
         {header}
         <View style={styles.empty}>
           <View style={styles.iconWrap}>
@@ -577,7 +577,7 @@ export default function StorefrontScreen({ route, navigation }: Props) {
   );
 
   return (
-    <Screen maxWidth={1180}>
+    <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
       <FlatList
         key={columns}
         data={padRowsToFullColumns(filteredListings, columns)}
