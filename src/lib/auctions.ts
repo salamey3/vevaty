@@ -21,6 +21,13 @@ import {
 // The engine raises CODES, never sentences -- PostgREST's own text is an
 // English diagnostic naming a column, which is unreadable under an Arabic
 // interface and is not what a bidder needs to know anyway (@AGENTS.md).
+//
+// This list is the engine's, not a guess: it is every code raised by any
+// function in the auction schema, and nothing else. Three codes that used
+// to be here are gone with the guards that raised them -- an admin can now
+// consign a listing that is not active, withdraw a lot that has sold, and
+// remove a lot from a published auction, so 'listing_not_active',
+// 'lot_already_sold' and 'auction_still_draft' can no longer happen.
 export type AuctionErrorCode =
   | 'not_signed_in' | 'not_registered' | 'auction_not_live' | 'lot_not_live'
   | 'lot_closed' | 'lot_not_found' | 'bid_below_start' | 'bid_too_low'
@@ -30,8 +37,7 @@ export type AuctionErrorCode =
   | 'not_admin' | 'already_published' | 'schedule_incomplete'
   | 'closes_before_opens' | 'no_lots' | 'title_required'
   | 'listing_not_found' | 'already_a_lot' | 'start_price_invalid'
-  | 'reserve_below_start' | 'listing_not_active' | 'lot_already_sold'
-  | 'auction_still_draft'
+  | 'reserve_below_start' | 'category_required' | 'invalid_status'
   | 'unknown';
 
 export class AuctionError extends Error {
@@ -39,10 +45,18 @@ export class AuctionError extends Error {
   // For `bid_too_low` the engine returns the minimum that WOULD have been
   // accepted, so the UI can say the number rather than "too low".
   minimum: number | null;
-  constructor(code: AuctionErrorCode, minimum: number | null = null) {
+  // Whatever actually came back, kept for the 'unknown' case and shown to
+  // admins only. Without it `message` is the string "unknown" -- super()
+  // takes the code -- so every fallback of the shape
+  // `MESSAGES[code] || e.message || 'Something went wrong.'` renders the
+  // literal word "unknown" and can never reach its own last term. A
+  // network failure on a phone then says nothing at all.
+  raw: string;
+  constructor(code: AuctionErrorCode, minimum: number | null = null, raw = '') {
     super(code);
     this.code = code;
     this.minimum = minimum;
+    this.raw = raw;
   }
 }
 
@@ -59,8 +73,7 @@ const KNOWN_CODES = new Set<string>([
   'not_admin', 'already_published', 'schedule_incomplete',
   'closes_before_opens', 'no_lots', 'title_required',
   'listing_not_found', 'already_a_lot', 'start_price_invalid',
-  'reserve_below_start', 'listing_not_active', 'lot_already_sold',
-  'auction_still_draft',
+  'reserve_below_start', 'category_required', 'invalid_status',
 ]);
 
 function toAuctionError(error: any): AuctionError {
@@ -72,7 +85,11 @@ function toAuctionError(error: any): AuctionError {
   const code = (KNOWN_CODES.has(raw) ? raw : 'unknown') as AuctionErrorCode;
   const detail = Number(error?.details);
   if (code === 'unknown') console.warn('[auctions] unmapped engine error:', error?.message, error?.details);
-  return new AuctionError(code, Number.isFinite(detail) ? detail : null);
+  return new AuctionError(
+    code,
+    Number.isFinite(detail) ? detail : null,
+    [raw, error?.details, error?.hint].filter(Boolean).join(' · ')
+  );
 }
 
 // ---------------------------------------------------------------------
@@ -514,19 +531,73 @@ export async function addAuctionLot(input: {
   return data as string;
 }
 
-// Removing one restores the listing AND restamps its expiry, which is not
-// housekeeping: a listing that spent three weeks in consignment keeps the
-// expires_at it was posted with, so without the restamp it would return to
-// the marketplace already past it and be swept by the nightly job within
-// hours.
+// A lot with no listing behind it yet.
+//
+// The other half of intake, and the one that makes the section usable at
+// all: consignment does not start with the seller posting the item. It
+// starts with the item arriving at our door, and a lot built only from
+// what is already in the marketplace can only ever auction things that
+// were listed for sale first. This creates the listing itself -- at
+// status 'auction', so it is a lot from the first instant and never
+// appears in a browse grid -- and the lot, in one transaction.
+//
+// Photos are NOT part of it. They are uploaded by the caller afterwards,
+// against the listing id this returns, through exactly the same
+// uploadPhotosWithThumbnails path a seller's own photos take; the
+// database has no business holding a base64 image and the upload has no
+// business being inside a transaction that also allocates a lot number.
+export async function createAuctionLot(input: {
+  auctionId: string;
+  titleEn: string; titleAr: string;
+  descriptionEn: string; descriptionAr: string;
+  categoryId: string; district: string; condition: string;
+  startPrice: number; reservePrice: number | null;
+}): Promise<{ lotId: string; listingId: string }> {
+  const { data, error } = await supabase.rpc('create_auction_lot', {
+    p_auction_id: input.auctionId,
+    p_title_en: input.titleEn,
+    p_title_ar: input.titleAr,
+    p_description_en: input.descriptionEn,
+    p_description_ar: input.descriptionAr,
+    p_category_id: input.categoryId,
+    p_district: input.district,
+    p_condition: input.condition,
+    p_start_price: input.startPrice,
+    p_reserve_price: input.reservePrice,
+  });
+  if (error) throw toAuctionError(error);
+  return { lotId: (data as any).lot_id, listingId: (data as any).listing_id };
+}
+
+// Removing one takes its listing with it, and what happens to that listing
+// depends on where it came from -- the database decides, not this file,
+// off auction_lots.created_for_auction:
+//
+//   consigned from the marketplace -> back to the status it had, with its
+//     expiry restamped. Not housekeeping: a listing that spent three weeks
+//     in consignment still carries the expires_at it was posted with, so
+//     without the restamp it returns already past it and the nightly sweep
+//     takes it within hours.
+//   created for the auction -> soft-removed, not destroyed, and kept
+//     indefinitely. There is no marketplace status for it to go back to,
+//     but a hard delete cannot be walked back and this can. It is filed
+//     under removed_reason 'auction_lot', which the daily
+//     purge-removed-listings job skips -- every other removal reason is
+//     erased fifteen days later, and a promise of recoverability with a
+//     fortnight's fuse on it is worse than none. Soft removal also cannot
+//     fail: `reports` and `transactions` point at listings with NO ACTION,
+//     so a lot somebody reported is undeletable.
+//
+// Bids under the lot go with it -- auction_bids cascades. That is the
+// destructive part of this call and the screen says so before calling it.
 export async function removeAuctionLot(lotId: string): Promise<void> {
   const { error } = await supabase.rpc('remove_auction_lot', { p_lot_id: lotId });
   if (error) throw toAuctionError(error);
 }
 
-// Withdrawing a lot from a PUBLISHED auction. Not a delete: bids were
-// placed, and the lot has to stay readable so the people who placed them
-// can see what became of it.
+// Withdrawing a lot. Not a delete: bids were placed, and the lot has to
+// stay readable so the people who placed them can see what became of it.
+// The bid history survives; the lot shows as withdrawn.
 export async function cancelAuctionLot(lotId: string): Promise<void> {
   const { error } = await supabase.rpc('cancel_auction_lot', { p_lot_id: lotId });
   if (error) throw toAuctionError(error);
@@ -534,5 +605,116 @@ export async function cancelAuctionLot(lotId: string): Promise<void> {
 
 export async function publishAuction(auctionId: string): Promise<void> {
   const { error } = await supabase.rpc('publish_auction', { p_auction_id: auctionId });
+  if (error) throw toAuctionError(error);
+}
+
+// Editing an auction that already exists, at any status.
+//
+// Every field is optional and the function coalesces: a null means "leave
+// it", NOT "clear it". That is why this takes a partial and sends only
+// what it was given -- sending `p_opens_at: null` for a field the form did
+// not touch is indistinguishable from not sending it, which is exactly the
+// behaviour wanted here and would be a bug in a general-purpose updater.
+//
+// Moving the schedule restamps every unfinished lot's close, in the same
+// transaction, unfloored -- so pulling the first close behind now() really
+// does end the sale at the next minute tick.
+//
+// Moving the STATUS carries the lots too, for every status, which is not
+// a nicety: advance_auctions closes any lot that is 'live' with a passed
+// closes_at and never looks at the auction above it. live promotes the
+// pending lots and gives each the clock publish_auction would have;
+// scheduled demotes them; draft demotes them AND nulls the clock, since a
+// draft auction is invisible under RLS and a lot counting down inside one
+// would pick a winner nobody could see; cancelled cancels the lots still
+// RUNNING and hands back only those listings -- scoped to the whole
+// auction instead, it put items that had already SOLD back on the market;
+// closed and settled bring the unfinished lots to their close so each
+// resolves to won or unsold on its real bids.
+export async function updateAuction(
+  auctionId: string,
+  patch: {
+    titleEn?: string; titleAr?: string;
+    opensAt?: string; firstLotClosesAt?: string;
+    staggerSeconds?: number; antiSnipeSeconds?: number;
+    sellerCommissionPct?: number; buyerPremiumPct?: number;
+    status?: AuctionStatus;
+  }
+): Promise<void> {
+  const { error } = await supabase.rpc('update_auction', {
+    p_auction_id: auctionId,
+    p_title_en: patch.titleEn ?? null,
+    p_title_ar: patch.titleAr ?? null,
+    p_opens_at: patch.opensAt ?? null,
+    p_first_lot_closes_at: patch.firstLotClosesAt ?? null,
+    p_stagger_seconds: patch.staggerSeconds ?? null,
+    p_anti_snipe_seconds: patch.antiSnipeSeconds ?? null,
+    p_seller_commission_pct: patch.sellerCommissionPct ?? null,
+    p_buyer_premium_pct: patch.buyerPremiumPct ?? null,
+    p_status: patch.status ?? null,
+  });
+  if (error) throw toAuctionError(error);
+}
+
+// Correcting a lot that already exists -- price, reserve, and the text of
+// an item this account owns.
+//
+// It exists because nothing else can reach a lot's listing: every screen
+// in the app that lists listings excludes `status = 'auction'`, so an item
+// built from scratch with a typo in it could previously only be removed
+// and rebuilt. `clearReserve` is a separate flag rather than a null
+// reservePrice because null already means "leave it alone" everywhere in
+// this file, and a reserve has to be removable.
+//
+// `status` is the way back out of a dead end: forcing an auction to
+// `cancelled` cancels every lot under it, and no other path revives one --
+// update_auction only ever touches lots at 'pending' or 'live', so that
+// reopening a sale does not resurrect a lot somebody withdrew on purpose.
+// Setting a lot live stamps a fresh close when its own is null OR already
+// past -- a lot cancelled by its auction keeps the close it had, so
+// without the second half the revival is undone by the minute job before
+// anybody sees it. `pending` gets a close stamped too, on any auction past
+// draft: a lot put back into a running sale with a null clock cannot be
+// bid on, cannot close, and keeps its AUCTION from ever closing either.
+//
+// It also writes `reserve_met`, which nothing but place_bid otherwise
+// touches: a reserve raised past the current bid would leave every bidder
+// reading "Reserve met" on a lot heading for unsold. And the LISTING
+// follows the lot -- a lot put back into the sale takes its item out of
+// the marketplace, a cancelled one hands a consigned item back -- because
+// a lot and its listing disagreeing is the state every other function
+// here is a transaction specifically to prevent.
+export async function updateAuctionLot(
+  lotId: string,
+  patch: {
+    startPrice?: number; reservePrice?: number | null; clearReserve?: boolean;
+    titleEn?: string; titleAr?: string;
+    descriptionEn?: string; descriptionAr?: string;
+    status?: AuctionLotStatus;
+  }
+): Promise<void> {
+  const { error } = await supabase.rpc('update_auction_lot', {
+    p_lot_id: lotId,
+    p_start_price: patch.startPrice ?? null,
+    p_reserve_price: patch.reservePrice ?? null,
+    p_clear_reserve: patch.clearReserve ?? false,
+    p_title_en: patch.titleEn ?? null,
+    p_title_ar: patch.titleAr ?? null,
+    p_description_en: patch.descriptionEn ?? null,
+    p_description_ar: patch.descriptionAr ?? null,
+    p_status: patch.status ?? null,
+  });
+  if (error) throw toAuctionError(error);
+}
+
+// Deleting the whole auction, at any status, bids and all.
+//
+// Each lot's listing is dealt with first, by the same created_for_auction
+// rule removeAuctionLot uses, so nothing is ever left stranded at status
+// 'auction' with no lot pointing at it -- which is a state no screen in
+// the app can reach and no sweep cleans up. Then the auction row goes and
+// the lots and bids cascade with it.
+export async function deleteAuction(auctionId: string): Promise<void> {
+  const { error } = await supabase.rpc('delete_auction', { p_auction_id: auctionId });
   if (error) throw toAuctionError(error);
 }

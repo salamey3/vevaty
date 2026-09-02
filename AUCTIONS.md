@@ -50,6 +50,17 @@ is publicly readable **only** while it is a lot in an auction that is
 itself published. A draft auction's lots are invisible even to somebody
 holding their ids.
 
+**That door has to be opened three more times, and shipping without it was
+a real bug.** `listing_photos`, `listing_spin_sets` and `listing_videos`
+each carry their own policy, and every one of them gated reads on the
+parent listing being `'active'` — which a lot never is. The listing came
+back, the media did not, and every lot rendered the placeholder glyph for
+every buyer: the whole product missing, on a feature whose pitch is the
+photography. Three matching policies now let a lot's media through on the
+same condition the listing itself uses. The general shape is worth
+remembering: adding a listing status is never one policy, it is one per
+table that gates on status.
+
 ## The bidding engine
 
 **Proxy bidding**, the eBay and Catawiki model. A bidder names the most
@@ -211,11 +222,13 @@ admin action failed with `42501`, including reading the lot list, which
 named `reserve_price` — a column granted to `service_role` alone, and
 naming one ungranted column fails the whole statement (@AGENTS.md).
 
-So creating an auction, adding a lot, removing a lot, withdrawing a lot and
-listing lots with their reserves are five `SECURITY DEFINER` functions that
-check `myazar.admins` (six with `publish_auction`). Three of them exist as
-functions for a second reason as well: they are pairs that must not
-half-complete.
+So every admin write is a `SECURITY DEFINER` function that checks
+`myazar.admins` first: `create_auction`, `update_auction`,
+`delete_auction`, `publish_auction`, `add_auction_lot`,
+`create_auction_lot`, `remove_auction_lot`, `cancel_auction_lot`, and
+`admin_auction_lots` for the read that needs `reserve_price`. Several of
+them exist as functions for a second reason as well: they are pairs that
+must not half-complete.
 
 - **Adding** a lot inserts it AND flips its listing to status `'auction'`.
   Apart, either half is wrong in a way somebody has to notice: a lot whose
@@ -241,12 +254,155 @@ half-complete.
   back to the marketplace already past its expiry and be swept by the
   nightly job within hours.
 
+## Two ways in, and no status gates
+
+A lot can be **consigned** from an existing listing or **built from
+scratch** by `create_auction_lot`, which inserts the listing at status
+`'auction'` directly and the lot beside it, in one transaction.
+
+Consignment alone was the original design and it was wrong. Consignment in
+reality starts with the item arriving at our door — nobody listed it for
+sale first, and requiring them to means posting every auction item to the
+marketplace and immediately pulling it back out. The from-scratch form
+takes stills only; the 360 spin and video still come from the posting flow,
+so an item that deserves them is posted and consigned.
+
+Photos are uploaded **before** the lot is created, not after. Reversed, the
+lot exists first — publicly biddable, on a live auction, rendering the
+placeholder glyph for as long as eight uploads take, and permanently so if
+they fail. Uploading first means a failure creates nothing at all.
+
+Every "only while this auction is a draft" guard is also gone. Lots can be
+added, removed and withdrawn at any status, the schedule can be moved after
+publication, the status can be forced to any value, and the whole auction
+can be deleted. The reasoning is not that these all make sense — removing
+a live lot deletes real bids — but that an auction being tested has to be
+correctable without being rebuilt, and a guard that stops the operator is
+worth less here than the screen that warns them. Every destructive action
+names its consequence in the confirmation instead.
+
+Two things do the guarding that is left:
+
+- `publish_auction` still refuses an auction with no lots, an incomplete
+  schedule, or a first close behind its open. Publishing is the step with a
+  reader on the other end. `update_auction` deliberately refuses none of
+  that, which is what makes "pull the first close behind now() to end the
+  sale at the next minute tick" possible.
+- **`auction_lots.created_for_auction`** decides what happens to a lot's
+  listing when the lot or the auction goes away: a consigned one returns to
+  the status it had (`coalesce(listing_prev_status, 'active')`, restamped);
+  one created for the sale is **soft-removed, never destroyed**.
+
+  That column exists because of a specific incident. The first version
+  inferred the same thing from `listing_prev_status IS NULL`, and a lot
+  recorded before that column existed had a null — so deleting a test
+  auction hard-deleted a real, live listing and its photos. An inference
+  standing in for a fact is exactly the class of bug @AGENTS.md is about; a
+  boolean that only `create_auction_lot` ever sets cannot be wrong by
+  omission. Soft-removal is the second belt: the destructive branch can no
+  longer destroy anything, and it also cannot fail — `reports` and
+  `transactions` reference listings with `NO ACTION`, so a lot somebody
+  reported was undeletable and the delete surfaced as `unknown`.
+
+  **Soft removal only counts if nothing else erases it later**, and the
+  first version of that did not. `purge-removed-listings` runs daily and
+  permanently deletes anything that has sat at `status = 'removed'` for
+  fifteen days, photos and Bunny video included — so "kept, not destroyed"
+  was true for a fortnight and then quietly stopped being true, which is
+  worse than an instant delete because nobody would connect the loss to the
+  click that caused it. These removals are filed under
+  `removed_reason = 'auction_lot'` and the purge job skips that reason.
+  Its filter is spelled `or=(removed_reason.is.null,removed_reason.neq.auction_lot)`
+  rather than a bare `neq`, because `removed_reason <> 'auction_lot'` is
+  NULL for a row with no reason on file and a plain `neq` would have
+  silently stopped purging every legacy row.
+
+- **A forced status carries the lots, for every status.** `advance_auctions`
+  closes any lot that is `'live'` with a passed `closes_at` and never reads
+  the auction above it. `update_auction` handled two of the six statuses at
+  first, so an auction forced to `cancelled` went on stamping winners a
+  minute later, and one forced back to `draft` did it invisibly — RLS hides
+  a draft auction from every buyer while its lots resolve underneath. It
+  now cancels, demotes, stops the clock or brings the lots to their close
+  as each status requires.
+
+- **`update_auction_lot`** corrects a lot in place: start price, reserve
+  (with an explicit `p_clear_reserve`, since null already means "leave
+  it"), the lot's status, and the title and description of an item this
+  account owns. It is not a nicety. No listing screen in the app will open
+  something at `status = 'auction'` — `AppStore` and the moderation screen
+  both exclude it — so before this, a typo in a from-scratch lot could
+  only be fixed by removing the lot and rebuilding it.
+
+  The biggest thing it does is the least obvious: **the listing follows the
+  lot.** Moving a lot back into the sale takes its item out of the
+  marketplace; cancelling one hands a consigned item back, recording what
+  it was. Without that, the two disagree — a revived lot whose item is
+  still publicly on sale, or a withdrawn lot whose item is in neither
+  place — which is the exact state `add_auction_lot` was made a
+  transaction to prevent.
+
+  Two more that are easy to miss. It writes `reserve_met`,
+  a plain stored boolean that otherwise only `place_bid` sets — a reserve
+  raised past the current bid would leave every bidder reading "Reserve
+  met" on a lot heading for unsold. And setting a lot `live` stamps a
+  fresh close when the lot's own is null **or already past**, because the
+  case this parameter exists for — reviving a lot its auction cancelled —
+  is exactly the case where the old close is behind us.
+
+**A withdrawn lot stays withdrawn.** `publish_auction` reset every lot in
+the auction to `pending` with a fresh close, cancelled ones included. That
+was harmless only because withdrawal was impossible on a draft — which this
+change makes possible. Withdrawing a consigned lot from a draft puts its
+listing back in the marketplace and leaves the lot `cancelled`; publishing
+then revived the lot, so the same item was live in an auction and buyable
+in the browse grid at once. Both the lot update and the `no_lots` check now
+exclude `cancelled`.
+
+**A lot with no clock stops the whole sale.** `place_bid` refuses a bid on
+a lot whose `closes_at` is null, the lot-closing pass skips it, and the
+auction-closing pass waits for no `pending` or `live` lots to remain — so
+one such lot keeps its auction `live` for ever, with every other lot's
+result frozen inside a sale that never ends. It was reachable by reviving a
+withdrawn lot with the `pending` pill on a published auction. Two guards
+now: `update_auction_lot` stamps a close for `pending` as well as `live`
+whenever the auction is past draft, and `advance_auctions` gained a repair
+pass that promotes any `pending` lot inside a `live` auction and stamps a
+floored close on any live lot missing one. The second is the one that
+matters — it makes the invariant true rather than trusting every writer to
+maintain it, and the previous version only ever promoted lots for auctions
+it had opened in that same statement.
+
+**One status the pills cannot hold.** `advance_auctions` opens any
+`scheduled` auction whose `opens_at` has passed, so forcing a running sale
+back to `scheduled` is undone within a minute unless `opens_at` moves with
+it. `draft` and `cancelled` are the two that stop a sale on their own. The
+form says so rather than the function silently rewriting a schedule nobody
+asked it to change.
+
+**Scoping a cascade to what it actually changed.** `update_auction`'s
+`cancelled` branch cancels the lots still running, then hands their
+consigned listings back. Written as two independent statements — the lot
+update scoped to `pending`/`live`, the listing update scoped to the whole
+auction — voiding a finished sale set every consigned listing back to
+`active`, sold ones included, while their lots stayed `won` with a winner
+recorded; `already_a_lot` then refused to re-consign them, so there was no
+way back through the app. The listing update now reads the lot update's own
+`returning` rows. A cascade must be scoped to the rows the same call
+changed, not to the parent.
+
 ## What is deliberately not built yet
 
-- **Seller submission.** v1 has the admin creating lots directly, which is
-  how the first few will actually run — sourced and curated by hand. A
-  submit-for-review queue roughly doubles v1 and is almost entirely admin
-  screens rather than auction.
+- **Seller submission.** v1 has the admin creating lots directly, both
+  ways, which is how the first few will actually run — sourced and curated
+  by hand. A submit-for-review queue roughly doubles v1 and is almost
+  entirely admin screens rather than auction.
+- **Category attributes on a from-scratch lot.** The form writes title,
+  description, category, condition, district and price, and no
+  `attributes` — so a lot built here has an empty spec row on its card
+  where a consigned one has bedrooms or mileage. The spec form is a large
+  piece of `CreateListingScreen` and lifting it into an admin screen is its
+  own change; the description carries the same facts in the meantime.
 - **Settlement.** Lots close to `won` / `unsold` and stop there. Charging,
   invoicing and the commission split are the next thing, and they are
   waiting on a real payment provider rather than on design.

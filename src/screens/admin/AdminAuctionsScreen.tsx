@@ -8,8 +8,10 @@ import Icon from '../../icons/Icon';
 import { Alert } from '../../lib/alertShim';
 import { colors, radius, type } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
-import { Auction } from '../../types';
-import { AuctionError, createAuction, publishAuction } from '../../lib/auctions';
+import { Auction, AuctionStatus } from '../../types';
+import {
+  AuctionError, createAuction, deleteAuction, publishAuction, updateAuction,
+} from '../../lib/auctions';
 import { pickText } from '../../lib/listingText';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { useSettings } from '../../store/SettingsStore';
@@ -44,26 +46,76 @@ function fromIso(iso: string | null): string {
 // The engine raises codes; this is the admin's half of turning them into
 // sentences. English only, like the rest of the admin.
 const ADMIN_MESSAGES: Record<string, string> = {
-  no_lots: 'Add at least one lot first.',
+  // Not simply "no lots": publish_auction counts only lots that are not
+  // withdrawn, so this fires on an auction showing three rows.
+  no_lots: 'This auction has no lots that are not withdrawn — add one, or bring a withdrawn lot back from the lots screen.',
   schedule_incomplete: 'Set both the opening time and the first lot close.',
   closes_before_opens: 'The first lot cannot close before the auction opens.',
   already_published: 'This auction is already published.',
   title_required: 'Enter both titles.',
+  category_required: 'Pick a category.',
+  invalid_status: 'That is not an auction status.',
   listing_not_found: 'That listing no longer exists.',
-  already_a_lot: 'That listing is already a lot in an auction.',
+  already_a_lot: 'That listing is already a lot in an auction — including a withdrawn one. Remove that lot first.',
   start_price_invalid: 'Enter a start price above zero.',
   reserve_below_start: 'A reserve cannot be below the start price.',
-  listing_not_active: 'Only a live listing can be consigned. Publish it first.',
   auction_not_found: 'That auction no longer exists.',
   lot_not_found: 'That lot no longer exists.',
-  lot_already_sold: 'That lot has already sold — it cannot be withdrawn.',
-  auction_still_draft: 'Remove the lot instead — this auction is not published yet.',
   not_admin: 'Admin only.',
 };
 
 export function adminMessage(e: any): string {
-  const code = e instanceof AuctionError ? e.code : 'unknown';
-  return ADMIN_MESSAGES[code] || e?.message || 'Something went wrong.';
+  // `e.message` is NOT a fallback: AuctionError's constructor passes the
+  // code to super(), so an unmapped error has message === 'unknown' and
+  // this used to render a dialog whose entire body was that word. The raw
+  // text the database or the transport actually returned is on `.raw`.
+  if (e instanceof AuctionError) {
+    return ADMIN_MESSAGES[e.code] || e.raw || 'Something went wrong.';
+  }
+  return e?.message || 'Something went wrong.';
+}
+
+// Every status the auction table allows, offered as a plain row of pills.
+//
+// Deliberately not a workflow. publish_auction is the guarded path -- it
+// checks the schedule, refuses an auction with no lots, stamps every lot's
+// clock -- and it stays the normal way to open a sale. This row is the
+// override beside it: an auction under test has to be draggable to `live`
+// and back without waiting for Friday, and closing one has to be possible
+// without waiting for the minute job to notice.
+//
+// update_auction carries the lots along for every one of these, which it
+// did not at first: advance_auctions closes any lot that is 'live' with a
+// passed closes_at and never reads the auction above it, so an auction
+// forced to `cancelled` went on stamping winners a minute later, and one
+// forced back to `draft` did it invisibly.
+const STATUSES: AuctionStatus[] = ['draft', 'scheduled', 'live', 'closed', 'settled', 'cancelled'];
+
+type FormState = {
+  titleEn: string; titleAr: string; opensAt: string; closesAt: string;
+  stagger: string; antiSnipe: string; sellerPct: string; buyerPct: string;
+  status: AuctionStatus;
+  // Whether the status pill was actually TAPPED. Without it, Save writes
+  // back whatever status the row had when the screen last loaded -- and
+  // advance_auctions moves auctions on its own every sixty seconds, so
+  // fixing a typo two minutes after opening the screen would silently
+  // shove a live auction back to `scheduled` and unbid every lot.
+  statusTouched: boolean;
+};
+
+const EMPTY_FORM: FormState = {
+  titleEn: '', titleAr: '', opensAt: '', closesAt: '',
+  stagger: '', antiSnipe: '', sellerPct: '', buyerPct: '',
+  status: 'draft', statusTouched: false,
+};
+
+// A number field that was left blank means "leave it alone", and a field
+// with rubbish in it is a mistake worth stopping for -- undefined and
+// invalid must not collapse into the same thing.
+function optionalNumber(text: string): number | null | undefined {
+  if (!text.trim()) return undefined;
+  const n = Number(text);
+  return Number.isFinite(n) && n >= 0 ? n : null;
 }
 
 export default function AdminAuctionsScreen() {
@@ -73,8 +125,12 @@ export default function AdminAuctionsScreen() {
   const [rows, setRows] = useState<Auction[]>([]);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
-  const [creating, setCreating] = useState(false);
-  const [form, setForm] = useState({ titleEn: '', titleAr: '', opensAt: '', closesAt: '' });
+  // null = the form is closed. 'new' = creating. An id = editing that one.
+  // One piece of state rather than two booleans, because "creating AND
+  // editing" is not a state this screen can be in and a pair of flags
+  // would let it be.
+  const [editing, setEditing] = useState<string | null>(null);
+  const [form, setForm] = useState<FormState>(EMPTY_FORM);
 
   const load = useCallback(async () => {
     const { data, error } = await supabase
@@ -95,27 +151,89 @@ export default function AdminAuctionsScreen() {
 
   useEffect(() => { load(); }, [load]);
 
-  const create = async () => {
-    const opens = toIso(form.opensAt);
-    const closes = toIso(form.closesAt);
-    if (!form.titleEn.trim() || !form.titleAr.trim()) { Alert.alert('Missing title', 'Enter both titles.'); return; }
-    if (!opens || !closes) { Alert.alert('Bad date', 'Use YYYY-MM-DD HH:MM, e.g. 2026-09-05 20:00'); return; }
+  const openNew = () => { setForm(EMPTY_FORM); setEditing('new'); };
+
+  const openEdit = (a: Auction) => {
+    setForm({
+      titleEn: a.titleEn, titleAr: a.titleAr,
+      opensAt: fromIso(a.opensAt), closesAt: fromIso(a.firstLotClosesAt),
+      stagger: String(a.lotCloseStaggerSeconds ?? ''),
+      antiSnipe: String(a.antiSnipeSeconds ?? ''),
+      sellerPct: String(a.sellerCommissionPct ?? ''),
+      buyerPct: String(a.buyerPremiumPct ?? ''),
+      status: a.status, statusTouched: false,
+    });
+    setEditing(a.id);
+  };
+
+  const closeForm = () => { setEditing(null); setForm(EMPTY_FORM); };
+
+  const submit = async () => {
+    if (!form.titleEn.trim() || !form.titleAr.trim()) {
+      Alert.alert('Missing title', 'Enter both titles.');
+      return;
+    }
+    // A blank time is allowed on an EDIT and means "leave it alone" --
+    // update_auction coalesces a null. A malformed one is not: silently
+    // ignoring "2026-9-5 8pm" would look exactly like a successful save.
+    const opens = form.opensAt.trim() ? toIso(form.opensAt) : null;
+    const closes = form.closesAt.trim() ? toIso(form.closesAt) : null;
+    if ((form.opensAt.trim() && !opens) || (form.closesAt.trim() && !closes)) {
+      Alert.alert('Bad date', 'Use YYYY-MM-DD HH:MM, e.g. 2026-09-05 20:00');
+      return;
+    }
+    if (editing === 'new' && (!opens || !closes)) {
+      Alert.alert('Missing schedule', 'A new auction needs both times.');
+      return;
+    }
+
+    const stagger = optionalNumber(form.stagger);
+    const antiSnipe = optionalNumber(form.antiSnipe);
+    const sellerPct = optionalNumber(form.sellerPct);
+    const buyerPct = optionalNumber(form.buyerPct);
+    if (stagger === null || antiSnipe === null) {
+      Alert.alert('Bad number', 'Stagger and anti-snipe are whole seconds, zero or more.');
+      return;
+    }
+    if (sellerPct === null || buyerPct === null ||
+        (sellerPct !== undefined && sellerPct > 100) || (buyerPct !== undefined && buyerPct > 100)) {
+      Alert.alert('Bad percentage', 'Commission and premium are percentages between 0 and 100.');
+      return;
+    }
+
     setBusy(true);
-    // create_auction, not an insert: `authenticated` has no INSERT on this
-    // table and an RLS policy cannot give one back.
     try {
-      await createAuction({
-        titleEn: form.titleEn.trim(), titleAr: form.titleAr.trim(),
-        opensAt: opens, firstLotClosesAt: closes,
-      });
+      if (editing === 'new') {
+        // create_auction, not an insert: `authenticated` has no INSERT on
+        // this table and an RLS policy cannot give one back.
+        await createAuction({
+          titleEn: form.titleEn.trim(), titleAr: form.titleAr.trim(),
+          opensAt: opens!, firstLotClosesAt: closes!,
+        });
+      } else if (editing) {
+        // Only what the form actually holds. `undefined` for a blank field
+        // rather than null, so the wrapper sends null and the function
+        // coalesces -- "leave it", not "clear it". Status goes only if the
+        // pill was tapped, for the staleness reason on FormState.
+        await updateAuction(editing, {
+          titleEn: form.titleEn.trim(),
+          titleAr: form.titleAr.trim(),
+          opensAt: opens || undefined,
+          firstLotClosesAt: closes || undefined,
+          staggerSeconds: stagger,
+          antiSnipeSeconds: antiSnipe,
+          sellerCommissionPct: sellerPct,
+          buyerPremiumPct: buyerPct,
+          status: form.statusTouched ? form.status : undefined,
+        });
+      }
     } catch (e: any) {
       setBusy(false);
-      Alert.alert('Could not create', adminMessage(e));
+      Alert.alert(editing === 'new' ? 'Could not create' : 'Could not save', adminMessage(e));
       return;
     }
     setBusy(false);
-    setForm({ titleEn: '', titleAr: '', opensAt: '', closesAt: '' });
-    setCreating(false);
+    closeForm();
     load();
   };
 
@@ -135,6 +253,116 @@ export default function AdminAuctionsScreen() {
     setBusy(false);
     load();
   };
+
+  // Naming what goes, rather than asking "are you sure?". The consequence
+  // differs by what is in the auction and the admin cannot see it from
+  // this row, so the dialog says it: consigned listings come back, items
+  // created for the sale are removed, bids are gone.
+  const confirmDelete = (a: Auction) => {
+    Alert.alert(
+      'Delete this auction?',
+      `"${pickText(a.titleEn, a.titleAr, language)}" and every bid placed in it are deleted. ` +
+        'Lots consigned from an existing listing go back to the status they had before ' +
+        'the auction. Items created for this auction are hidden from the site but kept ' +
+        'in the database indefinitely — the daily purge skips them — so they can be ' +
+        'brought back by hand. The auction and its bids cannot.',
+      [
+        { text: 'Cancel', style: 'cancel' },
+        {
+          text: 'Delete',
+          style: 'destructive',
+          onPress: async () => {
+            setBusy(true);
+            try {
+              await deleteAuction(a.id);
+            } catch (e: any) {
+              Alert.alert('Could not delete', adminMessage(e));
+            } finally {
+              setBusy(false);
+              if (editing === a.id) closeForm();
+              load();
+            }
+          },
+        },
+      ]
+    );
+  };
+
+  const renderForm = () => (
+    <View style={styles.form}>
+      <Text style={styles.formTitle}>{editing === 'new' ? 'New auction' : 'Edit auction'}</Text>
+      <Text style={styles.fieldLabel}>Title (English)</Text>
+      <TextInput value={form.titleEn} onChangeText={(v) => setForm((f) => ({ ...f, titleEn: v }))} style={styles.input} placeholder="September Sale No. 1" placeholderTextColor={colors.inkSoft} />
+      <Text style={styles.fieldLabel}>Title (Arabic)</Text>
+      <TextInput value={form.titleAr} onChangeText={(v) => setForm((f) => ({ ...f, titleAr: v }))} style={styles.input} placeholder="مزاد أيلول ١" placeholderTextColor={colors.inkSoft} />
+      <Text style={styles.fieldLabel}>Opens (YYYY-MM-DD HH:MM, your local time)</Text>
+      <TextInput value={form.opensAt} onChangeText={(v) => setForm((f) => ({ ...f, opensAt: v }))} style={styles.input} placeholder="2026-09-05 20:00" placeholderTextColor={colors.inkSoft} />
+      <Text style={styles.fieldLabel}>Lot 1 closes</Text>
+      <TextInput value={form.closesAt} onChangeText={(v) => setForm((f) => ({ ...f, closesAt: v }))} style={styles.input} placeholder="2026-09-07 20:00" placeholderTextColor={colors.inkSoft} />
+      <Text style={styles.hint}>
+        {editing === 'new'
+          ? 'Each later lot closes 2 minutes after the one before it; change that below once it exists.'
+          : 'Changing these moves every lot that has not finished — including backwards, which closes them at the next minute tick.'}
+      </Text>
+
+      {editing !== 'new' && (
+        <>
+          <Text style={styles.fieldLabel}>Status</Text>
+          <View style={styles.pillRow}>
+            {STATUSES.map((s) => (
+              <Pressy
+                key={s}
+                onPress={() => setForm((f) => ({ ...f, status: s, statusTouched: true }))}
+                style={[styles.pill, form.status === s && styles.pillOn]}
+              >
+                <Text style={[styles.pillText, form.status === s && styles.pillTextOn]}>{s}</Text>
+              </Pressy>
+            ))}
+          </View>
+          <Text style={styles.hint}>
+            The lots follow: live promotes them and gives each a close time, scheduled
+            makes them unbiddable, draft also stops their clocks, cancelled cancels the ones
+            still running and hands their consigned items back (finished lots keep their
+            results), closed and settled bring each unfinished lot to its close so it
+            resolves to won or unsold on the bids it has.
+            {!form.statusTouched && ' Untouched, so this save leaves the status alone.'}
+          </Text>
+          {/* The one status that does not stick on its own. The minute job
+              reopens any `scheduled` auction whose opening time has passed,
+              so a running sale demoted to scheduled is live again inside a
+              minute unless Opens moves with it. */}
+          <Text style={styles.hint}>
+            Scheduled only holds while Opens is still in the future — the minute job reopens
+            a scheduled auction the moment its opening time passes. To pause a running sale,
+            move Opens forward in this same save, or use draft.
+          </Text>
+
+          <Text style={styles.fieldLabel}>Lot close stagger (seconds)</Text>
+          <TextInput value={form.stagger} onChangeText={(v) => setForm((f) => ({ ...f, stagger: v }))} keyboardType="numeric" style={styles.input} placeholder="120" placeholderTextColor={colors.inkSoft} />
+          <Text style={styles.hint}>
+            Changing the stagger recomputes every unfinished lot's close from the first one —
+            the same as changing the times above. Two things ride in that column and are
+            overwritten: anti-snipe extensions already granted, and the five-minute floor a
+            late-added lot was given. A recomputed time that lands in the past closes that lot
+            at the next minute tick.
+          </Text>
+          <Text style={styles.fieldLabel}>Anti-snipe extension (seconds)</Text>
+          <TextInput value={form.antiSnipe} onChangeText={(v) => setForm((f) => ({ ...f, antiSnipe: v }))} keyboardType="numeric" style={styles.input} placeholder="120" placeholderTextColor={colors.inkSoft} />
+          <Text style={styles.fieldLabel}>Seller commission (%)</Text>
+          <TextInput value={form.sellerPct} onChangeText={(v) => setForm((f) => ({ ...f, sellerPct: v }))} keyboardType="numeric" style={styles.input} placeholder="15" placeholderTextColor={colors.inkSoft} />
+          <Text style={styles.fieldLabel}>Buyer premium (%)</Text>
+          <TextInput value={form.buyerPct} onChangeText={(v) => setForm((f) => ({ ...f, buyerPct: v }))} keyboardType="numeric" style={styles.input} placeholder="10" placeholderTextColor={colors.inkSoft} />
+        </>
+      )}
+
+      <View style={styles.formActions}>
+        <Pressy onPress={closeForm} style={styles.cancelBtn} disabled={busy}><Text style={styles.cancelText}>Cancel</Text></Pressy>
+        <Pressy onPress={submit} style={styles.saveBtn} disabled={busy}>
+          <Text style={styles.saveText}>{busy ? 'Saving…' : editing === 'new' ? 'Create' : 'Save'}</Text>
+        </Pressy>
+      </View>
+    </View>
+  );
 
   return (
     <Screen maxWidth={DESKTOP_CONTENT_MAX_WIDTH}>
@@ -183,24 +411,8 @@ export default function AdminAuctionsScreen() {
           </View>
         </Pressy>
 
-        {creating ? (
-          <View style={styles.form}>
-            <Text style={styles.fieldLabel}>Title (English)</Text>
-            <TextInput value={form.titleEn} onChangeText={(v) => setForm((f) => ({ ...f, titleEn: v }))} style={styles.input} placeholder="September Sale No. 1" placeholderTextColor={colors.inkSoft} />
-            <Text style={styles.fieldLabel}>Title (Arabic)</Text>
-            <TextInput value={form.titleAr} onChangeText={(v) => setForm((f) => ({ ...f, titleAr: v }))} style={styles.input} placeholder="مزاد أيلول ١" placeholderTextColor={colors.inkSoft} />
-            <Text style={styles.fieldLabel}>Opens (YYYY-MM-DD HH:MM, your local time)</Text>
-            <TextInput value={form.opensAt} onChangeText={(v) => setForm((f) => ({ ...f, opensAt: v }))} style={styles.input} placeholder="2026-09-05 20:00" placeholderTextColor={colors.inkSoft} />
-            <Text style={styles.fieldLabel}>Lot 1 closes</Text>
-            <TextInput value={form.closesAt} onChangeText={(v) => setForm((f) => ({ ...f, closesAt: v }))} style={styles.input} placeholder="2026-09-07 20:00" placeholderTextColor={colors.inkSoft} />
-            <Text style={styles.hint}>Each later lot closes 2 minutes after the one before it.</Text>
-            <View style={styles.formActions}>
-              <Pressy onPress={() => setCreating(false)} style={styles.cancelBtn}><Text style={styles.cancelText}>Cancel</Text></Pressy>
-              <Pressy onPress={create} style={styles.saveBtn} disabled={busy}><Text style={styles.saveText}>Create</Text></Pressy>
-            </View>
-          </View>
-        ) : (
-          <Pressy onPress={() => setCreating(true)} style={styles.newBtn}>
+        {editing === 'new' ? renderForm() : (
+          <Pressy onPress={openNew} style={styles.newBtn}>
             <Icon name="plus" size={16} color={colors.white} />
             <Text style={styles.newText}>New auction</Text>
           </Pressy>
@@ -210,22 +422,31 @@ export default function AdminAuctionsScreen() {
           <ActivityIndicator style={{ marginTop: 30 }} color={colors.primary} />
         ) : (
           rows.map((a) => (
-            <View key={a.id} style={styles.row}>
-              <Pressy onPress={() => navigation.navigate('AdminAuctionLots', { auctionId: a.id })} style={styles.rowMain}>
-                <Text style={styles.rowTitle} numberOfLines={1}>{pickText(a.titleEn, a.titleAr, language)}</Text>
-                <Text style={styles.rowSub}>
-                  {a.status} · opens {fromIso(a.opensAt) || '—'} · lot 1 closes {fromIso(a.firstLotClosesAt) || '—'}
-                </Text>
-                <Text style={styles.rowSub}>
-                  Seller {a.sellerCommissionPct}% · Buyer {a.buyerPremiumPct}%
-                </Text>
-              </Pressy>
-              {a.status === 'draft' && (
-                <Pressy onPress={() => publish(a)} style={styles.publishBtn} disabled={busy}>
-                  <Text style={styles.publishText}>Publish</Text>
+            <View key={a.id}>
+              <View style={styles.row}>
+                <Pressy onPress={() => navigation.navigate('AdminAuctionLots', { auctionId: a.id })} style={styles.rowMain}>
+                  <Text style={styles.rowTitle} numberOfLines={1}>{pickText(a.titleEn, a.titleAr, language)}</Text>
+                  <Text style={styles.rowSub}>
+                    {a.status} · opens {fromIso(a.opensAt) || '—'} · lot 1 closes {fromIso(a.firstLotClosesAt) || '—'}
+                  </Text>
+                  <Text style={styles.rowSub}>
+                    Seller {a.sellerCommissionPct}% · Buyer {a.buyerPremiumPct}%
+                  </Text>
                 </Pressy>
-              )}
-              <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+                {a.status === 'draft' && (
+                  <Pressy onPress={() => publish(a)} style={styles.publishBtn} disabled={busy}>
+                    <Text style={styles.publishText}>Publish</Text>
+                  </Pressy>
+                )}
+                <Pressy onPress={() => (editing === a.id ? closeForm() : openEdit(a))} style={styles.iconAction} disabled={busy}>
+                  <Icon name="edit" size={15} color={colors.inkSoft} />
+                </Pressy>
+                <Pressy onPress={() => confirmDelete(a)} style={styles.iconAction} disabled={busy}>
+                  <Icon name="trash" size={15} color={colors.danger} />
+                </Pressy>
+                <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+              </View>
+              {editing === a.id && renderForm()}
             </View>
           ))
         )}
@@ -255,19 +476,29 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.md, padding: 14, marginBottom: 18,
   },
+  formTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
   fieldLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 5, marginTop: 10 },
   input: {
     height: 44, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.bg, paddingHorizontal: 12, fontSize: 14.5, color: colors.ink,
   },
-  hint: { ...type.tiny, marginTop: 8 },
+  hint: { ...type.tiny, marginTop: 8, lineHeight: 16 },
+  pillRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 6 },
+  pill: {
+    paddingHorizontal: 12, height: 32, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.bg,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  pillOn: { borderColor: colors.primary, backgroundColor: colors.primaryTint },
+  pillText: { fontSize: 12.5, fontWeight: '700', color: colors.inkSoft },
+  pillTextOn: { color: colors.primary },
   formActions: { flexDirection: 'row', gap: 10, marginTop: 14 },
   cancelBtn: { flex: 1, height: 42, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, alignItems: 'center', justifyContent: 'center' },
   cancelText: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
   saveBtn: { flex: 1, height: 42, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   saveText: { fontSize: 13.5, fontWeight: '800', color: colors.white },
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
+    flexDirection: 'row', alignItems: 'center', gap: 6,
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.md, padding: 12, marginBottom: 8,
   },
@@ -276,4 +507,5 @@ const styles = StyleSheet.create({
   rowSub: { ...type.tiny },
   publishBtn: { paddingHorizontal: 12, height: 32, borderRadius: radius.pill, backgroundColor: colors.primary, alignItems: 'center', justifyContent: 'center' },
   publishText: { fontSize: 12, fontWeight: '800', color: colors.white },
+  iconAction: { width: 32, height: 32, alignItems: 'center', justifyContent: 'center' },
 });
