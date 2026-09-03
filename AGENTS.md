@@ -291,6 +291,83 @@ other step:
   `listing.shopId` as well; anything new that reads `stockQty` should
   too.
 
+# RLS filters rows. It never confers a privilege
+
+The whole admin half of the auctions feature was written, reviewed and
+shipped dead, and this is why.
+
+`authenticated` was deliberately given no INSERT, UPDATE or DELETE on any
+auction table — a grant nobody needs is a leak waiting for a policy change.
+The admin screens were then written against those tables anyway, on the
+assumption that the `admins manage …` RLS policies would allow it. **They
+cannot.** A policy narrows the rows a privilege already applies to; it
+cannot hand out the privilege. Every admin action failed with `42501`,
+including reading the lot list, which named a column granted to
+`service_role` alone — and one ungranted column fails the whole statement
+(see the per-column grants above).
+
+The fix was five SECURITY DEFINER functions that check `myazar.admins`
+themselves. The rule to carry forward: **before writing a screen against a
+table, check the GRANTS, not the policies.** A policy list that reads
+exactly right tells you nothing about whether the write can happen at all.
+
+# An inference standing in for a fact will eventually be wrong
+
+`delete_auction` decided whether a lot's listing had been created for the
+auction — and so whether to destroy it — by testing whether
+`listing_prev_status` was null. It was a fair inference: only a
+consigned listing records a previous status. A lot recorded before that
+column existed had a null anyway, so deleting one test auction hard-deleted
+a real, live listing and its photos. Unrecoverable.
+
+`auction_lots.created_for_auction` is now an explicit boolean that only
+`create_auction_lot` ever sets. A fact cannot be wrong by omission; an
+inference over data older than the inference always can.
+
+Two habits came out of it, both cheap:
+
+- **A destructive branch takes an explicit flag, never a derived one.**
+- **Prefer soft removal in that branch.** The listing is parked at
+  `status = 'removed'` instead of deleted, which makes the whole class of
+  mistake survivable — and then check what ELSE acts on that state:
+  `purge-removed-listings` erases removed listings after fifteen days, so
+  "kept, not destroyed" was true for a fortnight and then quietly stopped
+  being. Those rows carry their own `removed_reason` and the purge skips it.
+
+# Writing media and showing media are two different jobs
+
+The auctions feature shipped media nobody could see, twice.
+
+First, `listing_photos`, `listing_spin_sets` and `listing_videos` each gate
+reads on the parent listing being `'active'`, which an auction lot never
+is. The listing came back, the media did not, and every lot rendered the
+placeholder glyph for every buyer. **Adding a listing status is never one
+policy — it is one per table that gates on status.**
+
+Then, with all three policies fixed and an admin able to attach a 360 spin
+and a video, the buyer's lot page rendered `listing.photos` and nothing
+else — and `photos` is `sortedByKind(rows, 'gallery')`, so spin frames are
+filtered out of it by construction. Both wrote correctly, came back
+correctly, and appeared nowhere.
+
+Finishing the write path is not finishing the feature. Open the surface a
+real person looks at.
+
+# Before deciding a capability is expensive to reuse, open the file
+
+The admin auction screens offered library-pick only for photos and 360
+frames, for one reason: an assumption that the seller flow's guided camera
+was welded into the posting wizard and would be costly to extract.
+
+It had been extracted long before. `CameraCapture` is standalone, takes its
+frame limits and wording as props, works on native and web, and the wizard
+already mounts it three separate ways. So does `SpinPreviewModal`. Both
+dropped in unchanged.
+
+The cost of that assumption was not the extra work later — it was shipping
+a feature the person who asked for it could not use, and a recommendation
+that talked them out of asking again.
+
 # A column nothing reads is worse than no column
 
 `category_attributes.card_priority` existed for weeks: added by a migration,

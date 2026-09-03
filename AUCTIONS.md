@@ -1,11 +1,19 @@
 # Auctions
 
-Written 2 Sep 2026. The section is built — schema, engine, buyer screens
-and admin screens — and switched OFF behind
-`site_settings.auctions_enabled`, so nothing is reachable until somebody
-turns it on in Admin → Auctions. No auction has been assembled yet. This
+Written 2 Sep 2026, finished 3 Sep. The section is built end to end —
+schema, proxy engine, closer, buyer screens, admin screens, and media on
+both — and switched OFF behind `site_settings.auctions_enabled`, so
+nothing is reachable until somebody turns it on in Admin → Auctions. This
 is the record of what was decided and why, so the next person to open the
 engine does not undo a rule by accident.
+
+**Where it stands.** Every mechanism has been exercised against the live
+database — opening bid, outbid, self-raise, tie, reserve lift, anti-snipe,
+close to won and to unsold, every rejection code, and the whole admin path
+including delete. What has NOT happened is one sale walked through on a
+real device by a person: build a lot, publish, bid from a second account,
+let it close. Do that before showing it to anyone. Settlement is the one
+piece deliberately absent — see the last section.
 
 ## What it is
 

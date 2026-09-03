@@ -28,14 +28,25 @@ Two things worth fixing:
   account phone. Both are new writes and neither has been exercised against
   the real endpoint. See @ACCOUNTS.md.
 
-- **Auctions: the screens.** The schema, the proxy-bidding engine, the
-  closer and the client layer are in and exercised against the live
-  database (@AUCTIONS.md); nothing buyer-facing exists yet. Next is the
-  gate tile, the auction page with its countdown, the lot page, the bid
-  sheet, the card/registration flow, and the admin screens that build an
-  auction and publish it. The feature is off behind
-  `site_settings.auctions_enabled`, which is what has to be switched on to
-  demonstrate it.
+- **Auctions: run one end to end by hand.** Everything is built and
+  exercised against the live database — schema, proxy engine, closer,
+  screens both sides, full admin control, media (@AUCTIONS.md). What has
+  NOT happened is one sale walked through on a real device: build a lot
+  from scratch with photos, a 360 and a video, publish, force it live, bid
+  from a second account, let it close. The feature is off behind
+  `site_settings.auctions_enabled`, which is what has to be switched on for
+  any of it to be visible to a buyer, and it is still `false`.
+
+- **Auctions: what is genuinely not built.** Settlement is the big one —
+  lots close to `won`/`unsold` and stop there; charging, invoicing and the
+  commission split are waiting on a real payment provider rather than on
+  design. Then outbid/won notifications, which want the WhatsApp channel
+  Meta still will not approve; a seller submission queue (v1 has the admin
+  creating every lot, which is how the first few will really run); category
+  attributes on a from-scratch lot, so its card has a spec row; and a
+  terminal listing status for a settled lot, which currently sits at
+  `'auction'` and stays publicly readable for ever. @AUCTIONS.md carries
+  the reasoning for each.
 
 - **The home carousels scroller is not virtualised, and cards just got 60%
   wider.** `renderCarousels` mounts every section on the page at once -- it
@@ -74,10 +85,11 @@ Two things worth fixing:
   the custom SQLSTATE as `error.code`, but it was never exercised against
   the real endpoint. One tap confirms it.
 
-- **The app has not had a native build since 26 Aug.** Nothing needs one
-  right now -- the fingerprint was restored rather than rebuilt around, so
-  updates reach it again (see @AGENTS.md, "What forces a new native
-  build"). But the installed app is several months of native config behind
+- **The app has not had a native build since 26 Aug** — over a week now.
+  Everything since has reached the installed app over the air, which is why
+  it has not bitten -- the fingerprint was restored rather than rebuilt
+  around, so updates reach it again (see @AGENTS.md, "What forces a new
+  native build"). But the installed app is several months of native config behind
   whatever it will be built from next, and that gap is only discovered the
   day something genuinely native changes. Worth a build on a quiet day
   rather than an urgent one.
@@ -100,6 +112,27 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Auctions, finished**, 2–3 Sep 2026. Six patches over two days took it from
+a schema to something that can be demonstrated. The buyer side: a gate tile,
+the auction page and its countdown, the lot page with Photos/360/Video tabs,
+the bid sheet, card registration. The admin side: create an auction, build a
+lot **from scratch** as well as by consigning an existing listing, add photos,
+a 360 spin and a video from either the library or the in-app camera, edit or
+delete anything at any status. Proxy bidding, anti-snipe, reserves and the
+minute-by-minute closer were all exercised against the live database rather
+than reasoned about. @AUCTIONS.md is the reasoning record.
+
+Three things in there are worth reading even if auctions never ship, and all
+three are now in @AGENTS.md: **RLS filters rows, it never confers a
+privilege** (which is why the entire admin half shipped dead and had to be
+rebuilt as SECURITY DEFINER functions); **an inference standing in for a fact
+will eventually be wrong** (a null column read as "created for the auction"
+hard-deleted a real listing — recorded in full because it destroyed a
+seller's data); and **writing media and showing media are two jobs** (the
+feature shipped media no buyer could see, twice — once through three RLS
+policies that gated on `status = 'active'`, once through a lot page that
+rendered only gallery photos).
 
 **Browse grid widened**, 1 Sep 2026. One column on a phone and three on
 desktop (was two and four), and the card photo moved from 1:1 to 4:3 — at

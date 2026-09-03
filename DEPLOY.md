@@ -126,6 +126,30 @@ git tag -a v-$(date +%Y%m%d) -m "web + android" && git push origin --tags
 
 `npm run release` chains verify → web → android in one go.
 
+## Two ways a pasted command block goes wrong
+
+Both of these have cost real time, and neither announces itself.
+
+**A trailing `#` comment is not a comment in interactive zsh.**
+`INTERACTIVE_COMMENTS` is off by default in an interactive zsh, which is
+what macOS Terminal gives you. So this:
+
+```sh
+git pull --ff-only origin main          # brings you up to date
+```
+
+passes `#` and `brings` and `you` as arguments — `fatal: couldn't find
+remote ref #`. The same paste in a script file works fine, which is what
+makes it confusing. Commands to be pasted go one per line with the
+explanation ABOVE them, never after.
+
+**`git reset --hard HEAD~1` after a successful push only rewinds you.**
+An undo offered "before pushing" is not an undo afterwards: the commit is
+already on GitHub, and the reset just leaves the local clone a commit
+behind the remote. The recovery is `git pull --ff-only origin main`, not a
+re-apply of the patch. Read which side of the push you are on before
+running an undo.
+
 ## Notes
 
 - `dist/` is gitignored. Build output is never committed.
