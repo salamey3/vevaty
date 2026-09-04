@@ -36,23 +36,50 @@ async function computeResizeAction(uri: string, maxDim: number): Promise<ImageMa
     : [];
 }
 
+// Neither of the two steps below has a timeout of its own, and one of them
+// FETCHES: on an edit, the URIs are hosted https URLs, so Image.getSize
+// and manipulateAsync each pull the file over the network. RN's
+// Image.getSize in particular has no deadline at all, so a stalled fetch
+// leaves this promise pending for ever -- and the callers use Promise.all,
+// so one hung photo means the whole batch never settles.
+//
+// That is not a slow AI suggestion, it is a listing that never gets
+// moderated: triggerListingModeration is never called, the listing sits at
+// pending_review, and nothing tells anybody. Exactly the shape of failure
+// the media work went after (@MEDIA.md), one file over.
+//
+// Generous, because it is a backstop: a photo that is downloading at all
+// finishes well inside it.
+const ENCODE_TIMEOUT_MS = 30_000;
+
 export async function uriToCompressedBase64(
   uri: string,
   maxDim = 1024,
   quality = 0.6
 ): Promise<{ data: string; mediaType: string } | null> {
   try {
-    const resizeAction = await computeResizeAction(uri, maxDim);
-    const result = await ImageManipulator.manipulateAsync(uri, resizeAction, {
-      base64: true,
-      compress: quality,
-      format: ImageManipulator.SaveFormat.JPEG,
-    });
+    const work = (async () => {
+      const resizeAction = await computeResizeAction(uri, maxDim);
+      return ImageManipulator.manipulateAsync(uri, resizeAction, {
+        base64: true,
+        compress: quality,
+        format: ImageManipulator.SaveFormat.JPEG,
+      });
+    })();
+    const result = await Promise.race([
+      work,
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(`image encode timed out: ${uri}`)), ENCODE_TIMEOUT_MS)
+      ),
+    ]);
     if (!result.base64) return null;
     return { mediaType: 'image/jpeg', data: result.base64 };
-  } catch (e) {
+  } catch (e: any) {
     // Best-effort -- a photo that fails to read/encode is just skipped by
-    // the caller, never blocks the rest of the AI suggestion.
+    // the caller, never blocks the rest of the AI suggestion. Logged
+    // rather than swallowed, because "the AI saw fewer photos than the
+    // seller thinks it did" is otherwise invisible everywhere.
+    console.warn('[imageToBase64] skipped a photo:', e?.message || e);
     return null;
   }
 }

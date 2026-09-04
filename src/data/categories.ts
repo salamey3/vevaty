@@ -42,7 +42,16 @@ function topLevel(
     // universal column. See Category.cardKindSlug / cardConditionSlug.
     cardKindSlug: null,
     cardConditionSlug: null,
-    supports3d: false,
+    // The database has this on for every category a seller can reach
+    // except the intangible ones -- Jobs, Services, Mobile Numbers,
+    // Tickets & Vouchers -- and the column defaults true. This builder
+    // only ever seeds the top-level offline/first-paint fallback set, so
+    // this is what a seller sees for the moment before the real
+    // categories load: `true` is right for almost all of them, and for
+    // the couple it is not, the real value arrives a moment later. The
+    // `false` that was here was wrong for Vehicles and Properties, which
+    // did support a spin, so those two genuinely flashed.
+    supports3d: true,
     shotListEn,
     shotListAr,
     // Offline/first-paint fallback only (see file header) -- always

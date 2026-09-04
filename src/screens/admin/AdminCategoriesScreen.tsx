@@ -49,7 +49,14 @@ type FormState = {
 
 function blankForm(): FormState {
   return {
-    id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: false, shotListEn: '', shotListAr: '',
+    // supports3d starts ON, matching the column default. A new category
+    // that started it off would silently reproduce the thing this
+    // changed: only Properties and Vehicles had it, so a seller adding a
+    // camera never saw the 360 step and nothing anywhere looked broken.
+    // The switch below is for turning it OFF where a spinner is
+    // meaningless -- it is currently off for the Jobs and Services trees,
+    // Mobile Numbers and Tickets & Vouchers.
+    id: '', nameEn: '', nameAr: '', iconUrl: null, supports3d: true, shotListEn: '', shotListAr: '',
     isService: false, conditionMode: null, domainId: null, titleExampleEn: '', titleExampleAr: '', descriptionExampleEn: '', descriptionExampleAr: '',
     stockMode: 'unique', listingLifetimeDays: '',
   };

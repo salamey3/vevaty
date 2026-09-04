@@ -19,6 +19,70 @@ import { useLanguage } from '../i18n/LanguageContext';
 // other vision calls (Magic Listing/AI suggest) cap theirs, since the model
 // only needs enough of the item to judge, not every angle.
 const MODERATION_MAX_PHOTOS = 6;
+// Spin frames go to the moderator too.
+//
+// The AI pass only ever saw `l.photos` -- the gallery -- and
+// moderate-listing is what flips a listing to `active`, so approval was
+// granted on the gallery alone while the 360 frames went live unseen. Six
+// clean photos and twenty-four of anything else, per set, with no cap on
+// the number of sets. It was narrow while only Properties and Vehicles
+// could carry a spin at all; making the 360 step available in every
+// category is what turns it into something worth closing.
+//
+// A SAMPLE, not everything, and that is the honest description: a spin is
+// one object rotating, so its frames are near-identical by construction
+// and one of them represents the set. The gallery keeps all six of its
+// slots -- it is what identifies the item, and weakening the main check to
+// make room would be a bad trade -- and these two sit on top, which is
+// exactly the edge function's own MAX_PHOTOS of 8.
+const MODERATION_MAX_SPIN_FRAMES = 2;
+// moderate-listing slices the images it is given to its own MAX_PHOTOS of
+// 8, FROM THE FRONT -- and the spin frames are appended last, so they are
+// what a ninth image would silently push out. Raising either constant
+// without raising that one would quietly re-open the hole the spin frames
+// were added to close, with no error anywhere. Checked here rather than
+// left to a comment.
+if (MODERATION_MAX_PHOTOS + MODERATION_MAX_SPIN_FRAMES > 8) {
+  console.warn(
+    '[AppStore] moderation payload exceeds moderate-listing MAX_PHOTOS (8); spin frames will be dropped'
+  );
+}
+
+// Which sets and which frames, chosen at RANDOM rather than at fixed
+// positions.
+//
+// This narrows the gap, it does not close it: two frames out of up to 24
+// per set, across as many sets as the seller cares to add, means most
+// frames are never looked at. Sampling the first two sets at index 0 and
+// the midpoint would have made the unlooked-at positions constant and
+// therefore choosable -- anything placed in set three, or at any other
+// index, would be reliably unseen. Random costs nothing and means a
+// seller cannot know in advance where the blind spots are; a re-moderation
+// samples somewhere else again.
+function spinFramesForModeration(sets: SpinSet[]): string[] {
+  const withFrames = sets.filter((set) => Array.isArray(set.frames) && set.frames.length > 0);
+  if (withFrames.length === 0) return [];
+  const pick = <T,>(xs: T[]): T => xs[Math.floor(Math.random() * xs.length)];
+
+  if (withFrames.length === 1) {
+    // One set, so the budget goes on covering its rotation instead: as
+    // many DISTINCT frames as the budget and the set allow.
+    const frames = withFrames[0].frames;
+    const chosen = new Set<string>();
+    for (let i = 0; i < frames.length && chosen.size < MODERATION_MAX_SPIN_FRAMES; i++) {
+      chosen.add(pick(frames));
+    }
+    return [...chosen];
+  }
+  // Several sets: one frame from each of a random selection of them, so
+  // that being the third set added is not a hiding place.
+  const shuffled = withFrames.slice();
+  for (let i = shuffled.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+  }
+  return shuffled.slice(0, MODERATION_MAX_SPIN_FRAMES).map((set) => pick(set.frames));
+}
 
 // What updateListing has to say about a save that succeeded.
 //
@@ -1869,7 +1933,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           // a listing nobody could see. A post that did not go out is not
           // a post.
           //
-          Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+          Promise.all(
+            [...l.photos.slice(0, MODERATION_MAX_PHOTOS), ...spinFramesForModeration(l.spinSets)].map((uri) =>
+              uriToCompressedBase64(uri)
+            )
+          )
             .then((results) => {
               const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
               return triggerListingModeration(listingId, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);
@@ -2602,7 +2670,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       // "publish". CreateListing's Save-and-exit path does not check the
       // photo count, so this is reachable from the UI.
       if (willModerate && blockedReason() === null) {
-        Promise.all(l.photos.slice(0, MODERATION_MAX_PHOTOS).map((uri) => uriToCompressedBase64(uri)))
+        Promise.all(
+          [...l.photos.slice(0, MODERATION_MAX_PHOTOS), ...spinFramesForModeration(l.spinSets)].map((uri) =>
+            uriToCompressedBase64(uri)
+          )
+        )
           .then((results) => {
             const photos = results.filter((p): p is { data: string; mediaType: string } => !!p);
             return triggerListingModeration(id, photos, l.titleEn || l.titleAr, l.descriptionEn || l.descriptionAr);

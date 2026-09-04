@@ -113,6 +113,35 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**360 spinners available in every category**, 4 Sep 2026. A seller added a
+camera and the wizard went from the verification shot straight to Specs,
+never showing the 360 step. Nothing was broken: `categories.supports_3d`
+gates whether that step exists at all, and it was true for exactly two of
+the ninety-seven active categories. It is now on everywhere except the
+intangible ones -- the Jobs and Services trees, Mobile Numbers, Tickets &
+Vouchers -- the column defaults on for anything added later, and the
+per-category switch in admin Categories stays, which is what turned those
+twelve back off. The buyer's listing page never gated on the category
+(it renders a spin whenever one exists), so nothing else was in the way.
+
+Two things that came out of doing it:
+
+- **Spin frames were not being moderated at all.** `moderate-listing` is
+  what publishes a listing, and its payload was built from the gallery
+  only -- so six clean photos plus twenty-four frames of anything else,
+  per set, went live unseen. Narrow while two categories could carry a
+  spin; not narrow at ninety-six. The payload now carries two spin frames
+  alongside the six gallery ones, which is exactly the edge function's own
+  cap, sampled at random so the unlooked-at positions are not choosable.
+  It narrows the gap rather than closing it -- most frames are still never
+  seen -- and a human moderator opening the row does see all of them.
+- **`uriToCompressedBase64` had no timeout, and on an edit it fetches.**
+  The URIs there are hosted URLs, and RN's `Image.getSize` has no deadline
+  of its own, so one stalled photo left a `Promise.all` pending for ever
+  and the listing was never moderated -- the silent-stall shape @MEDIA.md
+  is about, one file over. Bounded at 30s, and a skipped photo is now
+  logged instead of vanishing.
+
 **Listings stopped going live without their photos**, 3-4 Sep 2026. A
 seller's apartment listing went out with no pictures and only got them
 when he edited it and uploaded them again. Cause, read off the edge logs
@@ -266,7 +295,17 @@ and the Properties-or-not question behind Sale/Rent/Both generalised into
 a category flag -- which the Pets work above then turned into
 `categories.condition_mode`.
 
-Three things this work turned up and deliberately did not fix:
+Four things this work turned up and deliberately did not fix:
+
+- **Unverified: whether the AI sees anything at all on the web build's
+  edit path.** `expo-image-manipulator` on web sets `crossOrigin =
+  'anonymous'`, so if the Bunny pull zone does not return an
+  `Access-Control-Allow-Origin` header, every hosted photo fails to encode
+  and the moderation payload goes out empty -- the AI approving on title
+  and description alone, silently. Pre-dates all of this and applies to
+  the gallery, not just the new spin frames. It is now at least findable:
+  a skipped photo logs to the console. One edit of an existing listing on
+  vevaty.com with the console open settles it.
 
 - **`anon` cannot read `myazar.listings` at all.** Any query as the true
   `anon` role fails with `permission denied for table mfa_factors` — the
