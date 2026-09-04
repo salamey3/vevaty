@@ -138,6 +138,44 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'changePhone.successTitle': 'Number updated',
     'changePhone.successBody': 'Your account is now linked to {phone}.',
     'changePhone.rowLabel': 'Change phone number',
+    // The code was accepted and the sign-in number HAS changed -- only the
+    // copy buyers are shown from didn't move with it. Saying "verification
+    // failed" here (which is what happened before this was split out of the
+    // verify catch) would send the seller back to re-request a code for a
+    // change that already happened.
+    'changePhone.profileNotUpdated': 'Your number was changed, but the number buyers see was not updated. Start the change again with this same number, and if it still fails, contact support.',
+
+    // Media write failures the seller has to hear about. These were three
+    // hardcoded English strings in an app that is half Arabic -- see
+    // AppStore's tRef.
+    'media.photosDidNotUploadTitle': 'Your photos did not upload',
+    'media.photosDidNotUploadBody': 'The listing was saved but is not on the site yet, because its pictures never finished uploading. Open it from My listings, tap Edit and add them again — it goes live as soon as they are there.',
+    'media.photosNotSavedTitle': 'Some photos were not saved',
+    'media.photosNotSavedBody': 'The listing was updated, but its new photos did not upload. Open it, tap Edit and add them again.',
+    'media.somePhotosMissingTitle': 'Some photos are missing',
+    'media.somePhotosMissingBody': '{count} of your photos did not upload. The listing is saved with the rest — open it, tap Edit and add the missing ones.',
+    'media.photoRemovalNotSavedTitle': 'A photo you removed is still there',
+    'media.photoRemovalNotSavedBody': 'Everything else in the listing was saved, but a photo you deleted was not removed. Open it, tap Edit and remove it again.',
+    'media.photoOrderNotSavedTitle': 'The photo order was not saved',
+    'media.photoOrderNotSavedBody': 'All your photos are on the listing, but the order buyers see is the old one. Open it, tap Edit and save again.',
+    // Publication was blocked -- by a photo failure of any kind, not
+    // necessarily an upload. Says the one thing that matters (it is not
+    // on the site) without guessing at a cause it does not know.
+    'createListing.savePhotolessRefused': 'A listing on the site needs at least one photo. Add one before saving or republishing it — or remove the listing instead.',
+    'media.spinTooShortTitle': 'The 360 spin is missing frames',
+    'media.spinTooShortBody': 'Some of its frames did not upload, so the spin has too few to turn smoothly. Open the listing, tap Edit and retake it.',
+    'media.spinNotSavedTitle': 'The 360 spin was not saved',
+    'media.spinNotSavedBody': 'Everything else in the listing was saved. Open it, tap Edit and add the 360 spin again.',
+    'media.notPublishedNoPhotosTitle': 'The listing has no photos',
+    'media.notPublishedNoPhotosBody': 'It was saved, but a listing cannot go on the site without a picture. Open it from My listings, tap Edit and add at least one photo.',
+    'media.draftPhotosNotUploadedTitle': 'The photos did not upload',
+    'media.draftPhotosNotUploadedBody': 'This item was saved, but its pictures never finished uploading. They are still on this device — go back to it and add them again before you post.',
+    'media.notPublishedTitle': 'The listing is not on the site yet',
+    'media.notPublishedBody': 'It was saved, but something in its photos did not go through, so it has not been published. Open it from My listings, tap Edit and save again — it goes live as soon as that works.',
+    'media.videoNotRemovedTitle': 'The video is still on the listing',
+    'media.videoNotRemovedBody': 'Everything else in the listing was saved, but the video you removed could not be deleted. Open it, tap Edit and remove it again.',
+    'media.videoNotAttachedTitle': 'The video was not attached',
+    'media.videoNotAttachedBody': 'Everything else in the listing was saved. Open it, tap Edit and add the video again.',
 
     // Edit name / location (ProfileScreen's "Edit your profile" menu --
     // phone number still goes through changePhone.* above, unchanged)
@@ -704,6 +742,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     'batchLocationContact.title': 'Location & contact',
     'batchLocationContact.intro': "One location and contact method for the whole batch — every item you're posting will share it.",
+    'batchLocationContact.mediaTroubleTitle': 'Check the photos on some items',
+    'batchLocationContact.mediaTroubleBody': 'Your location was saved on all {total} items, but the photos on {failed} of them did not update. Open those items and check before posting.',
     'batchLocationContact.saveErrorTitle': 'Not saved',
     'batchLocationContact.saveErrorBody': "Your location and contact method couldn't be saved to these items. Please try again.",
     'batchLocationContact.savePartialBody': '{failed} of {total} items did not take the location and contact method. Tap Continue again to retry them.',
@@ -718,6 +758,12 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'batchFinalReview.postBtn': 'Post {count} item(s)',
     'batchFinalReview.postSuccessTitle': 'Posted!',
     'batchFinalReview.postSuccessBody': '{count} item(s) are now under review and will appear shortly.',
+    // Saved but NOT on the site: the batch is deliberately not completed,
+    // so pressing Post again is the fix and is safe to press.
+    'batchFinalReview.notPublishedTitle': 'Some items are not on the site yet',
+    'batchFinalReview.notPublishedBody': '{failed} of {total} items were saved but not published, because something in their photos did not go through. Tap Post again to retry them.',
+    'batchFinalReview.mediaTroubleBody': 'Some items had a problem with their photos or video. Open them from My listings and check before sharing them.',
+    'batchFinalReview.noPhotosBody': '{failed} of {total} items have no photos, so they were not published. Open each one, add photos, then post again.',
     'batchFinalReview.postErrorTitle': "Couldn't post your items",
     'batchFinalReview.postErrorBody': 'Something went wrong posting this batch. Please try again.',
     'batchFinalReview.postPartialBody': '{failed} of {total} items could not be posted. The rest are under review — tap Post again to retry the ones that failed.',
@@ -1123,6 +1169,33 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'changePhone.successTitle': 'تم تحديث الرقم',
     'changePhone.successBody': 'حسابك مرتبط الآن برقم {phone}.',
     'changePhone.rowLabel': 'تغيير رقم الهاتف',
+    'changePhone.profileNotUpdated': 'تم تغيير رقمك، بس الرقم يلي بيشوفه المشترين ما تحدّث. أعد عملية التغيير بنفس الرقم، وإذا ضلّت ما زبطت تواصل مع الدعم.',
+
+    'media.photosDidNotUploadTitle': 'الصور ما انرفعت',
+    'media.photosDidNotUploadBody': 'تم حفظ الإعلان بس بعده مش على الموقع، لأن صوره ما خلّصت رفع. افتحه من إعلاناتي، اضغط تعديل وأضفها من جديد — بينشر أول ما توصل.',
+    'media.photosNotSavedTitle': 'بعض الصور ما انحفظت',
+    'media.photosNotSavedBody': 'تم تحديث الإعلان، بس صوره الجديدة ما انرفعت. افتحه، اضغط تعديل وأضفها من جديد.',
+    'media.somePhotosMissingTitle': 'في صور ناقصة',
+    'media.somePhotosMissingBody': '{count} من صورك ما انرفعت. الإعلان محفوظ مع الباقي — افتحه، اضغط تعديل وأضف الناقصة.',
+    'media.photoRemovalNotSavedTitle': 'في صورة حذفتها بعدها موجودة',
+    'media.photoRemovalNotSavedBody': 'كل شي غيره بالإعلان انحفظ، بس في صورة حذفتها ما انشالت. افتحه، اضغط تعديل واحذفها من جديد.',
+    'media.photoOrderNotSavedTitle': 'ترتيب الصور ما انحفظ',
+    'media.photoOrderNotSavedBody': 'كل صورك موجودة بالإعلان، بس الترتيب يلي بيشوفه المشترين بعده القديم. افتحه، اضغط تعديل واحفظ من جديد.',
+    'createListing.savePhotolessRefused': 'الإعلان يلي على الموقع لازمه صورة وحدة على الأقل. أضف صورة قبل ما تحفظ أو تعيد النشر — أو احذف الإعلان.',
+    'media.spinTooShortTitle': 'دوران الـ360 ناقصه صور',
+    'media.spinTooShortBody': 'في صور منه ما انرفعت، فما بقي فيه كفاية ليدور بشكل سلس. افتح الإعلان، اضغط تعديل وأعد تصويره.',
+    'media.spinNotSavedTitle': 'دوران الـ360 ما انحفظ',
+    'media.spinNotSavedBody': 'كل شي غيره بالإعلان انحفظ. افتحه، اضغط تعديل وأضف دوران الـ360 من جديد.',
+    'media.notPublishedNoPhotosTitle': 'الإعلان ما إله صور',
+    'media.notPublishedNoPhotosBody': 'انحفظ، بس ما فينا ننشر إعلان بدون صورة. افتحه من إعلاناتي، اضغط تعديل وأضف صورة وحدة على الأقل.',
+    'media.draftPhotosNotUploadedTitle': 'الصور ما انرفعت',
+    'media.draftPhotosNotUploadedBody': 'هالغرض انحفظ، بس صوره ما خلّصت رفع. بعدها على هالجهاز — ارجع إله وأضفها من جديد قبل ما تنشر.',
+    'media.notPublishedTitle': 'الإعلان بعده مش على الموقع',
+    'media.notPublishedBody': 'انحفظ، بس في شي بصوره ما مشي، فما اننشر. افتحه من إعلاناتي، اضغط تعديل واحفظ من جديد — بينشر أول ما يزبط.',
+    'media.videoNotRemovedTitle': 'الفيديو بعده على الإعلان',
+    'media.videoNotRemovedBody': 'كل شي غيره بالإعلان انحفظ، بس الفيديو يلي شلته ما انحذف. افتحه، اضغط تعديل وشيله من جديد.',
+    'media.videoNotAttachedTitle': 'الفيديو ما انربط',
+    'media.videoNotAttachedBody': 'كل شي غيره بالإعلان انحفظ. افتحه، اضغط تعديل وأضف الفيديو من جديد.',
 
     'editName.title': 'تغيير اسمك',
     'editName.subtitle': 'هذا هو الاسم الذي يراه المشترون والبائعون على ملفك الشخصي وإعلاناتك.',
@@ -1632,6 +1705,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
 
     'batchLocationContact.title': 'الموقع والتواصل',
     'batchLocationContact.intro': 'موقع واحد وطريقة تواصل واحدة لكل الدفعة — ستشاركهما كل قطعة تنشرها.',
+    'batchLocationContact.mediaTroubleTitle': 'تفقّد صور بعض الأغراض',
+    'batchLocationContact.mediaTroubleBody': 'الموقع انحفظ على كل الـ{total} غرض، بس صور {failed} منهن ما تحدّثت. افتحهن وتفقّدهن قبل النشر.',
     'batchLocationContact.saveErrorTitle': 'لم يُحفظ',
     'batchLocationContact.saveErrorBody': 'تعذّر حفظ الموقع وطريقة التواصل على هذه القطع. يرجى المحاولة مرة أخرى.',
     'batchLocationContact.savePartialBody': 'لم تأخذ {failed} من أصل {total} قطعة الموقع وطريقة التواصل. اضغط متابعة مرة أخرى لإعادة المحاولة.',
@@ -1646,6 +1721,10 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'batchFinalReview.postBtn': 'نشر {count} قطعة',
     'batchFinalReview.postSuccessTitle': 'تم النشر!',
     'batchFinalReview.postSuccessBody': '{count} قطعة الآن قيد المراجعة وستظهر قريبًا.',
+    'batchFinalReview.notPublishedTitle': 'في أغراض بعدها مش على الموقع',
+    'batchFinalReview.notPublishedBody': '{failed} من أصل {total} انحفظوا بس ما اننشروا، لأن في شي بصورهن ما مشي. اضغط نشر من جديد لتعيد المحاولة.',
+    'batchFinalReview.mediaTroubleBody': 'في أغراض صار في مشكلة بصورها أو الفيديو تبعها. افتحهن من إعلاناتي وتأكد قبل ما تشاركهن.',
+    'batchFinalReview.noPhotosBody': '{failed} من أصل {total} ما إلن صور، فما اننشروا. افتح كل واحد وأضف صور، بعدين انشر من جديد.',
     'batchFinalReview.postErrorTitle': 'تعذّر نشر قطعك',
     'batchFinalReview.postErrorBody': 'حدث خطأ أثناء نشر هذه الدفعة. يرجى المحاولة مرة أخرى.',
     'batchFinalReview.postPartialBody': 'تعذّر نشر {failed} من أصل {total} قطعة. البقية قيد المراجعة — اضغط نشر مرة أخرى لإعادة محاولة ما فشل.',

@@ -56,6 +56,7 @@ type ModListing = {
   // recovery, not just identified by its cover photo. See the expanded
   // row's mediaSection.
   photos: string[];
+  galleryPhotoCount: number;
   video: { guid: string; resolutions: number[] | null } | null;
   openReportCount: number;
   // Only ever set once status is 'removed' -- see the migration comment
@@ -87,7 +88,7 @@ export default function AdminModerationScreen() {
   const [rows, setRows] = useState<ModListing[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [filter, setFilter] = useState<'all' | 'reported' | 'flagged' | Status>('all');
+  const [filter, setFilter] = useState<'all' | 'reported' | 'flagged' | 'nophotos' | Status>('all');
   const [query, setQuery] = useState('');
   const [expandedId, setExpandedId] = useState<string | null>(null);
   const [busyId, setBusyId] = useState<string | null>(null);
@@ -138,6 +139,14 @@ export default function AdminModerationScreen() {
         // -- this is what makes a removed listing actually retrievable for
         // a dispute, not just identifiable by one cover photo.
         photos: Array.isArray(row.photos) ? row.photos.map((p: any) => p.url).filter(Boolean) : [],
+        // Gallery only, kept apart from `photos` above. The "no photos"
+        // filter and badge are about what a buyer sees on the listing
+        // page, and a listing whose only rows are 360 spin frames looks
+        // exactly as empty to them -- but counted against every kind it
+        // read as having pictures and never showed up.
+        galleryPhotoCount: Array.isArray(row.photos)
+          ? row.photos.filter((p: any) => (p.kind || 'gallery') === 'gallery').length
+          : 0,
         video: (() => {
           const v = Array.isArray(row.video) ? row.video[0] : row.video;
           return v?.bunny_guid ? { guid: v.bunny_guid, resolutions: parseResolutions(v.resolutions) } : null;
@@ -167,6 +176,7 @@ export default function AdminModerationScreen() {
     let list = rows;
     if (filter === 'reported') list = list.filter((r) => r.openReportCount > 0);
     else if (filter === 'flagged') list = list.filter(isFlagged);
+    else if (filter === 'nophotos') list = list.filter((r) => r.status === 'active' && r.galleryPhotoCount === 0);
     else if (filter !== 'all') list = list.filter((r) => r.status === filter);
     const q = query.trim().toLowerCase();
     if (q) list = list.filter((r) => r.titleEn.toLowerCase().includes(q) || r.sellerName.toLowerCase().includes(q));
@@ -179,9 +189,47 @@ export default function AdminModerationScreen() {
   const patchListing = async (row: ModListing, patch: Record<string, unknown>, localPatch: Partial<ModListing>) => {
     setBusyId(row.id);
     try {
-      const { error: updErr } = await supabase.from('listings').update(patch).eq('id', row.id);
+      // Reads the row BACK rather than trusting the absence of an error.
+      // Two documented ways this write can do nothing and still look fine
+      // (@AGENTS.md): RLS filtering the row out, and
+      // enforce_listing_moderation_gate, a BEFORE UPDATE trigger that
+      // rewrites new.status back to old.status without raising. Setting a
+      // flagged listing active goes straight through both. The moderator
+      // saw the row flip to Active and drop out of the Flagged filter,
+      // while the listing stayed pending_review and invisible to buyers
+      // with nobody left watching it.
+      const { data: updated, error: updErr } = await supabase
+        .from('listings').update(patch).eq('id', row.id).select('id,status,moderation_status');
       if (updErr) throw updErr;
-      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, ...localPatch } : r)));
+      if (!updated || updated.length === 0) throw new Error('That listing did not change — you may not have permission.');
+      const saved = updated[0] as { status?: string; moderation_status?: string };
+      // Local state is brought level with the database BEFORE anything
+      // throws. These patches send several columns in one statement, and
+      // a trigger can let some through and revert others -- so raising
+      // first left the grid showing the old row while the database held
+      // the new one, and the moderator had no way to tell which was true.
+      // Whatever the row actually says now, not what we asked for.
+      setRows((prev) =>
+        prev.map((r) =>
+          r.id === row.id
+            ? { ...r, ...localPatch, status: (saved.status as any) ?? r.status, moderationStatus: (saved.moderation_status as any) ?? r.moderationStatus }
+            : r
+        )
+      );
+      // Now say what did not go through. A trigger can revert one column
+      // while letting the rest land -- enforce_listing_moderation_gate
+      // rewrites new.status back to old.status without raising -- and
+      // both of these used to pass unremarked because the row we patch
+      // from is the database's own and therefore always looks
+      // self-consistent.
+      if (patch.status !== undefined && saved.status !== patch.status) {
+        throw new Error(`The database kept this listing at "${saved.status}". A trigger refused the change.`);
+      }
+      if (patch.moderation_status !== undefined && saved.moderation_status !== patch.moderation_status) {
+        throw new Error(
+          `The database kept this listing's review state at "${saved.moderation_status}". A trigger refused the change.`
+        );
+      }
     } catch (e: any) {
       Alert.alert('Could not update listing', e?.message || String(e));
     } finally {
@@ -205,12 +253,33 @@ export default function AdminModerationScreen() {
   // Approving a flagged listing clears the moderation flag too, not just
   // status -- otherwise it'd keep showing up under the "Flagged" filter
   // even after going live.
-  const approveModeration = (row: ModListing) =>
-    patchListing(
-      row,
-      { status: 'active', moderation_status: 'human_approved', moderation_reason: null },
-      { status: 'active', moderationStatus: 'human_approved', moderationReason: null }
-    );
+  const approveModeration = (row: ModListing) => {
+    const approve = () =>
+      patchListing(
+        row,
+        { status: 'active', moderation_status: 'human_approved', moderation_reason: null },
+        { status: 'active', moderationStatus: 'human_approved', moderationReason: null }
+      );
+    // A listing whose photos failed to upload now PARKS at pending_review
+    // instead of going live empty -- which is the point of the change,
+    // but it lands the listing in this queue, where Approve is one tap
+    // and the row shows a category icon rather than a missing thumbnail.
+    // Approving it here reproduces the original incident by the one route
+    // the fix created, and admins are privileged in
+    // enforce_listing_moderation_gate so nothing stops it server-side.
+    if (row.galleryPhotoCount === 0) {
+      Alert.alert(
+        'This listing has no photos',
+        'It will go on the site with nothing for a buyer to look at. This is usually a listing whose upload failed — rejecting it asks the seller to add them.',
+        [
+          { text: 'Cancel', style: 'cancel' },
+          { text: 'Publish anyway', style: 'destructive', onPress: approve },
+        ]
+      );
+      return;
+    }
+    approve();
+  };
 
   const rejectModeration = (row: ModListing) => {
     const reason = (rejectDraft[row.id] || '').trim();
@@ -253,10 +322,22 @@ export default function AdminModerationScreen() {
     );
   };
 
+  // A listing anyone can open that has no picture in it.
+  //
+  // This is the shape of a specific incident: photos upload after the
+  // listing row is created, moderation publishes the listing four seconds
+  // later, and if the upload never finished the listing went live with
+  // nothing to look at -- silently, and only discovered because the seller
+  // happened to look at their own listing. Posting now waits for the
+  // photos (@AGENTS.md), so this should stay empty; it is here to notice
+  // if it ever does not, rather than waiting for the next bug report.
+  const noPhotoRows = rows.filter((r) => r.status === 'active' && r.galleryPhotoCount === 0);
+
   const FILTERS: { key: typeof filter; label: string }[] = [
     { key: 'all', label: `All (${rows.length})` },
     { key: 'flagged', label: `Flagged (${flaggedCount})` },
     { key: 'reported', label: `Reported (${reportedCount})` },
+    { key: 'nophotos', label: `No photos (${noPhotoRows.length})` },
     { key: 'active', label: 'Active' },
     { key: 'draft', label: 'Draft' },
     { key: 'sold', label: 'Sold' },
@@ -328,6 +409,12 @@ export default function AdminModerationScreen() {
                         <Text style={styles.reportBadgeText}>{row.openReportCount}</Text>
                       </View>
                     )}
+                    {row.galleryPhotoCount === 0 && row.status !== 'draft' && (
+                      <View style={styles.reportBadge}>
+                        <Icon name="image" size={11} color={colors.danger} />
+                        <Text style={styles.reportBadgeText}>NO PHOTOS</Text>
+                      </View>
+                    )}
                     {isFlagged(row) && (
                       <View style={styles.reportBadge}>
                         <Icon name="rotate" size={11} color={colors.danger} />
@@ -364,6 +451,16 @@ export default function AdminModerationScreen() {
                       <Pressy onPress={() => navigation.navigate('ListingDetail', { listingId: row.id })} style={styles.actionBtn}>
                         <Text style={styles.actionBtnText}>View listing</Text>
                       </Pressy>
+                    )}
+
+                    {row.galleryPhotoCount === 0 && row.status !== 'draft' && (
+                      <View style={styles.mediaSection}>
+                        <Text style={styles.noMediaNote}>
+                          This listing has no gallery photos. A media write failed when it was posted
+                          (see AppStore's addListing). Approving it puts it on the site with nothing to
+                          look at — reject it, or ask the seller to re-upload first.
+                        </Text>
+                      </View>
                     )}
 
                     {(row.photos.length > 0 || row.video) && (
@@ -504,6 +601,7 @@ const styles = StyleSheet.create({
   },
   removedInfoSub: { fontSize: 11.5, color: colors.inkSoft },
   mediaSection: { width: '100%', gap: 10 },
+  noMediaNote: { fontSize: 12, lineHeight: 17, color: colors.danger },
   mediaPhotoRow: { gap: 8 },
   mediaPhoto: { width: 84, height: 84, borderRadius: radius.sm, backgroundColor: colors.surface },
   mediaVideoWrap: { width: '100%', height: 220, borderRadius: radius.sm, overflow: 'hidden' },

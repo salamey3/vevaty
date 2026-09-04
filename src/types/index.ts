@@ -209,7 +209,15 @@ export type ListingSaveErrorCode =
   // returns success, so there is no error to read and a row IS returned.
   // Distinguished from 'refused' because "try again" is the wrong advice
   // -- trying again does the same nothing, forever.
-  | 'needs-review';
+  | 'needs-review'
+  // The edit would leave a listing that is ON THE SITE with no photos.
+  // Refused rather than saved, because a live listing with nothing to
+  // look at is the failure this whole area exists to prevent, and the
+  // edit screen's own Save-and-exit path had no photo check of its own.
+  // Distinguished from 'refused' because nothing was wrong with the
+  // write -- the seller has to add a photo back, and no number of
+  // retries will do it for them.
+  | 'no-photos';
 
 // The kind of input a category attribute's value should be collected
 // with. `select`/`multiselect` use `options`; `number` and `text` are

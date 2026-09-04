@@ -113,6 +113,34 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**Listings stopped going live without their photos**, 3-4 Sep 2026. A
+seller's apartment listing went out with no pictures and only got them
+when he edited it and uploaded them again. Cause, read off the edge logs
+rather than guessed: photos uploaded fire-and-forget while
+`moderate-listing` published the listing four seconds later. Fixed by
+putting publication after the media write and requiring positive evidence
+there is a photo — plus a repair path for a listing parked by a failure,
+the same refusal in all three server-side routes that can set a listing
+`active`, a request deadline on the Supabase client, and an audit of
+every write in the app that used to report success and change nothing.
+@MEDIA.md is the reasoning record; the rules are in @AGENTS.md under
+"Publish only once the media has landed", "A request that never answers
+is not an error" and "One alert, ranked".
+
+Along the way, and worth knowing separately:
+
+- Posting points now go through `claim_posting_points`, a SECURITY
+  DEFINER RPC that does the claim flag, the ledger row and a RELATIVE
+  balance increment in one transaction. The old client-side version wrote
+  an ABSOLUTE total it had computed locally, so twenty items posted at
+  once each wrote a total from before the others landed and the seller
+  lost points they had watched arrive.
+- Moderators could not see the media they were moderating.
+  `listing_photos`, `listing_spin_sets` and `listing_videos` had no admin
+  RLS policy, so a flagged listing belonging to another seller showed no
+  photos, no spin, no video and nothing saying why. Three SELECT policies
+  mirroring `admins can view all listings`.
+
 **Auctions, finished**, 2–3 Sep 2026. Six patches over two days took it from
 a schema to something that can be demonstrated. The buyer side: a gate tile,
 the auction page and its countdown, the lot page with Photos/360/Video tabs,
@@ -237,6 +265,30 @@ promoted to its own top-level; 19 specs where there had been none at all;
 and the Properties-or-not question behind Sale/Rent/Both generalised into
 a category flag -- which the Pets work above then turned into
 `categories.condition_mode`.
+
+Three things this work turned up and deliberately did not fix:
+
+- **`anon` cannot read `myazar.listings` at all.** Any query as the true
+  `anon` role fails with `permission denied for table mfa_factors` — the
+  restrictive `admin identity requires mfa` policy's subquery touches
+  `auth.mfa_factors`, which `anon` has no grant on. Nobody has hit it
+  because the app signs everyone in anonymously (role `authenticated`)
+  before it reads anything. It would bite the moment a page tried to read
+  before `ensureSession()` resolved, or if a public read were ever added.
+  Pre-dates this work — `listing_photos` behaves identically, and did
+  before the new admin policies.
+
+- **Two `updateListing` calls on one listing can double-insert photos.**
+  `BatchPhotosScreen` fires one per photo tap with no lock, so two
+  overlapping runs both read a short `existingRows`, both upload, and both
+  insert. It self-heals on the next sync and again on the location screen,
+  and adopting hosted URLs narrowed the window a lot, but the real fix is
+  a per-listing queue.
+
+- **`profiles.points` and `profiles.tier` are still UPDATE-granted to
+  `authenticated`.** `claim_posting_points` closed the honest path; the
+  balance is still directly writable by anyone with a console. The same
+  treatment — a definer RPC and a revoke — would close it.
 
 ## Waiting on something external
 

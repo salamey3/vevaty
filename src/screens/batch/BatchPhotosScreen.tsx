@@ -214,9 +214,93 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
   // would be the expensive kind: the row keeps the photo list it was
   // created with, the seller sees the one they actually took, and the
   // difference only surfaces after the whole batch is posted.
+  //
+  // quietMedia: this fires once per photo tap on the same item, and this
+  // screen already has a better place to say so than an alert -- the
+  // shared commitError box, with a Try again beside it. A media failure
+  // no longer rejects (the listings row saved; only the photos did not),
+  // so it is read off the result instead.
   const syncPhotos = (listingId: string, photos: string[]) => {
     setSyncing((n) => n + 1);
-    return updateListing(listingId, draftPayload(photos, batchIdRef.current))
+    // The uploads outlive the save, so the busy counter has to as well.
+    //
+    // updateListing resolves as soon as the listings row is written; the
+    // photos are still going up behind it. Dropping `syncing` there let
+    // the seller tap Next within a second of their last shot, at which
+    // point currentListingIdRef moves on and the late result is thrown
+    // away by the guard below -- so a failed upload on the last photo of
+    // an item was reported to nobody and the item went to Final Review
+    // short a picture. Counting the deferred work keeps Next disabled
+    // until there is an answer to give.
+    // Swapping the local file:// URIs for the hosted URLs they became.
+    //
+    // This screen used to hold every photo as a local URI for ever, so
+    // each tap re-sent the WHOLE item: a six-photo item cost 3+4+5+6 = 18
+    // uploads, doubled again by thumbnails, against a server-side cap of
+    // 150 a day. A seller doing seven items in one sitting ran out --
+    // and a 429 is not worth retrying, so the batch reported "tap Post
+    // again to retry" about a refusal that would be identical for
+    // twenty-four hours. Adopting what landed makes the next tap upload
+    // only what is actually new.
+    //
+    // Only while this item is still the one on screen, and only when the
+    // count matches what we have -- a stale answer for an item the seller
+    // has moved past, or one that raced a photo they added in between,
+    // must not overwrite the list they are looking at.
+    const adoptHosted = (hosted: string[]) => {
+      if (currentListingIdRef.current !== listingId) return;
+      if (hosted.length === 0 || hosted.length !== photosRef.current.length) return;
+      photosRef.current = hosted;
+      setCurrentPhotos(hosted);
+    };
+
+    let lateSettled = false;
+    // Whether the deferred upload has already put something in the error
+    // box. Without it, the `.then` below cleared the box unconditionally
+    // on the deferred path -- and nothing orders the two: a fast failure
+    // (an expired session, a 4xx that isWorthRetrying declines to retry)
+    // rejects in milliseconds, while updateListing still has the video
+    // read to finish. So the box the seller needed, with its Try again,
+    // was wiped a moment after it appeared.
+    let lateReported = false;
+    const settleLate = () => {
+      if (lateSettled) return;
+      lateSettled = true;
+      setSyncing((n) => n - 1);
+    };
+    setSyncing((n) => n + 1);
+    return updateListing(listingId, draftPayload(photos, batchIdRef.current), {
+      quietMedia: true,
+      // NOT waitMedia. This fires once per photo tap and re-sends every
+      // photo of the item each time, so waiting inside the store would
+      // hold the save itself open through a full sequential re-upload.
+      // The outcome arrives here instead.
+      onLateMedia: (r) => {
+        settleLate();
+        if (currentListingIdRef.current !== listingId) {
+          if (r.mediaFailed || r.photosMissing > 0) {
+            console.warn('[BatchPhotos] photos did not land for an item already left behind:', listingId);
+          }
+          return;
+        }
+        if (r.mediaFailed) {
+          lateReported = true;
+          fail(t('batchPhotos.syncErrorTitle'), t('batchPhotos.syncErrorBody'));
+        } else if (r.photosMissing > 0) {
+          lateReported = true;
+          // Suppressed inside the store by quietMedia, and this screen
+          // would otherwise say nothing at all: the seller sees five
+          // thumbnails (their own local files), three of which no buyer
+          // will ever see, and carries the item to Final Review.
+          fail(
+            t('media.somePhotosMissingTitle'),
+            t('media.somePhotosMissingBody', { count: r.photosMissing })
+          );
+        } else {
+          adoptHosted(r.photos);
+        }
+      },
+    })
       // Both arms check they still own the screen first. commitError is a
       // single box shared by every item, so a sync that settles after the
       // seller has moved on would otherwise either put an error on an
@@ -224,14 +308,36 @@ export default function BatchPhotosScreen({ navigation, route }: Props) {
       // can do nothing about it -- or, resolving late, wipe a live error
       // belonging to the item now in front of them and leave that item
       // with photos, no row, and no way forward.
-      .then(() => {
+      .then((result) => {
+        // Nothing was deferred, so onLateMedia will never fire and
+        // nothing else would ever release the second count.
+        if (!result?.mediaDeferred) {
+          settleLate();
+          if (!result?.mediaFailed) adoptHosted(result?.photos ?? []);
+          // And nothing else would report it either. This branch is
+          // reachable when the seller removes their LAST photo -- every
+          // other state on this screen leaves local URIs in the list, so
+          // the work defers and onLateMedia carries the answer. A refused
+          // delete there means the photo they removed is still on the
+          // item, silently.
+          if (result?.mediaFailed && currentListingIdRef.current === listingId) {
+            fail(t('batchPhotos.syncErrorTitle'), t('batchPhotos.syncErrorBody'));
+            return;
+          }
+        }
         // Clearing on success matters as much as setting on failure: the
         // box tells the seller to tap Try again before moving on, so one
         // left standing after the next photo already went through sends
-        // them to press a button that has nothing to retry.
-        if (currentListingIdRef.current === listingId) setCommitError(null);
+        // them to press a button that has nothing to retry. When the
+        // uploads WERE deferred the media outcome is not known yet -- it
+        // arrives through onLateMedia above, which sets the box if there
+        // is something to put in it.
+        if (currentListingIdRef.current === listingId && !lateReported) setCommitError(null);
       })
       .catch((e: any) => {
+        // The save itself was refused, so there is no deferred upload to
+        // wait for.
+        settleLate();
         if (currentListingIdRef.current !== listingId) {
           console.warn('[BatchPhotos] photo sync failed for an item already left behind:', listingId, e?.message);
           return;

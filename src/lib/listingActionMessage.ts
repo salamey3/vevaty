@@ -27,5 +27,8 @@ export function listingActionMessage(
   // something a second tap fixes, so it must not be dressed up as
   // "please try again".
   if (e?.code === 'needs-review') return t('myListings.needsReviewFailed');
+  // Third case, same reasoning: the seller has to put a photo back, and
+  // "try again" would send them round the loop with the same empty form.
+  if (e?.code === 'no-photos') return t('createListing.savePhotolessRefused');
   return t(fallbackKey);
 }

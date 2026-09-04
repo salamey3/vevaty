@@ -325,8 +325,22 @@ export async function deleteVideo(guid: string): Promise<void> {
 // Links an already-uploaded video to a listing once that listing exists.
 // The upload starts while the seller is still in the wizard, so at upload
 // time there is no listing row to point at yet.
+//
+// THROWS if nothing was linked. It used to be a bare update returning
+// Promise<void>, which could not fail: a stale guid or an RLS denial
+// matched zero rows, the row kept listing_id = null, and RLS only exposes
+// a video whose listing is live -- so the seller watched their own clip
+// play on their own listing and nobody else ever saw it. The awaited
+// caller in updateListing was awaiting something that could not report.
 export async function attachVideoToListing(guid: string, listingId: string): Promise<void> {
-  await supabase.from('listing_videos').update({ listing_id: listingId }).eq('bunny_guid', guid);
+  const { data, error } = await supabase
+    .from('listing_videos')
+    .update({ listing_id: listingId })
+    .eq('bunny_guid', guid)
+    .select('id');
+  if (error || !data || data.length === 0) {
+    throw new Error(error?.message || 'video_not_attached');
+  }
 }
 
 // How long a clip is, in seconds, or null if the platform won't say.

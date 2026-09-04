@@ -81,6 +81,43 @@ async function authHeaders(contentType: string): Promise<Record<string, string>>
 // returns its hosted CDN URL. Shared by uploadPhoto (one file) and
 // uploadPhotoWithThumbnail (two files -- the full photo and its thumbnail,
 // each just a differently-resized local URI by the time it reaches here).
+// A request that never answers is not an error, and until this change
+// nothing noticed. `fetch` on web has no timeout at all, expo-file-system's
+// uploader none either, and uploadPhotoResilient only retries FAILURES --
+// so a connection that stalled mid-body simply never came back.
+//
+// That was survivable while uploads were fire-and-forget. They are not any
+// more: CreateListingScreen's Post in edit mode and BatchFinalReviewScreen
+// both wait on them, and BatchPhotosScreen holds its Next button while one
+// is in flight. A hung request now parks the seller on a spinner with no
+// way out but a reload, losing the form.
+//
+// Generous rather than tight -- these are photos over a Lebanese mobile
+// connection -- but NOT retried, which is what keeps the arithmetic sane.
+// A link that went quiet for a whole minute goes quiet again; three
+// attempts at it is three minutes per photo and, since the gallery
+// uploads run one after another, half an hour on an uncancellable
+// spinner for a six-photo listing. See isWorthRetrying.
+const UPLOAD_TIMEOUT_MS = 60_000;
+// The marker isWorthRetrying looks for. Deliberately distinct from the
+// "Could not reach" wrapper every other transport failure carries, which
+// IS worth retrying.
+const TIMED_OUT = 'the upload did not answer in time';
+
+function uploadTimeout(): AbortSignal | undefined {
+  // AbortSignal.timeout is not in every runtime this ships to; without it
+  // the upload behaves exactly as it did before, which is the current
+  // behaviour and not a regression.
+  const AS = (globalThis as any).AbortSignal;
+  if (AS && typeof AS.timeout === 'function') return AS.timeout(UPLOAD_TIMEOUT_MS) as AbortSignal;
+  if (typeof AbortController === 'function') {
+    const c = new AbortController();
+    setTimeout(() => c.abort(), UPLOAD_TIMEOUT_MS);
+    return c.signal;
+  }
+  return undefined;
+}
+
 async function uploadResizedUri(uri: string): Promise<string> {
   const headers = await authHeaders('image/jpeg');
 
@@ -88,8 +125,11 @@ async function uploadResizedUri(uri: string): Promise<string> {
     const blob = await (await fetch(uri)).blob();
     let res: Response;
     try {
-      res = await fetch(UPLOAD_URL, { method: 'POST', body: blob, headers });
+      res = await fetch(UPLOAD_URL, { method: 'POST', body: blob, headers, signal: uploadTimeout() });
     } catch (e: any) {
+      // An abort is reported as a timeout, not as "could not reach": the
+      // two want different treatment from isWorthRetrying.
+      if (e?.name === 'AbortError' || e?.name === 'TimeoutError') throw new Error(TIMED_OUT);
       throw new Error(`Could not reach ${UPLOAD_URL}\n${e?.message || String(e)}`);
     }
     // Read once as text: an error page would make .json() throw a parse
@@ -103,14 +143,24 @@ async function uploadResizedUri(uri: string): Promise<string> {
     // BINARY_CONTENT is expo-file-system's default; named explicitly
     // because the previous version passed MULTIPART here and the
     // difference is the entire point of this function.
-    result = await file.upload(UPLOAD_URL, {
-      httpMethod: 'POST',
-      uploadType: UploadType.BINARY_CONTENT,
-      headers,
-    });
+    // Raced against a timeout rather than given one: expo-file-system's
+    // uploader takes no signal, so the only way to stop waiting on it is
+    // to stop waiting. The request itself carries on in the background and
+    // is harmless -- a photo that lands late is a row nothing inserts.
+    result = await Promise.race([
+      file.upload(UPLOAD_URL, {
+        httpMethod: 'POST',
+        uploadType: UploadType.BINARY_CONTENT,
+        headers,
+      }),
+      new Promise<never>((_, reject) =>
+        setTimeout(() => reject(new Error(TIMED_OUT)), UPLOAD_TIMEOUT_MS)
+      ),
+    ]);
   } catch (e: any) {
     // Rejects only when the file can't be read or the request itself
     // fails; any completed HTTP response (including non-2xx) resolves.
+    if (e?.message === TIMED_OUT) throw e;
     throw new Error(`Could not reach ${UPLOAD_URL}\n${e?.message || String(e)}\nfile: ${uri}`);
   }
   return urlFromResponse(result.status, result.body);
@@ -160,6 +210,13 @@ const RETRY_DELAYS_MS = [700, 2200];
 // 4xx), or replied with something unparseable. Those give the same answer
 // on the third attempt as on the first, and retrying only delays the error.
 function isWorthRetrying(detail: string): boolean {
+  // A TIMEOUT is not retried. The whole point of the timeout is to bound
+  // how long a seller waits, and retrying it multiplies the bound by
+  // UPLOAD_ATTEMPTS and then again by the number of photos -- three
+  // attempts at 60s across six photos is eighteen minutes on a spinner
+  // that cannot be cancelled. A link that went silent for a minute is
+  // not going to answer on the second ask.
+  if (detail.includes(TIMED_OUT)) return false;
   if (detail.includes('Could not reach')) return true;
   return /HTTP 5\d\d/.test(detail);
 }
@@ -262,15 +319,32 @@ async function uploadPhotoWithThumbnailResilient(uri: string): Promise<{ url: st
 // seller is told if anything failed, each photo gets several attempts) --
 // for a listing's gallery photos specifically, where each one also needs a
 // small thumbnail uploaded alongside it. See uploadPhotoWithThumbnail.
+//
+// `silent` mirrors uploadPhotos' own, and for the same reason plus one
+// more: AlertHost holds exactly ONE alert with no queue (@AGENTS.md), so
+// when the store also has something to say about the same failure -- and
+// it now does, in the seller's own language rather than this hardcoded
+// English -- the two fire a few hundred milliseconds apart and the first
+// is silently destroyed. Which one the seller reads came down to how long
+// the insert took.
+//
+// Each result carries the `uri` it came FROM, which matters because this
+// function COMPACTS: a failed photo is skipped, so `uploaded[i]` is not
+// `localUris[i]` the moment anything fails. A caller that needs to know
+// which upload became which url -- syncPhotoKind does, to write the
+// listing back in the order the seller arranged -- cannot recover that
+// from position, and pairing by index silently attached each surviving
+// url to an earlier photo's slot.
 export async function uploadPhotosWithThumbnails(
-  localUris: string[]
-): Promise<{ url: string; thumbnailUrl: string }[]> {
-  const uploaded: { url: string; thumbnailUrl: string }[] = [];
+  localUris: string[],
+  opts: { silent?: boolean } = {}
+): Promise<{ uri: string; url: string; thumbnailUrl: string }[]> {
+  const uploaded: { uri: string; url: string; thumbnailUrl: string }[] = [];
   const failures: string[] = [];
 
   for (const uri of localUris) {
     try {
-      uploaded.push(await uploadPhotoWithThumbnailResilient(uri));
+      uploaded.push({ uri, ...(await uploadPhotoWithThumbnailResilient(uri)) });
     } catch (e: any) {
       const detail = e?.message || String(e);
       failures.push(detail);
@@ -278,7 +352,7 @@ export async function uploadPhotosWithThumbnails(
     }
   }
 
-  if (failures.length > 0) {
+  if (failures.length > 0 && !opts.silent) {
     Alert.alert(
       'Some photos didn’t upload',
       `${failures.length} of ${localUris.length} photo(s) couldn’t be uploaded, so the listing was saved without them. ` +

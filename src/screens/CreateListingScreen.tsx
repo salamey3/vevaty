@@ -1732,7 +1732,25 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       aiGenerated: usedDraft,
       attributes,
       contactMethod,
-      shopId: attachToShop && myShop?.verifiedAt ? myShop.id : null,
+      // `myShop` not having loaded is NOT the seller detaching their
+      // listing from their storefront -- but it read as one. AppStore's
+      // shop fetch is async (and, until this change, silently nulled
+      // myShop when the read was refused), so on a fresh page load or a
+      // deep link straight into Edit this expression was
+      // `false ? ... : null` and every save quietly unhooked the listing
+      // from the shop. enforce_listing_shop_ownership returns early on a
+      // null shop_id, so the database accepted it and reported success.
+      //
+      // Same guard buildStock already applies to stock_qty/variants a few
+      // lines up, for exactly the same race: when we cannot tell, keep
+      // what the listing already has rather than writing a default over
+      // it. Editing a listing to fix a typo is not a request to leave the
+      // storefront.
+      shopId: attachToShop && myShop?.verifiedAt
+        ? myShop.id
+        : !myShop && editingListing?.shopId
+        ? editingListing.shopId
+        : null,
       stockQty: stock.stockQty,
       variants: stock.variants,
       ...(opts?.asDraft ? { status: 'draft' as const } : {}),
@@ -1750,7 +1768,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     const payload = buildPayload();
     try {
       if (isEditMode && editListingId) {
-        await updateListing(editListingId, payload);
+        // waitMedia: this is the seller's deliberate Save, and the next
+        // thing they do is look at the listing -- or, for one they had
+        // let expire, tap Republish, which now refuses a listing with no
+        // photo rows yet. Letting the uploads run on behind the
+        // navigation meant a photo added moments ago was not in the
+        // database when they got there, and Republish told them to add a
+        // photo they had just added. Waiting also means the alert about a
+        // failed upload arrives on this screen rather than over the top
+        // of the next one. The Save-and-exit paths deliberately do not
+        // wait -- backing out is a bail-out, not a commitment.
+        await updateListing(editListingId, payload, { waitMedia: true });
         setPosting(false);
         navigation.navigate('ListingDetail', { listingId: editListingId });
       } else {
@@ -1846,8 +1874,17 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         createdDraftIdRef.current = listing.id;
       }
       return true;
-    } catch {
-      Alert.alert(t('unsavedChanges.saveFailedTitle'), t('unsavedChanges.saveFailedMessage'));
+    } catch (e: any) {
+      // listingActionMessage, not the flat fallback. Both Save & exit
+      // paths swallowed the reason, so a seller who had gone anonymous,
+      // or whose listing the moderation trigger will not republish, or
+      // (new) who removed every photo from a live listing, was told
+      // "please try again" -- advice that cannot work, forever, for all
+      // three.
+      Alert.alert(
+        t('unsavedChanges.saveFailedTitle'),
+        listingActionMessage(e, t, 'unsavedChanges.saveFailedMessage')
+      );
       return false;
     }
   };
@@ -1870,8 +1907,15 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     try {
       await updateListing(editListingId as string, buildPayload());
       return true;
-    } catch {
-      Alert.alert(t('unsavedChanges.saveFailedTitle'), t('unsavedChanges.saveFailedMessage'));
+    } catch (e: any) {
+      // Same as saveAsDraftAndExit above -- and this is the path the
+      // 'no-photos' refusal exists for, since the wizard's own step gate
+      // means Save & exit is the only way to reach updateListing with an
+      // empty photo list.
+      Alert.alert(
+        t('unsavedChanges.saveFailedTitle'),
+        listingActionMessage(e, t, 'unsavedChanges.saveFailedMessage')
+      );
       return false;
     }
   };

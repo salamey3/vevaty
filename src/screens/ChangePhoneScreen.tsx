@@ -6,7 +6,7 @@ import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import { colors, type, radius } from '../theme/theme';
-import { supabase, normalizePhone, sendPhoneChangeOtp, verifyPhoneChangeOtp } from '../lib/supabase';
+import { supabase, normalizePhone, sendPhoneChangeOtp, verifyPhoneChangeOtp, upsertOwnProfile } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -29,6 +29,11 @@ export default function ChangePhoneScreen({ navigation }: Props) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [done, setDone] = useState(false);
+  // Not an error -- the number change itself succeeded. This is the one
+  // half that didn't stick, shown on the success screen so the seller can
+  // act on it instead of leaving with a public contact number that is no
+  // longer theirs.
+  const [profileWarning, setProfileWarning] = useState<string | null>(null);
 
   const sendCode = async () => {
     const normalized = normalizePhone(phone);
@@ -64,14 +69,11 @@ export default function ChangePhoneScreen({ navigation }: Props) {
     if (otp.trim().length < 4) return;
     setLoading(true);
     setError(null);
+    let uid: string | null = null;
     try {
       const session = await verifyPhoneChangeOtp(sentPhone, otp.trim());
-      const uid = session?.user?.id;
+      uid = session?.user?.id ?? null;
       if (!uid) throw new Error('No session after verification');
-      // Keeps the denormalized profiles.phone copy in sync with
-      // auth.users.phone, same reasoning as AuthScreen's verifyCode.
-      await supabase.from('profiles').update({ phone: sentPhone }).eq('id', uid);
-      setDone(true);
     } catch (e: any) {
       const msg: string = e?.message || '';
       if (/already|exists|registered|taken/i.test(msg)) {
@@ -79,9 +81,63 @@ export default function ChangePhoneScreen({ navigation }: Props) {
       } else {
         setError(t('auth.verifyFailed'));
       }
-    } finally {
       setLoading(false);
+      return;
     }
+
+    // PAST THE POINT OF NO RETURN. The OTP is spent, auth.users.phone has
+    // moved, and the seller's sign-in number IS the new one -- so this
+    // screen says "done" from here on whatever else happens. That is the
+    // entire reason for the second try block rather than one big one:
+    // anything thrown below used to land in the verify catch and put
+    // "verification failed" on screen for a change that had definitely
+    // succeeded, sending the seller back to request another code for a
+    // number they are already on. It was not enough to move the
+    // `setDone(true)` -- the throw has to be caught somewhere that cannot
+    // reach the verification message at all.
+    setDone(true);
+    setLoading(false);
+
+    // Keeps the denormalized profiles.phone copy in sync with
+    // auth.users.phone. If this copy does not move, the seller reads
+    // "Phone changed" while every buyer who taps Show number still gets
+    // the old one, because get_seller_contact reads this column and not
+    // auth.users.
+    //
+    // Checked with `.select()`, not fired blind: an `.update().eq()` that
+    // matches no row returns error: null (@AGENTS.md), so the error check
+    // alone would not have caught it.
+    //
+    // On failure it goes through upsert_own_profile before giving up --
+    // the SECURITY DEFINER RPC AuthScreen's verifyCode uses, which exists
+    // precisely because a client-side write to profiles is the one that
+    // silently never persisted (see its comment in lib/supabase.ts). That
+    // is worth a second attempt here because no screen in this app writes
+    // profiles.phone: if both fail there is nothing the seller can do
+    // about it themselves, which is why the message they get says to
+    // start the change again rather than sending them to a Save button
+    // that does not touch this column.
+    let phoneSaved = false;
+    try {
+      const { data: phoneRows, error: phoneError } = await supabase
+        .from('profiles').update({ phone: sentPhone }).eq('id', uid).select('id');
+      if (phoneError || !phoneRows || phoneRows.length === 0) {
+        console.warn('[ChangePhone] profiles.phone not updated:', phoneError?.message || 'no row matched');
+      } else {
+        phoneSaved = true;
+      }
+    } catch (e: any) {
+      console.warn('[ChangePhone] profiles.phone update threw:', e?.message || e);
+    }
+    if (!phoneSaved) {
+      try {
+        await upsertOwnProfile({ phone: sentPhone, isPhoneVerified: true });
+        phoneSaved = true;
+      } catch (e: any) {
+        console.warn('[ChangePhone] upsert_own_profile also failed:', e?.message || e);
+      }
+    }
+    if (!phoneSaved) setProfileWarning(t('changePhone.profileNotUpdated'));
   };
 
   if (done) {
@@ -102,6 +158,9 @@ export default function ChangePhoneScreen({ navigation }: Props) {
           <Text style={[styles.subtitle, { textAlign: 'center', marginTop: 6 }]}>
             {t('changePhone.successBody', { phone: sentPhone })}
           </Text>
+          {!!profileWarning && (
+            <Text style={[styles.error, { textAlign: 'center', marginTop: 10 }]}>{profileWarning}</Text>
+          )}
           <Button label={t('common.done')} onPress={() => navigation.goBack()} style={{ marginTop: 22 }} />
         </View>
       </Screen>

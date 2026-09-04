@@ -94,7 +94,19 @@ export default function BatchLocationContactScreen({ navigation, route }: Props)
               lat: derivedCoords?.lat ?? null,
               lng: derivedCoords?.lng ?? null,
               contactMethod,
-            })
+            }),
+            // One write per item over the whole batch: a per-item media
+            // alert would mean the seller reads one of twenty and the
+            // rest are destroyed (AlertHost holds exactly one,
+            // @AGENTS.md).
+            //
+            // This screen only means to set location and contact method,
+            // but listingToInput sends the whole listing including its
+            // photo list, so syncPhotoKind still runs its removal and
+            // renumber for every item. Those are the writes the outcome
+            // below is about; there is nothing to upload, so the answer
+            // is known by the time updateListing resolves.
+            { quietMedia: true, waitMedia: true }
           )
         )
       );
@@ -109,6 +121,40 @@ export default function BatchLocationContactScreen({ navigation, route }: Props)
           failed === activeItems.length
             ? listingActionMessage((rejected as PromiseRejectedResult).reason, t, 'batchLocationContact.saveErrorBody')
             : t('batchLocationContact.savePartialBody', { failed, total: activeItems.length })
+        );
+        return;
+      }
+      // Every item saved, but a photo removal or renumber can still have
+      // been refused on some of them -- non-blocking by design, and
+      // silenced per-item by quietMedia, so this is the only place it can
+      // be said. Not a reason to hold the seller on this screen: the
+      // location they came here to set is saved on every item.
+      const mediaTrouble = results.filter(
+        (r) => r.status === 'fulfilled' && r.value && r.value.mediaFailed
+      ).length;
+      // An item whose BatchPhotos upload failed still carries local
+      // file:// URIs, so this screen re-sends them -- and with waitMedia
+      // set the answer is real. A shortfall counts the same as a failure
+      // for the sentence below: either way the seller should look at
+      // those items before posting.
+      const someMissing = results.some(
+        (r) => r.status === 'fulfilled' && r.value && r.value.photosMissing > 0
+      );
+      if (mediaTrouble > 0 || someMissing) {
+        console.warn('[BatchLocationContact] photo writes refused on', mediaTrouble, 'items');
+        // Said, not just logged. A refused photo delete means a picture
+        // the seller removed is still on the listing, and quietMedia (set
+        // so that twenty items do not fire twenty alerts) makes this the
+        // only place they can hear about it. It does not hold them here:
+        // the location they came to set saved on every item, and the
+        // alert's OK carries on to the next screen.
+        Alert.alert(
+          t('batchLocationContact.mediaTroubleTitle'),
+          t('batchLocationContact.mediaTroubleBody', {
+            failed: Math.max(mediaTrouble, someMissing ? 1 : 0),
+            total: activeItems.length,
+          }),
+          [{ text: t('common.ok'), onPress: () => navigation.replace('BatchFinalReview', { batchId }) }]
         );
         return;
       }

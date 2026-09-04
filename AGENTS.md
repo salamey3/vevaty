@@ -350,6 +350,17 @@ else — and `photos` is `sortedByKind(rows, 'gallery')`, so spin frames are
 filtered out of it by construction. Both wrote correctly, came back
 correctly, and appeared nowhere.
 
+A third instance, found in Sep while fixing the photo-publication bug and
+the same lesson one axis over: `listings` carries `admins can view all
+listings`, and the three media tables never got the equivalent. So a
+moderator opening a flagged listing belonging to another seller saw no
+photos, no spin and no video — they were being asked to approve or reject
+something they could not look at. It went unnoticed for months because
+this project's only admin is also the seller of every listing on it, so
+`seller_id = auth.uid()` happened to be true for everything. **Whatever
+widens who can see a listing has to widen who can see its media, table by
+table.**
+
 Finishing the write path is not finishing the feature. Open the surface a
 real person looks at.
 
@@ -436,3 +447,108 @@ Bedrooms). `resolveVisibleAttrs` in `src/lib/attributeVisibility.ts` is the
 single place this is interpreted, and both listing flows filter their
 `specAttrs` through it — which is why validation, the AI-suggestion schema
 and the saved payload all respect visibility without knowing about it.
+
+# Publish only once the media has landed
+
+**@MEDIA.md is the reasoning record** for everything in this section and
+the two below it, including the audit of every silent write the incident
+turned up.
+
+A listing is published by `moderate-listing`, an edge function the client
+kicks off and does not wait for. It answers in about four seconds. Six
+photos take ten to twenty. Until 3 Sep those two facts sat next to each
+other with nothing between them: `addListing` started the uploads
+fire-and-forget, called moderation immediately, and moderation set the
+listing `active`. So EVERY listing was publicly visible with no pictures
+for ten seconds or more, and any listing whose upload never finished — a
+closed tab, a reload, a backgrounded browser, a dropped connection — was
+live and empty for good. It happened to three listings in nine minutes;
+two got their photos at +19s and +14s, the third never did, and the
+seller only got pictures by editing the listing and uploading them again.
+The edge logs had it exactly, and no report anywhere else did.
+
+The ordering rule that came out of it: **media first, publication
+second, and publication needs positive evidence there is something to
+look at.** Not the absence of a failure — an empty photo list produces no
+failure at all, and "nothing went wrong" then reads as "publish". Both
+`addListing` and `updateListing` check the photo count itself.
+
+The parking rule is the other half. A listing whose media did not land
+stays at `pending_review`, which is invisible to buyers: a listing nobody
+can see yet is a far better failure than a live one with nothing in it.
+That is only true if it can get out again, so `updateListing` re-runs
+moderation for a listing sitting at `pending_review` — for anything but
+`moderation_status = 'flagged'`, which is a human moderator's to clear.
+The gate is written as that single exclusion on purpose. Listing the
+states worth releasing instead was wrong three times running: it missed
+the `'rejected'` a resubmit leaves behind, then the `'ai_approved'` a
+hide-and-resubmit leaves behind (both because
+`enforce_listing_moderation_gate` silently keeps the old value), and each
+miss was a listing invisible for ever with no route back short of an
+admin. A repair path that only repairs one of the things that breaks is a
+trap.
+
+And the rule holds where it can be enforced, not only where it is
+convenient. Three things set a listing `active`: `moderate-listing`,
+`republish_own_listing` and `restore_auto_hidden_listing`. All three are
+server-side, all three now refuse a listing with no `kind='gallery'` row,
+and the client checks are there to give the seller a sentence they can
+act on rather than to be the thing that holds. Guarding the client alone
+left two routes open that needed no failed write at all: let a listing
+expire, strip its photos through "Save & exit", press Republish; or let
+buyers auto-hide it, strip it as a draft, press Restore.
+
+# A request that never answers is not an error
+
+Neither browser `fetch` nor React Native's OkHttp times out on its own,
+and supabase-js adds nothing — so a socket that goes quiet mid-request
+leaves a promise pending for ever, and no `catch` anywhere will run. That
+was survivable while every write was fire-and-forget. It stopped being
+survivable the moment three screens started WAITING on a media save
+before letting the seller move on: one stalled call meant a spinner and a
+dead button for the rest of the session, with a reload — losing the form
+— the only way out.
+
+The deadline lives on the client itself (`lib/supabase.ts`), once, rather
+than as a race around each of a dozen awaits. Two details there are load-
+bearing and both were wrong first:
+
+- **Abort with an `AbortController`, never `AbortSignal.timeout`.** The
+  latter aborts with a `TimeoutError`; postgrest-js treats only
+  `AbortError` as final and RETRIES anything else on a GET three times
+  with 1/2/4s backoff. A 45-second bound became 187 seconds, on web only,
+  because React Native's polyfill has no `.timeout` and quietly took the
+  other path.
+- **Do not clear the timer when the fetch promise settles.** On the web
+  that promise settles at the RESPONSE HEADERS; the body is read
+  afterwards, by postgrest-js. Disarming on settle covers only the half
+  that was never the problem. Measured against a header-then-stall
+  server: cleared on settle, still hanging at 4s against a 1.5s deadline;
+  left armed, aborted at 1.503s.
+
+Uploads are bounded separately and per photo, because they are legitimately
+slow — and a timeout there is NOT retried. Retrying it multiplies the
+bound by the attempt count and again by the number of photos, which is how
+a six-photo listing turned into half an hour of spinner.
+
+# One alert, ranked, or the seller reads whichever fired last
+
+`AlertHost` holds exactly one alert and has no queue, so a second one
+silently replaces the first. Any code path that can produce two problems
+has to collect them and say one sentence, ranked by what it costs the
+seller — not fire one per problem and hope. `updateListing` is the worked
+example: the gallery, the spin sets and the video all report into one
+holder, and one `reportMedia` reads them.
+
+The ranking has to wait for everything it ranks. When the uploads are not
+awaited, the gallery outcome arrives after the video does, so reporting
+at the end of the function would say nothing about the half still in
+flight and then be destroyed by it a few seconds later. Two gates —
+`mediaSettled` and `videoSettled` — and whichever finishes last runs the
+report.
+
+The same reasoning is why a caller driving this in a loop passes
+`quietMedia`: twenty items firing twenty alerts means the seller reads one
+at random. The loop collects the results and says one sentence about all
+of them — and having asked for silence, it then owes the seller that
+sentence. Every `quietMedia` call site pays it back.

@@ -17,8 +17,84 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 export const SUPABASE_URL = 'https://ajrrmropskvutjizulkb.supabase.co';
 export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_DK_WRVSv9ymAGCgL9o8k9g_9Lg2wB1l';
 
+// Every request this client makes gets a deadline.
+//
+// Neither browser fetch nor React Native's OkHttp times out on its own, and
+// supabase-js does not add one -- so a connection that goes quiet mid-body
+// leaves the promise pending for ever. That was survivable while every
+// write in the app was fire-and-forget; it is not any more. Three screens
+// now WAIT on a media save before they will let the seller move on
+// (CreateListingScreen's Post in edit mode, BatchFinalReviewScreen's Post,
+// and BatchPhotosScreen's Next), so one stalled PostgREST call meant a
+// spinner and a dead button for the rest of the session, with a reload --
+// losing the form -- the only way out.
+//
+// Doing it HERE rather than racing individual calls is the point: it is
+// one place instead of the dozen awaits that would each need remembering,
+// and it covers the reads and RPCs as well as the writes.
+//
+// Generous, because it is a backstop and not a policy: anything that is
+// working at all answers in well under this, and a real slow request
+// should finish rather than be cut off. The failure it exists to bound is
+// a socket that has stopped answering entirely.
+const REQUEST_TIMEOUT_MS = 45_000;
+
+// An edge function gets much longer. moderate-listing carries up to six
+// base64 photos up a Lebanese mobile link and then waits on a vision
+// model; 45 seconds is a normal duration for it, not a stall. Nothing in
+// the app awaits it either, so a long bound costs nobody anything -- and
+// cutting it off part-way is a listing parked at pending_review with
+// nothing said, which is the outcome the whole change exists to avoid.
+const FUNCTION_TIMEOUT_MS = 180_000;
+
+// AbortController, NOT AbortSignal.timeout, and the difference is not
+// cosmetic. `AbortSignal.timeout()` aborts with a **TimeoutError**;
+// postgrest-js treats only `AbortError` (or code ABORT_ERR) as final and
+// RETRIES anything else on a GET/HEAD/OPTIONS, three times, with 1s/2s/4s
+// backoff. So the timeout meant to bound a read at 45 seconds bounded it
+// at four attempts plus backoff -- about 187 -- on the web build, where
+// AbortSignal.timeout exists. (React Native polyfills AbortSignal from
+// abort-controller, which has no .timeout, so native quietly took the
+// controller path and behaved correctly; the bug was web-only, which is
+// exactly the sort that ships.) A bare controller.abort() produces a real
+// AbortError and stops on the first attempt.
+//
+// The timer is deliberately NOT cleared when the fetch promise settles.
+// On the web, `fetch` resolves as soon as the RESPONSE HEADERS arrive --
+// the body is read afterwards, by postgrest-js's own `res.json()`. So
+// disarming on settle covered only the half of the request that was never
+// the problem: a connection that delivers headers and then goes quiet
+// stayed unbounded, which is the exact stall this whole helper exists for.
+// (Measured: with the timer cleared on settle, a header-then-stall was
+// still hanging after four seconds against a 1.5s deadline; left armed,
+// it aborted at 1.5s.) Leaving it armed costs one timer per request for
+// the length of the deadline, and aborting an already-finished request is
+// a no-op.
+function deadline(ms: number, inherited?: AbortSignal | null): AbortSignal | undefined {
+  if (typeof AbortController !== 'function') return undefined;
+  const c = new AbortController();
+  setTimeout(() => c.abort(), ms);
+  // COMPOSED with the caller's own signal rather than deferring to it.
+  // Deferring meant any call that passed one -- .abortSignal() is used by
+  // SellerProfileScreen and StorefrontScreen -- silently opted out of the
+  // global bound, which is an exemption nobody would have known they had.
+  if (inherited) {
+    if (inherited.aborted) c.abort();
+    else inherited.addEventListener('abort', () => c.abort(), { once: true });
+  }
+  return c.signal;
+}
+
+const fetchWithTimeout: typeof fetch = (input, init) => {
+  const url = typeof input === 'string' ? input : (input as Request)?.url ?? String(input);
+  const ms = url.includes('/functions/v1/') ? FUNCTION_TIMEOUT_MS : REQUEST_TIMEOUT_MS;
+  const signal = deadline(ms, init?.signal);
+  return fetch(input as any, signal ? { ...init, signal } : init);
+};
+
 export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
   db: { schema: 'myazar' },
+  global: { fetch: fetchWithTimeout },
   auth: {
     storage: AsyncStorage,
     autoRefreshToken: true,
