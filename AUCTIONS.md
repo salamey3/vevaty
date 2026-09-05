@@ -409,6 +409,20 @@ Two things do the guarding that is left:
   now cancels, demotes, stops the clock or brings the lots to their close
   as each status requires.
 
+  Every column it writes is coalesced, so a null argument means "leave it
+  alone" — which meant the two schedule fields could not be EMPTIED, and
+  the attempt was silent: the form accepted a blank box, the save reported
+  success, and a `scheduled` sale went on opening at its old time.
+  `p_clear_opens_at` and `p_clear_first_lot_closes_at` are the same
+  explicit flags `update_auction_lot` uses for the reserve, for the same
+  reason. Both are refused unless the status the save LANDS on is `draft`
+  (testing the status it started from would refuse clearing the schedule
+  in the same save that demotes the auction, which is a real thing to
+  want), and the lot-reschedule cascade below now also requires a non-null
+  first close — otherwise a cleared schedule would compute `null +
+  interval` into every lot's `closes_at`, which is the one state
+  `advance_auctions` can never resolve.
+
 - **`update_auction_lot`** corrects a lot in place: start price, reserve
   (with an explicit `p_clear_reserve`, since null already means "leave
   it"), the lot's status, and the title and description of an item this
@@ -688,6 +702,32 @@ It is live by two mechanisms on purpose:
 
 The countdown ticks locally off each lot's `closes_at`. A countdown that
 needs a round trip per second is a countdown that stutters.
+
+**Setting the times.** Both schedule fields are entered through
+`components/DateTimeField.tsx` — a month grid plus hour and minute rows —
+or typed, as they always could be. The picker writes the same
+`YYYY-MM-DD HH:MM` local string the box always held, which is the whole
+reason it could be added without touching parsing, validation or the save
+path. It is built from plain Views with no new dependency, deliberately:
+every off-the-shelf picker is a native module or pulls one in, and a
+changed `package.json` changes the OTA runtime fingerprint and orphans
+every installed copy of the app until somebody makes a native build
+(@AGENTS.md). Building it also answers the objection that kept this a bare
+text box — a picker that behaves differently on three platforms — because
+one made of Views behaves the same on all three.
+
+Three rules in it are not cosmetic. The hour and minute rows are inert
+until a day has been chosen, because falling back to "today" meant tapping
+an hour on an empty field set the date to today, and a new auction is only
+checked for parseability, not for being in the future — so that produced a
+sale opening today that the minute job would take live at once. The
+calendar follows a value typed into the box, but only when the value
+actually changes, and never when the change came from the panel's own
+hour/minute row: watching for "the calendar and the value disagree" made
+month paging impossible, and re-anchoring on a time change would quietly
+move a day-tap a month backwards. And Clear only appears where the save
+can carry it out — a new auction or a draft — because a button that
+reports success and changes nothing is worse than no button.
 
 Terms are set where the deal is: the consign form takes them when an item
 is taken in, and the lot editor changes them afterwards (both blank =

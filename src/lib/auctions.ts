@@ -672,6 +672,12 @@ export async function updateAuction(
     staggerSeconds?: number; antiSnipeSeconds?: number;
     sellerCommissionPct?: number; buyerPremiumPct?: number;
     status?: AuctionStatus;
+    // Every column in the RPC is coalesced, so an undefined time means
+    // "leave it alone" and there was no way at all to say "remove it" --
+    // emptying the box reported success and changed nothing. Same flag
+    // pattern as clearReserve below. Draft auctions only; the RPC refuses
+    // it on a published one with 'schedule_incomplete'.
+    clearOpensAt?: boolean; clearFirstLotClosesAt?: boolean;
   }
 ): Promise<void> {
   const { error } = await supabase.rpc('update_auction', {
@@ -685,6 +691,8 @@ export async function updateAuction(
     p_seller_commission_pct: patch.sellerCommissionPct ?? null,
     p_buyer_premium_pct: patch.buyerPremiumPct ?? null,
     p_status: patch.status ?? null,
+    p_clear_opens_at: patch.clearOpensAt ?? false,
+    p_clear_first_lot_closes_at: patch.clearFirstLotClosesAt ?? false,
   });
   if (error) throw toAuctionError(error);
 }

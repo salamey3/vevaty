@@ -5,6 +5,7 @@ import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
 import Icon from '../../icons/Icon';
+import DateTimeField from '../../components/DateTimeField';
 import { Alert } from '../../lib/alertShim';
 import { colors, radius, type } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
@@ -22,10 +23,13 @@ import { RootStackParamList } from '../../navigation/types';
 // admin screen -- the people using it are the two of us, and a bilingual
 // admin is work spent on an audience of two.
 //
-// Times are entered as plain local datetime strings rather than through a
-// picker: an auction is scheduled once a fortnight by somebody who knows
-// exactly when Friday night is, and a date picker that behaves differently
-// on three platforms is a worse trade than a text field with a format hint.
+// Times are held as plain local datetime strings, and both entered and
+// PICKED -- see components/DateTimeField.tsx, which writes this same
+// string. The objection that kept this a bare text box was that a date
+// picker behaves differently on three platforms; that field is built out
+// of plain Views with no native module, so it behaves identically on all
+// three and costs no runtime-fingerprint change. Typing still works
+// exactly as it did, which is why this parser is untouched.
 function toIso(local: string): string | null {
   // Accepts "2026-09-05 20:00". Parsed as LOCAL time, which is what the
   // person typing it means -- appending 'Z' here would silently shift a
@@ -101,12 +105,20 @@ type FormState = {
   // fixing a typo two minutes after opening the screen would silently
   // shove a live auction back to `scheduled` and unbid every lot.
   statusTouched: boolean;
+  // What the two time boxes held when the form was opened. Save has to
+  // tell "the admin emptied this" from "this was already empty", because
+  // only the first means CLEAR IT -- and sending a clear flag for a field
+  // that was always null gets the whole save refused the moment the status
+  // pill moves off draft, losing every other edit made in the same pass.
+  openedWithOpensAt: string;
+  openedWithClosesAt: string;
 };
 
 const EMPTY_FORM: FormState = {
   titleEn: '', titleAr: '', opensAt: '', closesAt: '',
   stagger: '', antiSnipe: '', sellerPct: '', buyerPct: '',
   status: 'draft', statusTouched: false,
+  openedWithOpensAt: '', openedWithClosesAt: '',
 };
 
 // A number field that was left blank means "leave it alone", and a field
@@ -154,9 +166,12 @@ export default function AdminAuctionsScreen() {
   const openNew = () => { setForm(EMPTY_FORM); setEditing('new'); };
 
   const openEdit = (a: Auction) => {
+    const opens = fromIso(a.opensAt);
+    const closes = fromIso(a.firstLotClosesAt);
     setForm({
       titleEn: a.titleEn, titleAr: a.titleAr,
-      opensAt: fromIso(a.opensAt), closesAt: fromIso(a.firstLotClosesAt),
+      opensAt: opens, closesAt: closes,
+      openedWithOpensAt: opens, openedWithClosesAt: closes,
       stagger: String(a.lotCloseStaggerSeconds ?? ''),
       antiSnipe: String(a.antiSnipeSeconds ?? ''),
       sellerPct: String(a.sellerCommissionPct ?? ''),
@@ -173,12 +188,18 @@ export default function AdminAuctionsScreen() {
       Alert.alert('Missing title', 'Enter both titles.');
       return;
     }
-    // A blank time is allowed on an EDIT and means "leave it alone" --
-    // update_auction coalesces a null. A malformed one is not: silently
-    // ignoring "2026-9-5 8pm" would look exactly like a successful save.
+    // A blank time on an EDIT now means REMOVE it, and says so through
+    // its own flag below. It used to mean "leave it alone", which made
+    // emptying the box a save that reported success and changed nothing --
+    // a scheduled sale would still open on the old date. A malformed time
+    // is still refused outright: silently ignoring "2026-9-5 8pm" would
+    // look exactly like a successful save.
     const opens = form.opensAt.trim() ? toIso(form.opensAt) : null;
     const closes = form.closesAt.trim() ? toIso(form.closesAt) : null;
-    if ((form.opensAt.trim() && !opens) || (form.closesAt.trim() && !closes)) {
+    // Tested on the RAW string, not the trimmed one. A box holding a stray
+    // space trims to empty, which would read as "clear the schedule" and
+    // silently delete it; only a genuinely empty box means that.
+    if ((form.opensAt && !opens) || (form.closesAt && !closes)) {
       Alert.alert('Bad date', 'Use YYYY-MM-DD HH:MM, e.g. 2026-09-05 20:00');
       return;
     }
@@ -211,15 +232,24 @@ export default function AdminAuctionsScreen() {
           opensAt: opens!, firstLotClosesAt: closes!,
         });
       } else if (editing) {
-        // Only what the form actually holds. `undefined` for a blank field
-        // rather than null, so the wrapper sends null and the function
-        // coalesces -- "leave it", not "clear it". Status goes only if the
-        // pill was tapped, for the staleness reason on FormState.
+        // Only what the form actually holds. Status goes only if the pill
+        // was tapped, for the staleness reason on FormState.
+        //
+        // An emptied time sends its clear flag rather than `undefined`:
+        // undefined reaches the function as null, which it coalesces, so
+        // without the flag the field cannot be emptied at all. The
+        // function refuses to clear a schedule on anything but a draft --
+        // which is why the flag is "this HAD a time and the admin removed
+        // it" rather than "this box is empty". A draft whose times were
+        // already null would otherwise send the flag on every later save
+        // and be unable to leave draft at all.
         await updateAuction(editing, {
           titleEn: form.titleEn.trim(),
           titleAr: form.titleAr.trim(),
           opensAt: opens || undefined,
           firstLotClosesAt: closes || undefined,
+          clearOpensAt: !form.opensAt && !!form.openedWithOpensAt,
+          clearFirstLotClosesAt: !form.closesAt && !!form.openedWithClosesAt,
           staggerSeconds: stagger,
           antiSnipeSeconds: antiSnipe,
           sellerCommissionPct: sellerPct,
@@ -295,10 +325,27 @@ export default function AdminAuctionsScreen() {
       <TextInput value={form.titleEn} onChangeText={(v) => setForm((f) => ({ ...f, titleEn: v }))} style={styles.input} placeholder="September Sale No. 1" placeholderTextColor={colors.inkSoft} />
       <Text style={styles.fieldLabel}>Title (Arabic)</Text>
       <TextInput value={form.titleAr} onChangeText={(v) => setForm((f) => ({ ...f, titleAr: v }))} style={styles.input} placeholder="مزاد أيلول ١" placeholderTextColor={colors.inkSoft} />
-      <Text style={styles.fieldLabel}>Opens (YYYY-MM-DD HH:MM, your local time)</Text>
-      <TextInput value={form.opensAt} onChangeText={(v) => setForm((f) => ({ ...f, opensAt: v }))} style={styles.input} placeholder="2026-09-05 20:00" placeholderTextColor={colors.inkSoft} />
-      <Text style={styles.fieldLabel}>Lot 1 closes</Text>
-      <TextInput value={form.closesAt} onChangeText={(v) => setForm((f) => ({ ...f, closesAt: v }))} style={styles.input} placeholder="2026-09-07 20:00" placeholderTextColor={colors.inkSoft} />
+      {/* Clear is offered only where the save can carry it out: a new
+          auction has nothing stored yet, and update_auction refuses to
+          blank the schedule of anything but a draft. */}
+      <DateTimeField
+        label="Opens (your local time)"
+        value={form.opensAt}
+        onChange={(v) => setForm((f) => ({ ...f, opensAt: v }))}
+        placeholder="2026-09-05 20:00"
+        canClear={editing === 'new' || form.status === 'draft'}
+      />
+      {/* relativeTo is what turns "two days after it opens" into one tap
+          rather than into date arithmetic done in your head. */}
+      <DateTimeField
+        label="Lot 1 closes"
+        value={form.closesAt}
+        onChange={(v) => setForm((f) => ({ ...f, closesAt: v }))}
+        placeholder="2026-09-07 20:00"
+        relativeTo={form.opensAt}
+        relativeLabel="After the opening time"
+        canClear={editing === 'new' || form.status === 'draft'}
+      />
       <Text style={styles.hint}>
         {editing === 'new'
           ? 'Each later lot closes 2 minutes after the one before it; change that below once it exists.'
@@ -374,7 +421,7 @@ export default function AdminAuctionsScreen() {
         <View style={styles.iconBtn} />
       </View>
 
-      <ScrollView contentContainerStyle={styles.body}>
+      <ScrollView contentContainerStyle={styles.body} keyboardShouldPersistTaps="handled">
         {/* The switch that makes the whole section visible to buyers. It
             lives here rather than in Branding because it is the one
             control that decides whether an auction exists as far as the
