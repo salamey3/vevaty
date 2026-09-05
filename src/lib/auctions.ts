@@ -460,6 +460,15 @@ export function formatBidAmount(n: number): string {
   return `$${Math.round(n).toLocaleString()}`;
 }
 
+// Bids round to the dollar (formatBidAmount above) because that is how the
+// increment ladder works and a cent in a bid would be noise. Money that
+// somebody is actually invoiced or paid does NOT round: a 15% commission
+// on $333.33 is $50.00 and a 10% premium on it is $33.33, and an admin
+// reconciling a payout against a bank line needs to see the cents.
+export function formatMoney(n: number): string {
+  return `$${n.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`;
+}
+
 // ---------------------------------------------------------------------
 // Admin
 // ---------------------------------------------------------------------
@@ -737,6 +746,38 @@ export type MonitorLot = {
   // an automatic bid in the feed below is not a mystery.
   leaderMax: number | null;
   winner: string | null;
+  // Who Vevaty owes the payout to once this lot settles.
+  seller: string;
+  // Null until the lot is actually won. An unsold lot charges nobody:
+  // no sale, no commission, no premium.
+  settlement: LotSettlement | null;
+};
+
+// What a hammer price is worth to each side. Computed by
+// myazar.lot_settlement() in SQL rather than here, deliberately: the
+// invoices and payouts settlement eventually generates have to agree with
+// this screen to the cent, and two implementations of the same sum is how
+// a seller gets paid a different figure from the one the admin read out.
+export type LotSettlement = {
+  hammer: number;
+  // Off the hammer.
+  sellerCommission: number;
+  sellerPayout: number;
+  // On top of the hammer.
+  buyerPremium: number;
+  buyerTotal: number;
+  vevatyTake: number;
+};
+
+// The same figures for the whole auction. These are the SUM OF THE
+// ROUNDED PER-LOT LINES, not a percentage of the total hammer -- the two
+// differ by a cent or two and only the first reconciles against what was
+// actually charged.
+export type AuctionSettlement = LotSettlement & {
+  lotsTotal: number;
+  lotsWon: number;
+  lotsUnsold: number;
+  lotsOpen: number;
 };
 
 export type MonitorBid = {
@@ -756,8 +797,13 @@ export type AuctionMonitor = {
   status: string;
   registeredBidders: number;
   antiSnipeSeconds: number;
+  // Per-auction columns rather than constants, so a launch event can run
+  // at a different rate without a deploy (@AUCTIONS.md, "Money").
+  sellerCommissionPct: number;
+  buyerPremiumPct: number;
   lots: MonitorLot[];
   feed: MonitorBid[];
+  settlement: AuctionSettlement;
 };
 
 // Everything the monitor screen shows, in one round trip. Two calls per
@@ -772,6 +818,8 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
     status: a.status || 'draft',
     registeredBidders: Number(a.registered_bidders) || 0,
     antiSnipeSeconds: Number(a.anti_snipe_seconds) || 0,
+    sellerCommissionPct: Number(a.seller_commission_pct) || 0,
+    buyerPremiumPct: Number(a.buyer_premium_pct) || 0,
     lots: (data?.lots || []).map((l: any) => ({
       lotId: l.lot_id,
       lotNumber: Number(l.lot_number),
@@ -786,6 +834,8 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
       leader: l.leader ?? null,
       leaderMax: l.leader_max == null ? null : Number(l.leader_max),
       winner: l.winner ?? null,
+      seller: l.seller || 'Vevaty',
+      settlement: l.settlement ? mapSettlement(l.settlement) : null,
     })),
     feed: (data?.feed || []).map((b: any) => ({
       id: b.id,
@@ -797,5 +847,25 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
       title: b.title,
       bidder: b.bidder,
     })),
+    settlement: {
+      ...mapSettlement(data?.settlement ?? {}),
+      lotsTotal: Number(data?.settlement?.lots_total) || 0,
+      lotsWon: Number(data?.settlement?.lots_won) || 0,
+      lotsUnsold: Number(data?.settlement?.lots_unsold) || 0,
+      lotsOpen: Number(data?.settlement?.lots_open) || 0,
+    },
+  };
+}
+
+// numeric comes back from PostgREST as a string once it has decimals, so
+// every one of these goes through Number() rather than being trusted.
+function mapSettlement(s: any): LotSettlement {
+  return {
+    hammer: Number(s?.hammer) || 0,
+    sellerCommission: Number(s?.seller_commission) || 0,
+    sellerPayout: Number(s?.seller_payout) || 0,
+    buyerPremium: Number(s?.buyer_premium) || 0,
+    buyerTotal: Number(s?.buyer_total) || 0,
+    vevatyTake: Number(s?.vevaty_take) || 0,
   };
 }

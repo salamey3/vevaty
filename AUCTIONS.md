@@ -176,6 +176,41 @@ thousand dollars", not "is it in good condition".
 Both percentages are per-auction columns rather than constants, so a
 launch event can run at a different rate without a deploy.
 
+**The two sides are two different invoices.** The seller's commission comes
+*off* the hammer and the buyer's premium goes *on top* of it, so a lot that
+falls at $1,850 in a 15/10 sale produces:
+
+| | |
+| --- | --- |
+| Hammer | $1,850.00 |
+| Seller commission (15%) | −$277.50 |
+| **Seller collects** | **$1,572.50** |
+| Buyer's premium (10%) | +$185.00 |
+| **Buyer pays** | **$2,035.00** |
+| **Vevaty's take** | **$462.50** |
+
+`myazar.lot_settlement(hammer, seller_pct, buyer_pct)` is the only place
+that arithmetic exists. It returns all six figures as jsonb and the monitor
+reads them from there rather than multiplying in TypeScript -- the invoices
+and payouts settlement eventually generates have to agree with what an
+admin read off the screen to the cent, and two implementations of one sum
+is precisely how a seller gets paid a different number from the one he was
+quoted.
+
+Two rules inside it that are accounting decisions, not implementation
+details:
+
+- **Rounding is per lot, to two decimals.** An invoice line is a real
+  amount of money and gets rounded once, where it is created.
+- **An auction total is the sum of the rounded lines**, never a percentage
+  of the total hammer. The two differ by a cent or two and only the first
+  reconciles against what was actually charged.
+
+**An unsold lot charges nobody** -- no sale, no commission, no premium, no
+line in the books. If Vevaty ever wants an unsold or withdrawal fee (some
+houses charge one) that is a new percentage on `auctions`, not a change to
+this function.
+
 ## Payments
 
 **No card number reaches this codebase.** The `demo` provider accepts
@@ -614,6 +649,20 @@ It is live by two mechanisms on purpose:
 The countdown ticks locally off each lot's `closes_at`. A countdown that
 needs a round trip per second is a countdown that stutters.
 
+Once lots start closing, the same screen becomes the sale's **books**. Every
+won lot grows a two-column block -- what the seller collects after
+commission on the left, what the buyer owes with the premium on the right,
+each showing its own working -- and the auction gets a totals panel:
+hammer, commission, payable to sellers, premium, collectable from buyers,
+and Vevaty's take. Those figures come from `myazar.lot_settlement()` (see
+"Money" above), not from arithmetic in the screen, and they are formatted
+with cents where bids are formatted in whole dollars. Bids round because
+the increment ladder does; money somebody is invoiced does not.
+
+A lot only shows money once it is `won`. While it is still running there is
+nothing owed and nothing to show, which is also why the books panel is
+absent from an auction where nothing has closed yet.
+
 Everything comes from `myazar.admin_auction_monitor(auction_id)` in one
 call -- two calls per tick would be two chances to paint half an update. It
 is SECURITY DEFINER and checks `myazar.admins` itself, because it reads
@@ -633,9 +682,12 @@ bidder who could use it to snipe.
   where a consigned one has bedrooms or mileage. The spec form is a large
   piece of `CreateListingScreen` and lifting it into an admin screen is its
   own change; the description carries the same facts in the meantime.
-- **Settlement.** Lots close to `won` / `unsold` and stop there. Charging,
-  invoicing and the commission split are the next thing, and they are
-  waiting on a real payment provider rather than on design.
+- **Settlement.** Lots close to `won` / `unsold` and stop there. What each
+  side owes is now computed and shown (`myazar.lot_settlement()`, and the
+  books panel on the monitor), so the numbers exist; what does not exist is
+  anything that *moves* them -- charging the buyer's saved card, issuing an
+  invoice, paying the seller out. That is waiting on a real payment
+  provider rather than on design.
 - **Notifications.** Outbid and won are the two that matter, and both want
   the WhatsApp channel Meta still will not approve (@LIFECYCLE.md).
 - **A settled lot's listing has no terminal status.** It sits at 'auction'

@@ -7,7 +7,7 @@ import Pressy from '../../components/Pressy';
 import Icon from '../../icons/Icon';
 import { colors, type, radius } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
-import { AuctionMonitor, fetchAuctionMonitor, formatBidAmount } from '../../lib/auctions';
+import { AuctionMonitor, fetchAuctionMonitor, formatBidAmount, formatMoney } from '../../lib/auctions';
 import { RootStackParamList } from '../../navigation/types';
 
 // Watching a sale happen: every lot on one screen with who is leading it
@@ -30,6 +30,13 @@ import { RootStackParamList } from '../../navigation/types';
 //
 // The countdown ticks locally off each lot's closes_at rather than asking
 // the server every second.
+//
+// Once lots start closing the screen becomes the sale's books as well as
+// its scoreboard: every won lot shows what the seller collects after
+// commission and what the buyer owes with the premium on top, and the
+// auction gets a total. None of that arithmetic happens here -- it comes
+// from myazar.lot_settlement() so that the invoices settlement eventually
+// generates cannot disagree with what the admin read off this screen.
 export default function AdminAuctionMonitorScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'AdminAuctionMonitor'>>();
@@ -183,9 +190,69 @@ export default function AdminAuctionMonitorScreen() {
                     <Text style={styles.leaderMax}>max {formatBidAmount(l.leaderMax)}</Text>
                   )}
                 </View>
+
+                {/* The money, once there is any. Two sides, side by side,
+                    because they are two different invoices to two
+                    different people -- not one number split up. */}
+                {l.settlement && (
+                  <View style={styles.money}>
+                    <View style={styles.moneySide}>
+                      <Text style={styles.moneyWho} numberOfLines={1}>
+                        {l.seller} collects
+                      </Text>
+                      <Text style={styles.moneyBig}>{formatMoney(l.settlement.sellerPayout)}</Text>
+                      <Text style={styles.moneyWorking}>
+                        {formatMoney(l.settlement.hammer)} hammer − {formatMoney(l.settlement.sellerCommission)}
+                        {' '}commission ({data.sellerCommissionPct}%)
+                      </Text>
+                    </View>
+                    <View style={styles.moneyDivider} />
+                    <View style={styles.moneySide}>
+                      <Text style={styles.moneyWho} numberOfLines={1}>
+                        {l.winner || 'Buyer'} pays
+                      </Text>
+                      <Text style={styles.moneyBig}>{formatMoney(l.settlement.buyerTotal)}</Text>
+                      <Text style={styles.moneyWorking}>
+                        {formatMoney(l.settlement.hammer)} hammer + {formatMoney(l.settlement.buyerPremium)}
+                        {' '}premium ({data.buyerPremiumPct}%)
+                      </Text>
+                    </View>
+                  </View>
+                )}
+                {l.settlement && (
+                  <Text style={styles.moneyTake}>
+                    Vevaty {formatMoney(l.settlement.vevatyTake)}
+                  </Text>
+                )}
               </View>
             );
           })}
+
+          {/* ---- the auction's books ---- */}
+          {data.settlement.lotsWon > 0 && (
+            <>
+              <Text style={styles.sectionTitle}>The books</Text>
+              <View style={styles.books}>
+                <Text style={styles.booksLead}>
+                  {data.settlement.lotsWon} of {data.settlement.lotsTotal} lots sold
+                  {data.settlement.lotsUnsold > 0 ? ` · ${data.settlement.lotsUnsold} unsold` : ''}
+                  {data.settlement.lotsOpen > 0 ? ` · ${data.settlement.lotsOpen} still running` : ''}
+                </Text>
+                <BooksRow label="Total hammer" value={data.settlement.hammer} />
+                <BooksRow
+                  label={`Seller commission (${data.sellerCommissionPct}%)`}
+                  value={data.settlement.sellerCommission}
+                />
+                <BooksRow label="Payable to sellers" value={data.settlement.sellerPayout} strong />
+                <BooksRow
+                  label={`Buyer's premium (${data.buyerPremiumPct}%)`}
+                  value={data.settlement.buyerPremium}
+                />
+                <BooksRow label="Collectable from buyers" value={data.settlement.buyerTotal} strong />
+                <BooksRow label="Vevaty's take" value={data.settlement.vevatyTake} accent />
+              </View>
+            </>
+          )}
 
           {/* ---- the feed ---- */}
           <Text style={styles.sectionTitle}>Bids as they land</Text>
@@ -213,10 +280,45 @@ export default function AdminAuctionMonitorScreen() {
             Updates the moment a bid lands, and refreshes every ten seconds regardless — so a dropped
             connection shows as stale rather than as quiet. "max" is the most that bidder has authorised;
             an "auto" row is the system bidding on their behalf to hold the lead.
+            {'\n\n'}
+            Money appears on a lot only once it is won — an unsold lot charges nobody. The seller's
+            commission comes off the hammer; the buyer's premium goes on top of it, so the two sides
+            are two separate invoices and the totals below are the sum of those lines rather than a
+            percentage of the total hammer.
           </Text>
         </ScrollView>
       ) : null}
     </Screen>
+  );
+}
+
+// One line of the auction's books. Its own component only because the
+// label/value/emphasis triple is repeated six times and a stray style on
+// one of them is the kind of thing nobody notices on a money screen.
+function BooksRow({
+  label,
+  value,
+  strong,
+  accent,
+}: {
+  label: string;
+  value: number;
+  strong?: boolean;
+  accent?: boolean;
+}) {
+  return (
+    <View style={styles.booksRow}>
+      <Text style={[styles.booksLabel, (strong || accent) && styles.booksLabelStrong]}>{label}</Text>
+      <Text
+        style={[
+          styles.booksValue,
+          strong && styles.booksValueStrong,
+          accent && styles.booksAccent,
+        ]}
+      >
+        {formatMoney(value)}
+      </Text>
+    </View>
   );
 }
 
@@ -265,6 +367,32 @@ const styles = StyleSheet.create({
   },
   leaderText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink },
   leaderMax: { ...type.tiny, color: colors.inkSoft, fontVariant: ['tabular-nums'] },
+
+  money: {
+    flexDirection: 'row', gap: 12,
+    backgroundColor: colors.surface, borderRadius: radius.sm, padding: 11,
+  },
+  moneySide: { flex: 1, gap: 2 },
+  moneyDivider: { width: 1, backgroundColor: colors.line },
+  moneyWho: { ...type.tiny, color: colors.inkSoft },
+  moneyBig: { fontSize: 16, fontWeight: '800', color: colors.ink, fontVariant: ['tabular-nums'] },
+  moneyWorking: { fontSize: 10.5, lineHeight: 14, color: colors.inkSoft, fontVariant: ['tabular-nums'] },
+  moneyTake: { ...type.tiny, color: colors.accentDeep, fontWeight: '700', textAlign: 'right' },
+
+  books: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
+    borderRadius: radius.md, paddingHorizontal: 13, paddingVertical: 4,
+  },
+  booksLead: { ...type.tiny, color: colors.inkSoft, paddingTop: 9, paddingBottom: 3 },
+  booksRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingVertical: 8, borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  booksLabel: { flex: 1, fontSize: 13, color: colors.inkSoft },
+  booksLabelStrong: { color: colors.ink, fontWeight: '700' },
+  booksValue: { fontSize: 13.5, color: colors.ink, fontVariant: ['tabular-nums'] },
+  booksValueStrong: { fontSize: 15, fontWeight: '800' },
+  booksAccent: { color: colors.accentDeep, fontWeight: '800', fontSize: 15 },
 
   feed: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
