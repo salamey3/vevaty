@@ -729,11 +729,22 @@ move a day-tap a month backwards. And Clear only appears where the save
 can carry it out — a new auction or a draft — because a button that
 reports success and changes nothing is worse than no button.
 
-Terms are set where the deal is: the consign form takes them when an item
-is taken in, and the lot editor changes them afterwards (both blank =
-sale default, and clearing them puts a lot back on the default). The lots
-list shows each lot's resolved pair and whether it was agreed or
+Terms are set where the deal is: **all three lot forms take them** — the
+consign form, the build-from-scratch form, and the lot editor afterwards
+(both blank = sale default, and clearing them puts a lot back on it). The
+lots list shows each lot's resolved pair and whether it was agreed or
 inherited.
+
+The from-scratch form was left out of the first version, on the reasoning
+that a lot built there is Vevaty's own stock so a seller commission would
+only be Vevaty paying itself. That is backwards: per the intake note above,
+consignment does not start with a seller posting the item, it starts with
+the item arriving at our door and Vevaty photographing it and writing the
+listing — so that form is where a negotiated rate gets typed in MORE often
+than the consign-an-existing-listing one, not less. Its rate check runs
+with the price checks, before the photo and 360 uploads, because those take
+minutes and refusing a typo'd percentage on the far side of them would
+throw all that work away.
 
 Once lots start closing, the same screen becomes the sale's **books**. Every
 won lot grows a two-column block -- what the seller collects after

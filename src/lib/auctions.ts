@@ -585,6 +585,10 @@ export async function createAuctionLot(input: {
   descriptionEn: string; descriptionAr: string;
   categoryId: string; district: string; condition: string;
   startPrice: number; reservePrice: number | null;
+  // The terms agreed with the consignor. This path is where they are most
+  // often typed, not least: an item built from scratch is one that arrived
+  // at our door, which is where a consignment deal actually gets struck.
+  sellerCommissionPct?: number | null; buyerPremiumPct?: number | null;
 }): Promise<{ lotId: string; listingId: string }> {
   const { data, error } = await supabase.rpc('create_auction_lot', {
     p_auction_id: input.auctionId,
@@ -597,6 +601,8 @@ export async function createAuctionLot(input: {
     p_condition: input.condition,
     p_start_price: input.startPrice,
     p_reserve_price: input.reservePrice,
+    p_seller_commission_pct: input.sellerCommissionPct ?? null,
+    p_buyer_premium_pct: input.buyerPremiumPct ?? null,
   });
   if (error) throw toAuctionError(error);
   return { lotId: (data as any).lot_id, listingId: (data as any).listing_id };

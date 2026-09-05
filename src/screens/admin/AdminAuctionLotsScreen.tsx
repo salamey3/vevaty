@@ -75,6 +75,11 @@ type ScratchForm = {
   descriptionEn: string; descriptionAr: string;
   categoryId: string; district: string; condition: string;
   startPrice: string; reserve: string;
+  // The consignor's terms. Blank on both = the sale's standard terms,
+  // which is the common case. This path is where a negotiated rate is most
+  // often typed: an item built from scratch is one that arrived at our
+  // door, which is exactly when the deal gets struck.
+  sellerPct: string; buyerPct: string;
   photos: string[];
   // Chosen here, uploaded when Create lot is tapped. The 360 set needs a
   // listing to hang its rows off and the video needs one to attach to, so
@@ -99,7 +104,8 @@ const LOT_STATUSES: AuctionLotStatus[] = [
 const EMPTY_SCRATCH: ScratchForm = {
   titleEn: '', titleAr: '', descriptionEn: '', descriptionAr: '',
   categoryId: '', district: '', condition: '',
-  startPrice: '', reserve: '', photos: [], spinFrames: [], spinLabel: '', video: null,
+  startPrice: '', reserve: '', sellerPct: '', buyerPct: '',
+  photos: [], spinFrames: [], spinLabel: '', video: null,
 };
 
 export default function AdminAuctionLotsScreen() {
@@ -676,6 +682,11 @@ export default function AdminAuctionLotsScreen() {
     }
     const prices = parsePrices(scratch.startPrice, scratch.reserve);
     if (!prices) return;
+    // Checked here, with the prices, and not after the photo uploads: the
+    // uploads take minutes, and refusing a typo'd percentage on the far
+    // side of them would throw that work away.
+    const rates = parseRates(scratch.sellerPct, scratch.buyerPct);
+    if (!rates) return;
     if (scratch.video && videoUploadingFor) {
       // Refused before a byte is sent rather than half way through: there
       // is one upload slot, and the button below is disabled for the same
@@ -756,6 +767,8 @@ export default function AdminAuctionLotsScreen() {
         descriptionEn: scratch.descriptionEn.trim(),
         descriptionAr: scratch.descriptionAr.trim(),
         categoryId: scratch.categoryId,
+        sellerCommissionPct: rates.seller,
+        buyerPremiumPct: rates.buyer,
         district: scratch.district.trim(),
         // Falls back to the first option its category offers rather than a
         // hardcoded 'used', which is the wrong answer under three of the
@@ -1737,6 +1750,20 @@ export default function AdminAuctionLotsScreen() {
       <TextInput value={scratch.startPrice} onChangeText={(v) => setScratch((f) => ({ ...f, startPrice: v }))} keyboardType="numeric" style={styles.input} placeholder="500" placeholderTextColor={colors.inkSoft} />
       <Text style={styles.fieldLabel}>Reserve (optional, never shown to bidders)</Text>
       <TextInput value={scratch.reserve} onChangeText={(v) => setScratch((f) => ({ ...f, reserve: v }))} keyboardType="numeric" style={styles.input} placeholder="1200" placeholderTextColor={colors.inkSoft} />
+
+      {/* Word for word the consign form's, because it is the same question
+          about the same deal and the two forms sit behind one screen. */}
+      <Text style={styles.fieldLabel}>Terms for this lot (blank = sale default)</Text>
+      <View style={styles.rateRow}>
+        <View style={styles.rateField}>
+          <Text style={styles.rateCaption}>Seller commission %</Text>
+          <TextInput value={scratch.sellerPct} onChangeText={(v) => setScratch((f) => ({ ...f, sellerPct: v }))} keyboardType="numeric" style={styles.input} placeholder="15" placeholderTextColor={colors.inkSoft} />
+        </View>
+        <View style={styles.rateField}>
+          <Text style={styles.rateCaption}>Buyer's premium %</Text>
+          <TextInput value={scratch.buyerPct} onChangeText={(v) => setScratch((f) => ({ ...f, buyerPct: v }))} keyboardType="numeric" style={styles.input} placeholder="10" placeholderTextColor={colors.inkSoft} />
+        </View>
+      </View>
 
       <View style={styles.formActions}>
         <Pressy onPress={closeForm} style={styles.cancelBtn} disabled={busy}><Text style={styles.cancelText}>Cancel</Text></Pressy>
