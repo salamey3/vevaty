@@ -173,8 +173,35 @@ jewellery, art and high-end-electronics operation, and the selection rule
 that follows from the economics is "is this lot worth more than about a
 thousand dollars", not "is it in good condition".
 
-Both percentages are per-auction columns rather than constants, so a
-launch event can run at a different rate without a deploy.
+**Rates are set per LOT, not per sale.** `auction_lots.seller_commission_pct`
+and `auction_lots.buyer_premium_pct` are nullable, and null means "use the
+auction's rate" -- so `auctions.seller_commission_pct` /
+`auctions.buyer_premium_pct` are the sale's *defaults*, and a lot only
+carries its own numbers where a real agreement differs from them. Same
+shape as `profiles.tier_override` beside `profiles.tier`: an override
+column next to a default, resolved by coalesce at read time
+(`myazar.effective_lot_rates(lot_id)`).
+
+That shape, rather than stamping the sale's rate onto every lot at
+creation, because otherwise changing an auction's defaults would silently
+fail to reach any lot already added under them -- and the admin would have
+no way to tell which lots were negotiated and which merely predated the
+change. Storing only the exception keeps that distinction, which is why
+the lots list says "15/10 default" or "6/15 agreed" rather than just a
+number.
+
+This exists because a flat rate is wrong at both ends of the range. 15%
+off a $500 lot is a fair price for photography, authentication, storage
+and a sale; 15% off a $23,000 handbag is $3,450 for the same work, and the
+consignor who owns that handbag can take it to a house that will charge
+him almost nothing -- at Christie's and Sotheby's the seller's commission
+on a good consignment is negotiable and frequently near zero, and the take
+is loaded onto the buyer instead. Being able to answer that with a
+per-lot deal is the difference between winning a consignment and losing
+it. The columns are admin-only (`revoke` on both, not just RLS): a rate is
+a commercial term between Vevaty and one consignor, and a rival consignor
+reading it off the wire is a negotiation problem before it is a privacy
+one.
 
 **The two sides are two different invoices.** The seller's commission comes
 *off* the hammer and the buyer's premium goes *on top* of it, so a lot that
@@ -190,7 +217,8 @@ falls at $1,850 in a 15/10 sale produces:
 | **Vevaty's take** | **$462.50** |
 
 `myazar.lot_settlement(hammer, seller_pct, buyer_pct)` is the only place
-that arithmetic exists. It returns all six figures as jsonb and the monitor
+that arithmetic exists, and it takes the rates as arguments precisely
+because they now vary lot by lot. It returns all six figures as jsonb and the monitor
 reads them from there rather than multiplying in TypeScript -- the invoices
 and payouts settlement eventually generates have to agree with what an
 admin read off the screen to the cent, and two implementations of one sum
@@ -202,9 +230,21 @@ details:
 
 - **Rounding is per lot, to two decimals.** An invoice line is a real
   amount of money and gets rounded once, where it is created.
-- **An auction total is the sum of the rounded lines**, never a percentage
-  of the total hammer. The two differ by a cent or two and only the first
-  reconciles against what was actually charged.
+- **An auction total is the sum of the per-lot lines**, never a percentage
+  of the total hammer. With per-lot rates this stops being a rounding
+  nicety: once two lots in a sale settle at different percentages there is
+  no single rate you could apply to the total and get the right answer at
+  all.
+
+**Rates freeze when a lot is won.** `advance_auctions()` stamps the
+resolved pair onto the lot as it closes, and `update_auction_lot` refuses
+a rate change on a `won` or `settled` lot with `rates_locked`. Without the
+stamp, a lot that inherited its rates would keep inheriting them -- so
+editing the sale's defaults months later would silently restate what
+Vevaty owes a seller who has already been paid. The refusal is the same
+rule from the other side. Correcting a genuine mistake on a settled lot is
+deliberately not something this function can do by accident; it takes a
+migration, which is the right amount of friction for restating an account.
 
 **An unsold lot charges nobody** -- no sale, no commission, no premium, no
 line in the books. If Vevaty ever wants an unsold or withdrawal fee (some
@@ -649,10 +689,17 @@ It is live by two mechanisms on purpose:
 The countdown ticks locally off each lot's `closes_at`. A countdown that
 needs a round trip per second is a countdown that stutters.
 
+Terms are set where the deal is: the consign form takes them when an item
+is taken in, and the lot editor changes them afterwards (both blank =
+sale default, and clearing them puts a lot back on the default). The lots
+list shows each lot's resolved pair and whether it was agreed or
+inherited.
+
 Once lots start closing, the same screen becomes the sale's **books**. Every
 won lot grows a two-column block -- what the seller collects after
 commission on the left, what the buyer owes with the premium on the right,
-each showing its own working -- and the auction gets a totals panel:
+each showing its own working at that lot's own rates, with a pill on any
+lot whose terms were negotiated -- and the auction gets a totals panel:
 hammer, commission, payable to sellers, premium, collectable from buyers,
 and Vevaty's take. Those figures come from `myazar.lot_settlement()` (see
 "Money" above), not from arithmetic in the screen, and they are formatted

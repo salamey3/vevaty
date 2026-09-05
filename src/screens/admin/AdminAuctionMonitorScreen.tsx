@@ -135,6 +135,7 @@ export default function AdminAuctionMonitorScreen() {
             <Text style={styles.headerMeta}>
               {data.registeredBidders} registered {data.registeredBidders === 1 ? 'bidder' : 'bidders'}
               {data.antiSnipeSeconds > 0 ? ` · anti-snipe ${data.antiSnipeSeconds}s` : ''}
+              {' · default terms '}{data.sellerCommissionPct}/{data.buyerPremiumPct}
             </Text>
             <Text style={styles.updated}>
               updated {lastUpdated ? clockTime(new Date(lastUpdated).toISOString()) : '—'}
@@ -151,6 +152,13 @@ export default function AdminAuctionMonitorScreen() {
                 <View style={styles.lotTop}>
                   <Text style={styles.lotNum}>LOT {l.lotNumber}</Text>
                   <Text style={styles.lotTitle} numberOfLines={1}>{l.title}</Text>
+                  {l.ratesCustom && (
+                    <View style={styles.termsPill}>
+                      <Text style={styles.termsPillText}>
+                        {l.sellerPct}/{l.buyerPct}
+                      </Text>
+                    </View>
+                  )}
                   <Text style={[styles.lotClock, live && styles.lotClockLive]}>
                     {live ? countdown(l.closesAt) : l.status}
                   </Text>
@@ -203,7 +211,7 @@ export default function AdminAuctionMonitorScreen() {
                       <Text style={styles.moneyBig}>{formatMoney(l.settlement.sellerPayout)}</Text>
                       <Text style={styles.moneyWorking}>
                         {formatMoney(l.settlement.hammer)} hammer − {formatMoney(l.settlement.sellerCommission)}
-                        {' '}commission ({data.sellerCommissionPct}%)
+                        {' '}commission ({l.sellerPct}%)
                       </Text>
                     </View>
                     <View style={styles.moneyDivider} />
@@ -214,7 +222,7 @@ export default function AdminAuctionMonitorScreen() {
                       <Text style={styles.moneyBig}>{formatMoney(l.settlement.buyerTotal)}</Text>
                       <Text style={styles.moneyWorking}>
                         {formatMoney(l.settlement.hammer)} hammer + {formatMoney(l.settlement.buyerPremium)}
-                        {' '}premium ({data.buyerPremiumPct}%)
+                        {' '}premium ({l.buyerPct}%)
                       </Text>
                     </View>
                   </View>
@@ -239,15 +247,9 @@ export default function AdminAuctionMonitorScreen() {
                   {data.settlement.lotsOpen > 0 ? ` · ${data.settlement.lotsOpen} still running` : ''}
                 </Text>
                 <BooksRow label="Total hammer" value={data.settlement.hammer} />
-                <BooksRow
-                  label={`Seller commission (${data.sellerCommissionPct}%)`}
-                  value={data.settlement.sellerCommission}
-                />
+                <BooksRow label="Seller commission" value={data.settlement.sellerCommission} />
                 <BooksRow label="Payable to sellers" value={data.settlement.sellerPayout} strong />
-                <BooksRow
-                  label={`Buyer's premium (${data.buyerPremiumPct}%)`}
-                  value={data.settlement.buyerPremium}
-                />
+                <BooksRow label="Buyer's premium" value={data.settlement.buyerPremium} />
                 <BooksRow label="Collectable from buyers" value={data.settlement.buyerTotal} strong />
                 <BooksRow label="Vevaty's take" value={data.settlement.vevatyTake} accent />
               </View>
@@ -283,8 +285,10 @@ export default function AdminAuctionMonitorScreen() {
             {'\n\n'}
             Money appears on a lot only once it is won — an unsold lot charges nobody. The seller's
             commission comes off the hammer; the buyer's premium goes on top of it, so the two sides
-            are two separate invoices and the totals below are the sum of those lines rather than a
-            percentage of the total hammer.
+            are two separate invoices. Each lot settles at its own agreed rates — a lot showing a
+            pill like "6/15" was negotiated, the rest run on the sale's default terms — which is why
+            the totals are the sum of the lot lines and not a percentage of the total hammer. Rates
+            freeze the moment a lot is won, so a settled account cannot be restated.
           </Text>
         </ScrollView>
       ) : null}
@@ -352,6 +356,13 @@ const styles = StyleSheet.create({
   lotNum: { ...type.tiny, fontWeight: '800', color: colors.inkSoft },
   lotTitle: { flex: 1, fontSize: 13.5, fontWeight: '700', color: colors.ink },
   lotClock: { ...type.tiny, color: colors.inkSoft, fontVariant: ['tabular-nums'] },
+  termsPill: {
+    paddingHorizontal: 6, height: 17, borderRadius: radius.pill,
+    backgroundColor: colors.primaryTint, alignItems: 'center', justifyContent: 'center',
+  },
+  termsPillText: {
+    fontSize: 9.5, fontWeight: '800', color: colors.primary, fontVariant: ['tabular-nums'],
+  },
   lotClockLive: { color: colors.primary, fontWeight: '700' },
 
   lotFigures: { flexDirection: 'row', gap: 22 },

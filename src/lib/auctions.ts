@@ -38,6 +38,7 @@ export type AuctionErrorCode =
   | 'closes_before_opens' | 'no_lots' | 'title_required'
   | 'listing_not_found' | 'already_a_lot' | 'start_price_invalid'
   | 'reserve_below_start' | 'category_required' | 'invalid_status'
+  | 'rate_out_of_range' | 'rates_locked'
   | 'unknown';
 
 export class AuctionError extends Error {
@@ -74,6 +75,7 @@ const KNOWN_CODES = new Set<string>([
   'closes_before_opens', 'no_lots', 'title_required',
   'listing_not_found', 'already_a_lot', 'start_price_invalid',
   'reserve_below_start', 'category_required', 'invalid_status',
+  'rate_out_of_range', 'rates_locked',
 ]);
 
 function toAuctionError(error: any): AuctionError {
@@ -492,6 +494,18 @@ export type AdminLotRow = {
   status: string;
   currentPrice: number | null;
   bidCount: number;
+  // The lot's OWN terms, null when it simply runs on the sale's defaults.
+  // Kept separate from the resolved pair below because they look identical
+  // once coalesced, and only the explicit ones should survive a change to
+  // the auction's defaults.
+  sellerCommissionPct: number | null;
+  buyerPremiumPct: number | null;
+  // What it actually settles at, either way.
+  effectiveSellerPct: number;
+  effectiveBuyerPct: number;
+  // Won or settled: the rates were stamped at close and the books read off
+  // them, so they no longer move.
+  ratesLocked: boolean;
 };
 
 export async function fetchAdminAuctionLots(auctionId: string): Promise<AdminLotRow[]> {
@@ -506,6 +520,11 @@ export async function fetchAdminAuctionLots(auctionId: string): Promise<AdminLot
     status: r.status,
     currentPrice: r.current_price === null ? null : Number(r.current_price),
     bidCount: r.bid_count ?? 0,
+    sellerCommissionPct: r.seller_commission_pct === null ? null : Number(r.seller_commission_pct),
+    buyerPremiumPct: r.buyer_premium_pct === null ? null : Number(r.buyer_premium_pct),
+    effectiveSellerPct: Number(r.effective_seller_pct) || 0,
+    effectiveBuyerPct: Number(r.effective_buyer_pct) || 0,
+    ratesLocked: !!r.rates_locked,
   }));
 }
 
@@ -529,12 +548,17 @@ export async function createAuction(input: {
 // the unique constraint the moment two tabs are open.
 export async function addAuctionLot(input: {
   auctionId: string; listingId: string; startPrice: number; reservePrice: number | null;
+  // The terms agreed with THIS consignor. Both null means "the sale's
+  // standard terms", which is the common case and why they are optional.
+  sellerCommissionPct?: number | null; buyerPremiumPct?: number | null;
 }): Promise<string> {
   const { data, error } = await supabase.rpc('add_auction_lot', {
     p_auction_id: input.auctionId,
     p_listing_id: input.listingId,
     p_start_price: input.startPrice,
     p_reserve_price: input.reservePrice,
+    p_seller_commission_pct: input.sellerCommissionPct ?? null,
+    p_buyer_premium_pct: input.buyerPremiumPct ?? null,
   });
   if (error) throw toAuctionError(error);
   return data as string;
@@ -700,6 +724,12 @@ export async function updateAuctionLot(
     titleEn?: string; titleAr?: string;
     descriptionEn?: string; descriptionAr?: string;
     status?: AuctionLotStatus;
+    // Same null-cannot-mean-two-things problem as clearReserve: undefined
+    // leaves the rate alone, clearRates puts the lot back on the sale's
+    // standard terms. Refused with 'rates_locked' once the lot is won --
+    // its books have been read off those percentages by then.
+    sellerCommissionPct?: number | null; buyerPremiumPct?: number | null;
+    clearRates?: boolean;
   }
 ): Promise<void> {
   const { error } = await supabase.rpc('update_auction_lot', {
@@ -712,6 +742,9 @@ export async function updateAuctionLot(
     p_description_en: patch.descriptionEn ?? null,
     p_description_ar: patch.descriptionAr ?? null,
     p_status: patch.status ?? null,
+    p_seller_commission_pct: patch.sellerCommissionPct ?? null,
+    p_buyer_premium_pct: patch.buyerPremiumPct ?? null,
+    p_clear_rates: patch.clearRates ?? false,
   });
   if (error) throw toAuctionError(error);
 }
@@ -748,6 +781,16 @@ export type MonitorLot = {
   winner: string | null;
   // Who Vevaty owes the payout to once this lot settles.
   seller: string;
+  // The rates this lot actually runs at -- its own where a deal was struck
+  // with the consignor, the auction's otherwise.
+  sellerPct: number;
+  buyerPct: number;
+  // True when those came from the lot rather than the sale's defaults.
+  // The screen needs the distinction, not just the numbers: "15%" reads
+  // very differently as a negotiated term than as a default nobody touched.
+  ratesCustom: boolean;
+  // Frozen at close, so the books of a settled lot cannot be restated.
+  ratesLocked: boolean;
   // Null until the lot is actually won. An unsold lot charges nobody:
   // no sale, no commission, no premium.
   settlement: LotSettlement | null;
@@ -797,8 +840,9 @@ export type AuctionMonitor = {
   status: string;
   registeredBidders: number;
   antiSnipeSeconds: number;
-  // Per-auction columns rather than constants, so a launch event can run
-  // at a different rate without a deploy (@AUCTIONS.md, "Money").
+  // The sale's DEFAULT terms. Any lot may override them, so these are
+  // what an untouched lot runs at, not what the auction runs at -- there
+  // is no single rate for an auction any more.
   sellerCommissionPct: number;
   buyerPremiumPct: number;
   lots: MonitorLot[];
@@ -835,6 +879,10 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
       leaderMax: l.leader_max == null ? null : Number(l.leader_max),
       winner: l.winner ?? null,
       seller: l.seller || 'Vevaty',
+      sellerPct: Number(l.seller_pct) || 0,
+      buyerPct: Number(l.buyer_pct) || 0,
+      ratesCustom: !!l.rates_custom,
+      ratesLocked: !!l.rates_locked,
       settlement: l.settlement ? mapSettlement(l.settlement) : null,
     })),
     feed: (data?.feed || []).map((b: any) => ({

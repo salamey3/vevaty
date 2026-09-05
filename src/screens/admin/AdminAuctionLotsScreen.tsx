@@ -120,6 +120,10 @@ export default function AdminAuctionLotsScreen() {
   const [chosen, setChosen] = useState<Listing | null>(null);
   const [startPrice, setStartPrice] = useState('');
   const [reserve, setReserve] = useState('');
+  // Blank means "the sale's standard terms", which is what most lots run
+  // on. Only a consignment that was actually negotiated fills these in.
+  const [sellerPct, setSellerPct] = useState('');
+  const [buyerPct, setBuyerPct] = useState('');
   const [scratch, setScratch] = useState<ScratchForm>(EMPTY_SCRATCH);
   const [catQuery, setCatQuery] = useState('');
   // The in-app camera, shared by both media surfaces on this screen.
@@ -191,6 +195,8 @@ export default function AdminAuctionLotsScreen() {
   const [lotEdit, setLotEdit] = useState({
     titleEn: '', titleAr: '', descriptionEn: '', descriptionAr: '',
     startPrice: '', reserve: '',
+    // Blank = back to the sale's default terms, same as the reserve box.
+    sellerPct: '', buyerPct: '',
     status: 'pending' as AuctionLotStatus,
     // Same staleness guard as the auction form: advance_auctions moves lot
     // statuses every minute, so a save must not write back whatever the
@@ -368,6 +374,8 @@ export default function AdminAuctionLotsScreen() {
     setChosen(null);
     setStartPrice('');
     setReserve('');
+    setSellerPct('');
+    setBuyerPct('');
     setScratch(EMPTY_SCRATCH);
     setCatQuery('');
     setEditingLot(null);
@@ -593,6 +601,28 @@ export default function AdminAuctionLotsScreen() {
     }
   };
 
+  // Blank is a real answer here ("use the sale's default"), so an empty
+  // box returns null rather than failing. Anything else has to be a
+  // percentage: 0 is legal -- a zero-commission deal to win a consignment
+  // is exactly the kind of term this feature exists for -- and 100 is the
+  // ceiling the CHECK constraint enforces anyway.
+  const parseRates = (sellerText: string, buyerText: string) => {
+    const one = (text: string, label: string): number | null | 'bad' => {
+      if (!text.trim()) return null;
+      const n = Number(text);
+      if (!Number.isFinite(n) || n < 0 || n > 100) {
+        Alert.alert(label, 'Enter a percentage between 0 and 100, or leave it blank for the sale\'s default.');
+        return 'bad';
+      }
+      return n;
+    };
+    const seller = one(sellerText, 'Seller commission');
+    if (seller === 'bad') return null;
+    const buyer = one(buyerText, "Buyer's premium");
+    if (buyer === 'bad') return null;
+    return { seller, buyer };
+  };
+
   const parsePrices = (startText: string, reserveText: string) => {
     const start = Number(startText);
     const res = reserveText.trim() ? Number(reserveText) : null;
@@ -611,6 +641,8 @@ export default function AdminAuctionLotsScreen() {
     if (!chosen) return;
     const prices = parsePrices(startPrice, reserve);
     if (!prices) return;
+    const rates = parseRates(sellerPct, buyerPct);
+    if (!rates) return;
     setBusy(true);
     // ONE call. This used to be two writes from here -- insert the lot,
     // then flip the listing -- and either half could land alone. A lot with
@@ -621,6 +653,7 @@ export default function AdminAuctionLotsScreen() {
     try {
       await addAuctionLot({
         auctionId, listingId: chosen.id, startPrice: prices.start, reservePrice: prices.res,
+        sellerCommissionPct: rates.seller, buyerPremiumPct: rates.buyer,
       });
     } catch (e: any) {
       setBusy(false);
@@ -973,6 +1006,12 @@ export default function AdminAuctionLotsScreen() {
       descriptionAr: l.descriptionAr || '',
       startPrice: String(lot.startPrice),
       reserve: lot.reservePrice === null ? '' : String(lot.reservePrice),
+      // The lot's OWN rates, deliberately not the resolved ones: seeding
+      // the boxes with the sale's defaults would turn every unrelated edit
+      // into a silent negotiated term, and the lot would then keep that
+      // number if the sale's defaults ever changed.
+      sellerPct: lot.sellerCommissionPct === null ? '' : String(lot.sellerCommissionPct),
+      buyerPct: lot.buyerPremiumPct === null ? '' : String(lot.buyerPremiumPct),
       status: lot.status as AuctionLotStatus,
       statusTouched: false,
     });
@@ -982,6 +1021,16 @@ export default function AdminAuctionLotsScreen() {
     if (!editingLot) return;
     const prices = parsePrices(lotEdit.startPrice, lotEdit.reserve);
     if (!prices) return;
+    const rates = parseRates(lotEdit.sellerPct, lotEdit.buyerPct);
+    if (!rates) return;
+    // A won lot's rates were stamped at close and its books read off them.
+    // Not sending them at all -- rather than sending the same values back
+    // -- is what keeps an unrelated edit (a typo in a title, say) from
+    // being refused with 'rates_locked' on a lot that has settled.
+    const ratesTouched =
+      !editingLot.ratesLocked &&
+      (rates.seller !== editingLot.sellerCommissionPct ||
+        rates.buyer !== editingLot.buyerPremiumPct);
     setBusy(true);
     try {
       await updateAuctionLot(editingLot.id, {
@@ -999,6 +1048,12 @@ export default function AdminAuctionLotsScreen() {
         descriptionEn: lotEdit.descriptionEn,
         descriptionAr: lotEdit.descriptionAr,
         status: lotEdit.statusTouched ? lotEdit.status : undefined,
+        // Blank boxes mean REMOVE the negotiated terms, exactly as a blank
+        // reserve does -- so clearing them needs its own flag for the same
+        // reason clearReserve does.
+        sellerCommissionPct: ratesTouched ? rates.seller ?? undefined : undefined,
+        buyerPremiumPct: ratesTouched ? rates.buyer ?? undefined : undefined,
+        clearRates: ratesTouched && rates.seller === null && rates.buyer === null,
       });
     } catch (e: any) {
       setBusy(false);
@@ -1307,6 +1362,39 @@ export default function AdminAuctionLotsScreen() {
       <Text style={styles.fieldLabel}>Reserve (blank removes it)</Text>
       <TextInput value={lotEdit.reserve} onChangeText={(v) => setLotEdit((f) => ({ ...f, reserve: v }))} keyboardType="numeric" style={styles.input} placeholderTextColor={colors.inkSoft} />
 
+      {/* The deal struck with this consignor. Locked once the lot is won:
+          advance_auctions stamps the rates at close and the seller has
+          been told what he is owed off them. */}
+      <Text style={styles.fieldLabel}>
+        Terms for this lot{editingLot?.ratesLocked ? ' — settled, no longer editable' : ' (blank = sale default)'}
+      </Text>
+      <View style={styles.rateRow}>
+        <View style={styles.rateField}>
+          <Text style={styles.rateCaption}>Seller commission %</Text>
+          <TextInput
+            value={lotEdit.sellerPct}
+            onChangeText={(v) => setLotEdit((f) => ({ ...f, sellerPct: v }))}
+            keyboardType="numeric"
+            editable={!editingLot?.ratesLocked}
+            style={[styles.input, editingLot?.ratesLocked && styles.inputLocked]}
+            placeholder={String(editingLot?.effectiveSellerPct ?? '')}
+            placeholderTextColor={colors.inkSoft}
+          />
+        </View>
+        <View style={styles.rateField}>
+          <Text style={styles.rateCaption}>Buyer's premium %</Text>
+          <TextInput
+            value={lotEdit.buyerPct}
+            onChangeText={(v) => setLotEdit((f) => ({ ...f, buyerPct: v }))}
+            keyboardType="numeric"
+            editable={!editingLot?.ratesLocked}
+            style={[styles.input, editingLot?.ratesLocked && styles.inputLocked]}
+            placeholder={String(editingLot?.effectiveBuyerPct ?? '')}
+            placeholderTextColor={colors.inkSoft}
+          />
+        </View>
+      </View>
+
       <Text style={styles.fieldLabel}>Status</Text>
       <View style={styles.pillRow}>
         {LOT_STATUSES.map((st) => (
@@ -1471,6 +1559,20 @@ export default function AdminAuctionLotsScreen() {
       <TextInput value={startPrice} onChangeText={setStartPrice} keyboardType="numeric" style={styles.input} placeholder="500" placeholderTextColor={colors.inkSoft} />
       <Text style={styles.fieldLabel}>Reserve (optional, never shown to bidders)</Text>
       <TextInput value={reserve} onChangeText={setReserve} keyboardType="numeric" style={styles.input} placeholder="1200" placeholderTextColor={colors.inkSoft} />
+
+      {/* Where the negotiation actually happens: terms are agreed when the
+          item is taken in. Blank is the normal answer. */}
+      <Text style={styles.fieldLabel}>Terms for this lot (blank = sale default)</Text>
+      <View style={styles.rateRow}>
+        <View style={styles.rateField}>
+          <Text style={styles.rateCaption}>Seller commission %</Text>
+          <TextInput value={sellerPct} onChangeText={setSellerPct} keyboardType="numeric" style={styles.input} placeholder="15" placeholderTextColor={colors.inkSoft} />
+        </View>
+        <View style={styles.rateField}>
+          <Text style={styles.rateCaption}>Buyer's premium %</Text>
+          <TextInput value={buyerPct} onChangeText={setBuyerPct} keyboardType="numeric" style={styles.input} placeholder="10" placeholderTextColor={colors.inkSoft} />
+        </View>
+      </View>
 
       <View style={styles.formActions}>
         <Pressy onPress={closeForm} style={styles.cancelBtn} disabled={busy}><Text style={styles.cancelText}>Cancel</Text></Pressy>
@@ -1702,6 +1804,11 @@ export default function AdminAuctionLotsScreen() {
                   </Text>
                   <Text style={styles.rowSub}>
                     {lot.currentPrice === null ? 'No bids' : `${formatBidAmount(lot.currentPrice)} · ${lot.bidCount} bids`}
+                    {' · '}
+                    <Text style={lot.sellerCommissionPct !== null || lot.buyerPremiumPct !== null ? styles.rowTermsOwn : undefined}>
+                      {lot.effectiveSellerPct}/{lot.effectiveBuyerPct}
+                      {lot.sellerCommissionPct !== null || lot.buyerPremiumPct !== null ? ' agreed' : ' default'}
+                    </Text>
                   </Text>
                 </View>
                 <Pressy
@@ -1904,6 +2011,11 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg, paddingHorizontal: 12, fontSize: 14.5, color: colors.ink,
   },
   inputTall: { height: 76, paddingTop: 10, textAlignVertical: 'top' },
+  inputLocked: { backgroundColor: colors.surface, color: colors.inkSoft },
+  rateRow: { flexDirection: 'row', gap: 10 },
+  rateField: { flex: 1 },
+  rateCaption: { ...type.tiny, color: colors.inkSoft, marginBottom: 4 },
+  rowTermsOwn: { color: colors.primary, fontWeight: '700' },
   thumbRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
   thumbWrap: { width: 62, height: 62 },
   thumb: { width: 62, height: 62, borderRadius: radius.md, backgroundColor: colors.line },

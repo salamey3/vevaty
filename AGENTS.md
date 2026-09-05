@@ -77,6 +77,25 @@ write `{phone, is_phone_verified}` without erasing a name — and is also why
 that function can never *clear* a field. Removing an email is a plain
 `UPDATE`, which the column grants above already allow.
 
+Two things follow from that drop-and-recreate, and both have cost real
+time. **The `EXECUTE` grant dies with the function**, so a drop must be
+followed by `grant execute ... to authenticated, service_role` in the same
+migration or every client call starts failing with `42501`. And **the
+original body is gone the moment you drop it** — recover it from
+`supabase_migrations.schema_migrations` (its `statements` array holds the
+SQL text) *before* dropping, not after. Dropping `add_auction_lot` and
+replacing it with a call to a helper that had never been written took the
+whole intake path down until the old body was dug back out of the
+migration history.
+
+Which is the general rule: **plpgsql does not validate a function body when
+you create it.** A migration that references a table, column or function
+that does not exist reports `success` and then fails at the first call.
+Nothing is proven until the function has actually been *run* — so every
+migration here ends with a test-fire, and a write path is exercised inside
+a transaction that raises at the end (`raise exception 'RESULTS %'`) so the
+proof costs no production residue.
+
 Related, and subtler: **`INSERT ... ON CONFLICT DO UPDATE` requires
 table-level `SELECT`.** Column-level grants alone are not enough, whatever
 the columns. This is what broke profile writes for weeks — `.upsert()` from
