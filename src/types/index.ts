@@ -666,10 +666,20 @@ export interface Profile {
   avatarUrl: string | null;
 }
 
+// One row of myazar.points_transactions, as shown on ProfileScreen/
+// PointsActivityScreen. Sourced straight from the database (see
+// AppStore's fetchPointsHistory) rather than built client-side -- `label`
+// is the RPC's own reason sentence, already complete. `category` drives
+// the sign/color a row renders with: 'redemption' is the only one where
+// `amount` is negative (a boost paid for out of the balance); 'recurring'
+// (posting/selling awards) and 'bonus' (reserved for the not-yet-wired
+// review/referral/verification/clean-record earns, see data/points.ts)
+// are both always-positive earns and read identically today.
 export interface PointsEvent {
   id: string;
   label: string;
   amount: number;
+  category: 'recurring' | 'bonus' | 'redemption';
   createdAt: number;
 }
 

@@ -262,6 +262,10 @@ interface AppStoreValue {
   listings: Listing[];
   profile: Profile;
   pointsHistory: PointsEvent[];
+  // Re-reads pointsHistory from myazar.points_transactions -- syncFromSupabase
+  // already calls this on launch/sign-in; exposed for a screen that wants
+  // to refresh it on its own (e.g. PointsActivityScreen on focus).
+  fetchPointsHistory: () => Promise<void>;
   // The signed-in user's own storefront, if they've created one -- null
   // for the overwhelming majority of accounts (ordinary buyers/sellers
   // with no shop). Unlike `listings`, this is never a cache of other
@@ -744,6 +748,21 @@ function dbShopToLocal(row: any): Shop {
   };
 }
 
+// Maps a myazar.points_transactions row to the local PointsEvent shape --
+// see fetchPointsHistory. `reason` is already a complete, ready-to-display
+// sentence written by whichever RPC inserted the row (claim_posting_points,
+// claim_sale_points, redeem_boost), so there's no client-side formatting
+// left to do here.
+function dbPointsEventToLocal(row: any): PointsEvent {
+  return {
+    id: row.id,
+    label: row.reason,
+    amount: row.points,
+    category: row.category === 'redemption' || row.category === 'bonus' ? row.category : 'recurring',
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+  };
+}
+
 // Maps a myazar.batches row to the local Batch shape -- used by
 // createBatch/completeBatch below. Unlike myShop, a Batch is never cached
 // as AppStoreValue state: the batch screens only ever need the id they got
@@ -772,9 +791,6 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const userIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile>(DEFAULT_PROFILE);
   const listingsRef = useRef<Listing[]>([]);
-  // Breaks ties between point events created in the same millisecond --
-  // see creditPointsLocally.
-  const pointsEventSeq = useRef(0);
   // Held in a ref rather than closed over. Every alert below lives inside a
   // useCallback whose identity is load-bearing (updateListing is in the
   // dependency array of half the edit screens), and `t` changes identity
@@ -821,6 +837,33 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         setReady(true);
       }
     })();
+  }, []);
+
+  // The seller's real points ledger -- myazar.points_transactions, RLS'd
+  // to their own rows, read directly rather than through an RPC since it's
+  // a plain filtered SELECT. Called from syncFromSupabase below (app
+  // launch, sign-in, and any future manual refresh that calls it) and
+  // right after claimPostingPoints/claimSalePoints/redeemBoost each
+  // succeed, since by then the row this reads already exists -- riding
+  // the round trip that already happened rather than reconstructing an
+  // entry client-side. See creditPointsLocally's comment for why there's
+  // no local ledger anymore. Declared before syncFromSupabase (rather than
+  // by creditPointsLocally, which it has nothing to do with) so it can be
+  // one of syncFromSupabase's own dependencies.
+  const fetchPointsHistory = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const { data, error } = await supabase
+      .from('points_transactions')
+      .select('id, points, reason, category, created_at')
+      .eq('user_id', uid)
+      .order('created_at', { ascending: false })
+      .limit(200);
+    if (error) {
+      console.warn('[AppStore] points history fetch failed:', error.message);
+      return;
+    }
+    if (data) setPointsHistory(data.map(dbPointsEventToLocal));
   }, []);
 
   // 2) In the background, sign in (anonymously, silently, no login screen)
@@ -958,10 +1001,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           setListings(listingRows.map(dbListingToLocal));
         }
       }
+
+      await fetchPointsHistory();
     } catch (e) {
       // Offline or backend unreachable — silently keep using local data.
     }
-  }, []);
+  }, [fetchPointsHistory]);
 
   useEffect(() => {
     (async () => {
@@ -1014,19 +1059,24 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     if (ready) AsyncStorage.setItem(KEYS.points, JSON.stringify(pointsHistory)).catch(() => {});
   }, [pointsHistory, ready]);
 
-  // The on-device half: the balance, the tier and the ledger entry the
-  // seller sees straight away. Split out because the posting award no
-  // longer writes any of this to the database from here -- it goes
-  // through claim_posting_points, which does the whole thing in one
-  // transaction -- but still has to show up on screen at once.
-  const creditPointsLocally = useCallback((amount: number, label: string) => {
+  // The on-device half: balance and tier update straight away. Split out
+  // because the posting award no longer writes any of this to the
+  // database from here -- it goes through claim_posting_points, which
+  // does the whole thing in one transaction -- but the number on screen
+  // still has to move at once rather than waiting on a refetch.
+  //
+  // Used to also push a client-built ledger entry into `pointsHistory` --
+  // removed because every caller already has a real row waiting in
+  // myazar.points_transactions by the time this runs (the RPC that
+  // returned the awarded amount inserted it, transactionally, before
+  // returning), with a server-written reason string that knows about the
+  // monthly cap and the spin bonus in ways the client can't recompute. A
+  // synthetic local entry could only ever be a worse copy of that row, and
+  // -- being AsyncStorage-only, never reconciled against the database --
+  // one that silently vanished on reinstall or a second device while the
+  // balance it described did not. See fetchPointsHistory.
+  const creditPointsLocally = useCallback((amount: number) => {
     setProfile((p) => ({ ...p, points: p.points + amount, tier: tierForPoints(p.points + amount) }));
-    // Not `pe-${Date.now()}`: a twenty-item batch fires twenty of these
-    // inside the same millisecond, and ProfileScreen keys the list on it.
-    setPointsHistory((h) => [
-      { id: `pe-${Date.now()}-${pointsEventSeq.current++}`, label, amount, createdAt: Date.now() },
-      ...h,
-    ]);
   }, []);
 
   // A listing's one posting-points award.
@@ -1059,8 +1109,14 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // because the real amount depends on things the client cannot compute on
   // its own -- first-listing vs. additional, the 360 spin bonus, and the
   // rolling monthly cap. POINTS_RULES is display-only; never assume it here.
+  // `title` is no longer used here -- it used to feed a client-built
+  // ledger label, and the server now writes its own (see
+  // creditPointsLocally/fetchPointsHistory) -- but every call site already
+  // has one handy from the listing it's crediting, so signatures stay put
+  // rather than churning four call sites for a parameter that costs
+  // nothing to ignore. Same for claimSalePoints below.
   const claimPostingPoints = useCallback(
-    async (listingId: string, title: string) => {
+    async (listingId: string, _title: string) => {
       const { data: awarded, error } = await supabase.rpc('claim_posting_points', {
         p_listing_id: listingId,
       });
@@ -1070,16 +1126,19 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       }
       // null means somebody already claimed it -- a retry, a second
       // Post on a batch -- which is the normal case, not a failure.
-      if (typeof awarded === 'number') creditPointsLocally(awarded, `Posted "${title}"`);
+      if (typeof awarded === 'number') {
+        creditPointsLocally(awarded);
+        void fetchPointsHistory();
+      }
     },
-    [creditPointsLocally]
+    [creditPointsLocally, fetchPointsHistory]
   );
 
   // Mirrors claimPostingPoints exactly, for the sale-completion award.
   // Same reasoning: the real amount (0 if the monthly cap is already spent)
   // only exists inside myazar.claim_sale_points.
   const claimSalePoints = useCallback(
-    async (listingId: string, title: string) => {
+    async (listingId: string, _title: string) => {
       const { data: awarded, error } = await supabase.rpc('claim_sale_points', {
         p_listing_id: listingId,
       });
@@ -1087,9 +1146,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         console.warn('[AppStore] sale points not claimed:', error.message);
         return;
       }
-      if (typeof awarded === 'number') creditPointsLocally(awarded, `Sold "${title}"`);
+      if (typeof awarded === 'number') {
+        creditPointsLocally(awarded);
+        void fetchPointsHistory();
+      }
     },
-    [creditPointsLocally]
+    [creditPointsLocally, fetchPointsHistory]
   );
 
   // Local state updates immediately (the profile hero re-renders with the
@@ -2915,8 +2977,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
           : boostType === 'featured_3d'
           ? BOOST_COSTS.featured3d
           : BOOST_COSTS.featured7d;
-      const label = boostType === 'bump' ? 'Bump Up' : boostType === 'featured_3d' ? 'Featured (3 days)' : 'Featured (7 days)';
-      creditPointsLocally(-cost, `Redeemed ${label}`);
+      // No label built here -- redeem_boost writes its own reason string
+      // into points_transactions (see the points_v3_redeem_boost_reason
+      // migration), and fetchPointsHistory picks it up below.
+      creditPointsLocally(-cost);
+      void fetchPointsHistory();
 
       const now = Date.now();
       setListings((prev) =>
@@ -2928,7 +2993,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         })
       );
     },
-    [creditPointsLocally]
+    [creditPointsLocally, fetchPointsHistory]
   );
 
   // ---- Did you reach the seller? -------------------------------------
@@ -3271,6 +3336,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       listings,
       profile,
       pointsHistory,
+      fetchPointsHistory,
       myShop,
       createShop,
       updateShop,
@@ -3301,6 +3367,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       listings,
       profile,
       pointsHistory,
+      fetchPointsHistory,
       myShop,
       createShop,
       updateShop,

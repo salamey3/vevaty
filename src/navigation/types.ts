@@ -75,6 +75,10 @@ export type RootStackParamList = {
   // Sold/Hide Listing actions -- reached from ProfileScreen's "My
   // Listings" nav row, not a bottom tab (same reasoning as Favorites).
   MyListings: undefined;
+  // The full points/rewards ledger -- ProfileScreen's hero shows the
+  // balance and tier and its own section shows the last few entries with
+  // a "See all" row into this screen, same split as My Listings above.
+  PointsActivity: undefined;
   SellerProfile: { sellerId: string };
   // The public "browse every verified shop" directory -- no params, always
   // shows the full live set (see ShopsDirectoryScreen).

@@ -27,7 +27,7 @@ import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { profile, listings, pointsHistory, signOut, deleteAccount, isVerified, myShop, updateAvatar } = useAppStore();
+  const { profile, listings, pointsHistory, fetchPointsHistory, signOut, deleteAccount, isVerified, myShop, updateAvatar } = useAppStore();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   // The picked-but-not-yet-cropped avatar, queued for ImageCropModal -- see
   // confirmAvatarCrop below (shared component with MyStorefrontScreen's
@@ -126,6 +126,17 @@ export default function ProfileScreen() {
       if (!isVerified) { setMyPhone(null); return; }
       supabase.rpc('get_my_phone').then(({ data }) => setMyPhone(data || null));
     }, [isVerified])
+  );
+
+  // Same reasoning as the phone refetch above: this screen stays mounted
+  // underneath PointsActivityScreen, so a boost redeemed there (or a
+  // listing sold/posted from a screen reached some other way) should show
+  // up in this section's last-few preview the moment the seller comes
+  // back, not only after the next app launch.
+  useFocusEffect(
+    useCallback(() => {
+      if (isVerified) fetchPointsHistory();
+    }, [isVerified, fetchPointsHistory])
   );
 
   const nextTier = TIER_THRESHOLDS.find((tier) => tier.min > profile.points);
@@ -307,16 +318,33 @@ export default function ProfileScreen() {
         </View>
 
         <View style={styles.section}>
-          <Text style={styles.sectionLabel}>{t('profile.pointsActivity')}</Text>
+          <View style={styles.sectionHeaderRow}>
+            <Text style={styles.sectionLabel}>{t('profile.pointsActivity')}</Text>
+            {pointsHistory.length > 0 && (
+              <Pressy onPress={() => navigation.navigate('PointsActivity')}>
+                <Text style={styles.seeAll}>{t('profile.pointsSeeAll')}</Text>
+              </Pressy>
+            )}
+          </View>
           {pointsHistory.length === 0 ? (
             <Text style={type.soft}>{t('profile.noPointsActivity')}</Text>
           ) : (
-            pointsHistory.slice(0, 8).map((e) => (
-              <View key={e.id} style={styles.historyRow}>
-                <Text style={type.body} numberOfLines={1}>{e.label}</Text>
-                <Text style={styles.historyAmount}>+{e.amount}</Text>
-              </View>
-            ))
+            pointsHistory.slice(0, 8).map((e) => {
+              // A boost redemption is the one negative amount in this
+              // list -- everything else (posting/selling awards) is
+              // always positive. Its own `-` prints itself; a positive
+              // amount needs the `+` added, same rendering rule as
+              // PointsActivityScreen's full list.
+              const spent = e.amount < 0;
+              return (
+                <View key={e.id} style={styles.historyRow}>
+                  <Text style={type.body} numberOfLines={1}>{e.label}</Text>
+                  <Text style={[styles.historyAmount, { color: spent ? colors.accentDeep : colors.success }]}>
+                    {spent ? '' : '+'}{e.amount}
+                  </Text>
+                </View>
+              );
+            })
           )}
         </View>
 
@@ -476,6 +504,7 @@ const styles = StyleSheet.create({
   section: { paddingHorizontal: 18, marginTop: 26 },
   sectionHeaderRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 12 },
+  seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },
   rowError: { fontSize: 12, color: colors.danger, marginTop: 6 },
   historyRow: {
     flexDirection: 'row', justifyContent: 'space-between', alignItems: 'center',
