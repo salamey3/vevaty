@@ -873,6 +873,18 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'myListings.markSoldFailed': 'Could not update this listing. Please try again.',
     'myListings.needsReviewFailed': 'This listing has to be reviewed before it can go back on the site. Open it and submit it again to send it for review.',
 
+    // Boost redemption -- spend Vevaty Points to bump a listing back to the
+    // top of its category or mark it Featured for a few days. See
+    // myazar.redeem_boost / BOOST_COSTS in data/points.ts for the costs.
+    'myListings.boost': 'Boost',
+    'myListings.boostSheetTitle': 'Boost this listing',
+    'myListings.boostBump': 'Bump Up — {n} pts',
+    'myListings.boostFeatured3': 'Featured, 3 days — {n} pts',
+    'myListings.boostFeatured7': 'Featured, 7 days — {n} pts',
+    'myListings.boostFailed': 'Could not boost this listing. Please try again.',
+    'myListings.boostInsufficientPoints': "You don't have enough points for this yet. Keep posting and selling to earn more.",
+    'myListings.featuredBadge': 'Featured',
+
     // Chat (Phase 4 item 11)
     'chat.title': 'Messages',
     'chat.emptyTitle': 'No conversations yet',
@@ -1825,6 +1837,14 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'myListings.soldElsewhere': 'تم البيع خارج التطبيق',
     'myListings.markSoldFailed': 'تعذّر تحديث هذا الإعلان. يرجى المحاولة مرة أخرى.',
     'myListings.needsReviewFailed': 'يجب مراجعة هذا الإعلان قبل عودته إلى الموقع. افتحه وأرسله مرة أخرى ليُراجع.',
+    'myListings.boost': 'تعزيز',
+    'myListings.boostSheetTitle': 'تعزيز هذا الإعلان',
+    'myListings.boostBump': 'رفع الإعلان — {n} نقطة',
+    'myListings.boostFeatured3': 'مميز لمدة 3 أيام — {n} نقطة',
+    'myListings.boostFeatured7': 'مميز لمدة 7 أيام — {n} نقطة',
+    'myListings.boostFailed': 'تعذّر تعزيز هذا الإعلان. يرجى المحاولة مرة أخرى.',
+    'myListings.boostInsufficientPoints': 'ليس لديك نقاط كافية بعد. تابع النشر والبيع لكسب المزيد.',
+    'myListings.featuredBadge': 'مميز',
 
     'chat.title': 'الرسائل',
     'chat.emptyTitle': 'لا توجد محادثات بعد',

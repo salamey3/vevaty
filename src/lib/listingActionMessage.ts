@@ -30,5 +30,9 @@ export function listingActionMessage(
   // Third case, same reasoning: the seller has to put a photo back, and
   // "try again" would send them round the loop with the same empty form.
   if (e?.code === 'no-photos') return t('createListing.savePhotolessRefused');
+  // Boost redemption -- the one refusal a seller can actually do something
+  // about (earn or wait for more points), so it gets its own sentence
+  // rather than a generic "try again".
+  if (e?.code === 'insufficient-points') return t('myListings.boostInsufficientPoints');
   return t(fallbackKey);
 }

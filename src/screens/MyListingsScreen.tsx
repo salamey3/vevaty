@@ -14,6 +14,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { listingActionMessage } from '../lib/listingActionMessage';
 import { useSettings } from '../store/SettingsStore';
 import { listingTitle } from '../lib/listingText';
+import { BOOST_COSTS } from '../data/points';
 import { useGoBack } from '../hooks/useGoBack';
 import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
@@ -41,8 +42,17 @@ export default function MyListingsScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const goBack = useGoBack();
   const { t, language } = useLanguage();
-  const { listings, profile, extendListing, republishListing, deleteListing, hideListing, markListingSold, restoreAutoHiddenListing } =
-    useAppStore();
+  const {
+    listings,
+    profile,
+    extendListing,
+    republishListing,
+    deleteListing,
+    hideListing,
+    markListingSold,
+    restoreAutoHiddenListing,
+    redeemBoost,
+  } = useAppStore();
   // The Extend button used to promise "another 15 days" to everyone. A
   // lifetime is per-category now, so a ticket's button has to say 3 and a
   // property's 45 -- a button that names the wrong number is worse than
@@ -56,6 +66,7 @@ export default function MyListingsScreen() {
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
   const [soldSheetId, setSoldSheetId] = useState<string | null>(null);
+  const [boostSheetId, setBoostSheetId] = useState<string | null>(null);
 
   const runExtend = async (id: string) => {
     setBusyId(id);
@@ -113,6 +124,19 @@ export default function MyListingsScreen() {
       await markListingSold(id, soldVia);
     } catch (err: any) {
       setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'myListings.markSoldFailed') }));
+    } finally {
+      setBusyId(null);
+    }
+  };
+
+  const runBoost = async (id: string, boostType: 'bump' | 'featured_3d' | 'featured_7d') => {
+    setBoostSheetId(null);
+    setBusyId(id);
+    setRowErrors((e) => ({ ...e, [id]: '' }));
+    try {
+      await redeemBoost(id, boostType);
+    } catch (err: any) {
+      setRowErrors((e) => ({ ...e, [id]: listingActionMessage(err, t, 'myListings.boostFailed') }));
     } finally {
       setBusyId(null);
     }
@@ -220,6 +244,12 @@ export default function MyListingsScreen() {
                       <Text style={styles.soldBadgeText}>{t('profile.sold')}</Text>
                     </View>
                   )}
+                  {l.status === 'active' && !!l.featuredUntil && l.featuredUntil > Date.now() && (
+                    <View style={styles.featuredBadge}>
+                      <Icon name="sparkle" size={11} color={colors.accentDeep} />
+                      <Text style={styles.featuredBadgeText}>{t('myListings.featuredBadge')}</Text>
+                    </View>
+                  )}
                   {l.status === 'active' && (
                     <Text style={styles.expiryCaption}>
                       {daysLeft <= 0 ? t('profile.expiresToday') : t('profile.expiresIn', { n: daysLeft })}
@@ -308,6 +338,14 @@ export default function MyListingsScreen() {
                           <Icon name="eyeOff" size={15} color={colors.ink} />
                           <Text style={styles.actionPillLabel}>{t('myListings.hide')}</Text>
                         </Pressy>
+                        <Pressy
+                          onPress={(e: any) => { e?.stopPropagation?.(); setBoostSheetId(l.id); }}
+                          disabled={busyId === l.id}
+                          style={[styles.actionPill, styles.actionBoost]}
+                        >
+                          <Icon name="sparkle" size={15} color={colors.accentDeep} />
+                          <Text style={[styles.actionPillLabel, { color: colors.accentDeep }]}>{t('myListings.boost')}</Text>
+                        </Pressy>
                       </>
                     )}
                   </View>
@@ -339,6 +377,30 @@ export default function MyListingsScreen() {
         ]}
         cancelLabel={t('common.cancel')}
         onCancel={() => setSoldSheetId(null)}
+      />
+
+      <ActionSheet
+        visible={!!boostSheetId}
+        title={t('myListings.boostSheetTitle')}
+        options={[
+          {
+            label: t('myListings.boostBump', { n: BOOST_COSTS.bump }),
+            icon: 'sparkle',
+            onPress: () => boostSheetId && runBoost(boostSheetId, 'bump'),
+          },
+          {
+            label: t('myListings.boostFeatured3', { n: BOOST_COSTS.featured3d }),
+            icon: 'sparkle',
+            onPress: () => boostSheetId && runBoost(boostSheetId, 'featured_3d'),
+          },
+          {
+            label: t('myListings.boostFeatured7', { n: BOOST_COSTS.featured7d }),
+            icon: 'sparkle',
+            onPress: () => boostSheetId && runBoost(boostSheetId, 'featured_7d'),
+          },
+        ]}
+        cancelLabel={t('common.cancel')}
+        onCancel={() => setBoostSheetId(null)}
       />
     </Screen>
   );
@@ -388,6 +450,12 @@ const styles = StyleSheet.create({
     paddingHorizontal: 10, height: 22, justifyContent: 'center', marginTop: 6,
   },
   soldBadgeText: { fontSize: 11, fontWeight: '700', color: colors.success },
+  featuredBadge: {
+    flexDirection: 'row', alignItems: 'center', gap: 4, alignSelf: 'flex-start',
+    backgroundColor: colors.accentTint, borderRadius: radius.pill,
+    paddingHorizontal: 10, height: 22, marginTop: 6,
+  },
+  featuredBadgeText: { fontSize: 11, fontWeight: '700', color: colors.accentDeep },
   republishHint: { fontSize: 12, color: colors.inkSoft, marginTop: 6 },
   rowError: { fontSize: 12, color: colors.danger, marginTop: 6 },
   rowActionBtn: {
@@ -400,12 +468,16 @@ const styles = StyleSheet.create({
     ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5,
     marginTop: 12, paddingTop: 12, borderTopWidth: 1, borderTopColor: colors.line,
   },
-  manageRow: { flexDirection: 'row', gap: 8, marginTop: 8 },
+  // flexWrap: an active listing can show five pills at once (Edit, Delete,
+  // Item Sold, Hide, Boost) -- wrap so a narrow phone or a longer Arabic
+  // label gets a second row instead of clipping text in a squeezed pill.
+  manageRow: { flexDirection: 'row', flexWrap: 'wrap', gap: 8, marginTop: 8 },
   actionPill: {
-    flex: 1, height: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
+    flexGrow: 1, flexBasis: '30%', height: 44, borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center', gap: 2, paddingHorizontal: 4,
   },
   actionDelete: { borderColor: '#E3C4C1' },
   actionSold: { borderColor: colors.primaryTint, backgroundColor: colors.primaryTint },
+  actionBoost: { borderColor: colors.accentTint, backgroundColor: colors.accentTint },
   actionPillLabel: { fontSize: 10.5, fontWeight: '700', color: colors.ink },
 });

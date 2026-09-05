@@ -485,6 +485,14 @@ export interface Listing {
   // See LIFECYCLE.md for the numbers and the reasoning behind them.
   expiresAt: number;
   expiryReminderSentAt: number | null;
+  // Points-redeemed boosts (myazar.redeem_boost / listing_boosts). bumpedAt
+  // is a marker of when the seller last bumped this listing -- there is no
+  // "until", the effect is the one-time sort refresh at that moment, not a
+  // window. featuredUntil is a real window: non-null and in the future
+  // means the Featured badge/placement should show. Neither one feeds the
+  // browse/search sort order yet -- see NEXT.md.
+  bumpedAt: number | null;
+  featuredUntil: number | null;
   // Set when buyers reported this listing as already sold and it was
   // hidden automatically -- see LIFECYCLE.md. Only ever non-null on a
   // 'draft', and it is what tells MyListings to explain why rather than

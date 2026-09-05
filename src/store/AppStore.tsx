@@ -3,7 +3,7 @@ import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ContactOutcome, ContactPrompt, Listing, LISTING_STATUSES, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
-import { POINTS_RULES, tierForPoints } from '../data/points';
+import { POINTS_RULES, BOOST_COSTS, tierForPoints } from '../data/points';
 import { supabase, ensureSession } from '../lib/supabase';
 import { Alert } from '../lib/alertShim';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
@@ -193,6 +193,9 @@ export type ListingInput = Omit<
   // cleared only by the seller restoring it -- never something a form
   // supplies. See LIFECYCLE.md.
   | 'autoHiddenAt'
+  // Points-redeemed boosts -- set only by myazar.redeem_boost, never by
+  // the create/edit form. See the Listing type's doc comment.
+  | 'bumpedAt' | 'featuredUntil'
   // Phase 4 item 16 -- computed from the poster's own account (join or
   // isVerified), never something the create-listing form itself supplies.
   | 'sellerVerified' | 'sellerMemberSince' | 'sellerAvatarUrl'
@@ -298,6 +301,10 @@ interface AppStoreValue {
   // option the seller picked in the confirmation sheet) -- it doesn't
   // change what buyers/sellers see anywhere yet.
   markListingSold: (id: string, soldVia: 'vevaty' | 'elsewhere') => Promise<void>;
+  // My Listings' "Boost" action -- spends Vevaty Points via
+  // myazar.redeem_boost. Throws { code: 'insufficient-points' } or
+  // { code: 'boost-failed' } on refusal; see listingActionMessage.
+  redeemBoost: (id: string, boostType: 'bump' | 'featured_3d' | 'featured_7d') => Promise<void>;
   // "Did you reach the seller?" -- one per listing this buyer made real
   // contact with more than a day ago and has not answered about yet. See
   // LIFECYCLE.md for why the buyer is asked rather than the seller.
@@ -673,6 +680,8 @@ export function dbListingToLocal(row: any): Listing {
     expiresAt: row.expires_at ? new Date(row.expires_at).getTime() : Date.now() + LISTING_LIFETIME_MS,
     expiryReminderSentAt: row.expiry_reminder_sent_at ? new Date(row.expiry_reminder_sent_at).getTime() : null,
     autoHiddenAt: row.auto_hidden_at ? new Date(row.auto_hidden_at).getTime() : null,
+    bumpedAt: row.bumped_at ? new Date(row.bumped_at).getTime() : null,
+    featuredUntil: row.featured_until ? new Date(row.featured_until).getTime() : null,
     contactMethod: row.contact_method === 'phone' || row.contact_method === 'chat' ? row.contact_method : 'both',
     sellerVerified: !!row.seller?.is_phone_verified,
     sellerMemberSince: row.seller?.created_at
@@ -1680,6 +1689,8 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         expiresAt: Date.now() + LISTING_LIFETIME_MS,
         autoHiddenAt: null,
         expiryReminderSentAt: null,
+        bumpedAt: null,
+        featuredUntil: null,
         // Posting a listing is already gated behind isVerified (see the
         // "Sell an item" tab), so whoever gets here has a real
         // phone-verified account -- this optimistic value gets overwritten
@@ -2877,6 +2888,49 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
     void claimSalePoints(id, sold?.titleEn || sold?.titleAr || 'your listing');
   }, [claimSalePoints]);
 
+  // My Listings' "Boost" action -- spends Vevaty Points on Bump Up or
+  // Featured via myazar.redeem_boost, a SECURITY DEFINER function that
+  // checks ownership, listing status and balance itself. Unlike
+  // claimPostingPoints/claimSalePoints this is NOT fire-and-forget: the
+  // seller directly asked to spend points, so a refusal (insufficient
+  // balance, listing no longer active) has to surface as an error rather
+  // than silently doing nothing. The balance check and the deduction
+  // happen together in the database, not here -- two taps that both read
+  // "sufficient" before either commits must not both succeed.
+  const redeemBoost = useCallback(
+    async (id: string, boostType: 'bump' | 'featured_3d' | 'featured_7d') => {
+      const { data: succeeded, error } = await supabase.rpc('redeem_boost', {
+        p_listing_id: id,
+        p_boost_type: boostType,
+      });
+      if (error) {
+        if (error.message?.includes('insufficient points')) throw { code: 'insufficient-points' };
+        throw { code: 'boost-failed' };
+      }
+      if (succeeded !== true) throw { code: 'boost-failed' };
+
+      const cost =
+        boostType === 'bump'
+          ? BOOST_COSTS.bump
+          : boostType === 'featured_3d'
+          ? BOOST_COSTS.featured3d
+          : BOOST_COSTS.featured7d;
+      const label = boostType === 'bump' ? 'Bump Up' : boostType === 'featured_3d' ? 'Featured (3 days)' : 'Featured (7 days)';
+      creditPointsLocally(-cost, `Redeemed ${label}`);
+
+      const now = Date.now();
+      setListings((prev) =>
+        prev.map((it) => {
+          if (it.id !== id) return it;
+          if (boostType === 'bump') return { ...it, bumpedAt: now };
+          const days = boostType === 'featured_3d' ? 3 : 7;
+          return { ...it, featuredUntil: now + days * 24 * 60 * 60 * 1000 };
+        })
+      );
+    },
+    [creditPointsLocally]
+  );
+
   // ---- Did you reach the seller? -------------------------------------
   //
   // The only signal that survives a phone conversation. Vevaty can see
@@ -3229,6 +3283,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       republishListing,
       hideListing,
       markListingSold,
+      redeemBoost,
       contactPrompts,
       answerContactPrompt,
       restoreAutoHiddenListing,
@@ -3258,6 +3313,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       republishListing,
       hideListing,
       markListingSold,
+      redeemBoost,
       contactPrompts,
       answerContactPrompt,
       restoreAutoHiddenListing,
