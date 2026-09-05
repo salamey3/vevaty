@@ -28,19 +28,32 @@ Two things worth fixing:
   account phone. Both are new writes and neither has been exercised against
   the real endpoint. See @ACCOUNTS.md.
 
-- **Auctions: run one end to end by hand.** Everything is built and
-  exercised against the live database — schema, proxy engine, closer,
-  screens both sides, full admin control, media (@AUCTIONS.md). What has
-  NOT happened is one sale walked through on a real device: build a lot
-  from scratch with photos, a 360 and a video, publish, force it live, bid
-  from a second account, let it close. The feature is off behind
+- **Auctions: walk one through on a real device.** The SERVER side is
+  now thoroughly exercised — several full sales have run end to end against
+  the live database, including a ten-bidder war over two luxury lots that
+  opened, escalated through twenty bids, met both reserves, closed on the
+  clock and produced its settlement figures. What has still not happened is
+  a sale driven by hand THROUGH THE SCREENS on a phone: build a lot from
+  scratch with photos, a 360 and a video, publish, register a card, bid,
+  watch the outcome popup arrive. The feature is off behind
   `site_settings.auctions_enabled`, which is what has to be switched on for
   any of it to be visible to a buyer, and it is still `false`.
 
-- **Auctions: what is genuinely not built.** Settlement is the big one —
-  lots close to `won`/`unsold` and stop there; charging, invoicing and the
-  commission split are waiting on a real payment provider rather than on
-  design. Then OUTBID notifications --
+- **Auctions: clear out the demo scaffolding before launch.** Ten prop
+  bidders (`dddddddd-0000-4000-a000-000000000001` through `…010`, no phone
+  and no password so nobody can sign in as them), `myazar.demo_bid_script`,
+  `myazar.play_demo_bids()`, the `demo-bids` cron, and the rehearsal
+  auctions. Deleting the ten `auth.users` rows cascades the profiles, bids,
+  registrations and demo cards away. None of it is reachable by a buyer,
+  but none of it should exist on a live site either.
+
+- **Auctions: what is genuinely not built.** Settlement is the big one, and
+  it is now HALF built: what each side owes is computed and shown to the
+  cent, live while the sale runs and settled once it closes
+  (`myazar.lot_settlement`, the books panel on the monitor). What does not
+  exist is anything that MOVES that money — charging the buyer's saved
+  card, issuing an invoice, paying the seller out — and that is waiting on
+  a real payment provider rather than on design. Then OUTBID notifications --
   a won/lost/unsold announcement now goes out on close (popup, chat and an
   SMS to the winner, see @AUCTIONS.md), but nothing tells a bidder they have
   been outbid while the lot is still running, which is the one that actually
@@ -125,6 +138,45 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**The money, live and per lot**, 5 Sep 2026. Four changes that together turn
+the monitor into the sale's books.
+
+*Commission is set per LOT, not per sale.* `auction_lots` carries a nullable
+`seller_commission_pct` / `buyer_premium_pct`; null inherits the auction's,
+which are now defaults. A flat rate is wrong at both ends of the range — 15%
+of a $500 lot is a fair price for the work, 15% of a $23,000 handbag is
+$3,450 for the same work, and that consignor has somewhere else to go. All
+three lot forms take the terms; the lots list shows `15/10 default` against
+`6/15 agreed`. Rates FREEZE when a lot is won, so editing a sale's defaults
+months later cannot restate what a paid seller was owed. @AUCTIONS.md,
+"Money".
+
+*The monitor shows what everyone gets.* Each sold lot displays what the
+seller collects after commission beside what the buyer owes with the premium
+on top — two separate invoices, each with its working — and the auction gets
+a totals panel. A lot that WOULD sell if the clock stopped shows the same
+figures as a projection in gold, recomputed on every bid; a lot under its
+reserve shows none and says why. Above the lots, Vevaty's running take,
+split into Settled and Projected and never merged. All arithmetic is in
+`myazar.lot_settlement` and `myazar.sum_settlements`, not in TypeScript, so
+the invoices settlement eventually generates cannot disagree with what an
+admin read off the screen.
+
+*The auction times are picked, not typed.* `components/DateTimeField.tsx` —
+a month grid and hour/minute rows, hand-built with no new dependency,
+because every off-the-shelf picker is a native module and a changed
+`package.json` orphans every installed app (@AGENTS.md). It writes the same
+local datetime string the box always held.
+
+Found in review, and worth the four separate reads it took: `update_auction`
+coalesced every argument, so a blank time meant "leave it alone" and a
+schedule could not be emptied at all — the save reported success and a
+scheduled sale went on opening at its old time. And `profiles.full_name` is
+nullable, which the monitor's lot rows never handled the way the bid feed
+does, so a lot led by a nameless account read "No bids yet" while having
+bids. Both fixed; both were there before any of this work.
+
 
 **A live monitor for a running auction**, 5 Sep 2026. Admin -> Auctions ->
 the eye icon: every lot with its price, reserve state, leader and that
