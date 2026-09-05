@@ -327,8 +327,9 @@ interface AppStoreValue {
 const AppStoreContext = createContext<AppStoreValue | null>(null);
 
 function dbTierToLocal(tier: string | null | undefined): Profile['tier'] {
+  if (tier === 'diamond') return 'Diamond';
+  if (tier === 'gold') return 'Gold';
   if (tier === 'silver') return 'Silver';
-  if (tier === 'gold' || tier === 'diamond') return 'Gold';
   return 'Bronze';
 }
 
@@ -1043,6 +1044,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // SECURITY DEFINER function will do for anybody what it will do on
   // request, and the caller here is a browser console away from asking
   // for a hundred thousand.
+  //
+  // The RETURN value now carries the actual amount credited (null = not
+  // claimed; 0 or more = credited, possibly capped) rather than a boolean,
+  // because the real amount depends on things the client cannot compute on
+  // its own -- first-listing vs. additional, the 360 spin bonus, and the
+  // rolling monthly cap. POINTS_RULES is display-only; never assume it here.
   const claimPostingPoints = useCallback(
     async (listingId: string, title: string) => {
       const { data: awarded, error } = await supabase.rpc('claim_posting_points', {
@@ -1052,9 +1059,26 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
         console.warn('[AppStore] posting points not claimed:', error.message);
         return;
       }
-      // false means somebody already claimed it -- a retry, a second
+      // null means somebody already claimed it -- a retry, a second
       // Post on a batch -- which is the normal case, not a failure.
-      if (awarded === true) creditPointsLocally(POINTS_RULES.postListing, `Posted "${title}"`);
+      if (typeof awarded === 'number') creditPointsLocally(awarded, `Posted "${title}"`);
+    },
+    [creditPointsLocally]
+  );
+
+  // Mirrors claimPostingPoints exactly, for the sale-completion award.
+  // Same reasoning: the real amount (0 if the monthly cap is already spent)
+  // only exists inside myazar.claim_sale_points.
+  const claimSalePoints = useCallback(
+    async (listingId: string, title: string) => {
+      const { data: awarded, error } = await supabase.rpc('claim_sale_points', {
+        p_listing_id: listingId,
+      });
+      if (error) {
+        console.warn('[AppStore] sale points not claimed:', error.message);
+        return;
+      }
+      if (typeof awarded === 'number') creditPointsLocally(awarded, `Sold "${title}"`);
     },
     [creditPointsLocally]
   );
@@ -2846,7 +2870,12 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const markListingSold = useCallback(async (id: string, soldVia: 'vevaty' | 'elsewhere') => {
     await updateOwnListingRow(id, userIdRef.current, { status: 'sold', sold_via: soldVia }, 'markListingSold', 'sold');
     setListings((prev) => prev.map((it) => (it.id === id ? { ...it, status: 'sold' } : it)));
-  }, []);
+    // Fire-and-forget, same as claimPostingPoints after addListing: the
+    // status change itself already succeeded and is reflected above, so a
+    // points hiccup here should never block or roll back the sale.
+    const sold = listingsRef.current.find((it) => it.id === id);
+    void claimSalePoints(id, sold?.titleEn || sold?.titleAr || 'your listing');
+  }, [claimSalePoints]);
 
   // ---- Did you reach the seller? -------------------------------------
   //

@@ -7,9 +7,9 @@ export const RTL_LANGUAGES: Language[] = ['ar'];
 // data/categories.ts's DEFAULT_CATEGORIES offline fallback) so a new
 // category doesn't need a code change to have Arabic/English text.
 
-export const TIER_LABELS: Record<Language, Record<'Bronze' | 'Silver' | 'Gold', string>> = {
-  en: { Bronze: 'Bronze', Silver: 'Silver', Gold: 'Gold' },
-  ar: { Bronze: 'برونزي', Silver: 'فضي', Gold: 'ذهبي' },
+export const TIER_LABELS: Record<Language, Record<'Bronze' | 'Silver' | 'Gold' | 'Diamond', string>> = {
+  en: { Bronze: 'Bronze', Silver: 'Silver', Gold: 'Gold', Diamond: 'Diamond' },
+  ar: { Bronze: 'برونزي', Silver: 'فضي', Gold: 'ذهبي', Diamond: 'ماسي' },
 };
 
 export const STRINGS: Record<Language, Record<string, string>> = {

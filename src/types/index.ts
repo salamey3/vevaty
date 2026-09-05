@@ -648,7 +648,7 @@ export interface Profile {
   name: string;
   district: string;
   points: number;
-  tier: 'Bronze' | 'Silver' | 'Gold';
+  tier: 'Bronze' | 'Silver' | 'Gold' | 'Diamond';
   // Bunny CDN URL from the same upload-photo pipeline shop logos use, or
   // null for the large majority of accounts that haven't set one -- the
   // avatar circle falls back to a generic icon in that case.
