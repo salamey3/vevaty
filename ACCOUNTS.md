@@ -190,6 +190,50 @@ at launch, which is a row per device for people who may never register --
 harmless at this size, worth revisiting if guest traffic ever gets real.
 And nothing sweeps anonymous accounts on a schedule; the next hundred will
 need the same clean-up by hand.
+## Editing an account as an admin
+
+Admin -> Users searches by name, phone, email or district and opens one
+person on their own screen, where their details, points, tier, listings and
+suspension all live together.
+
+Three things about it are not obvious.
+
+**It all goes through SECURITY DEFINER functions, and not because RLS is
+missing.** `authenticated` has no column grant on `profiles.phone`, `email`
+or `whatsapp` -- deliberately, as above, because that table's SELECT policy
+is `true`, so a grant there publishes every user's number to every
+signed-in account. An admin screen therefore cannot read those columns at
+all, whatever the policies say, and searching by phone number is impossible
+from a client. `admin_search_users`, `admin_get_user`, `admin_update_profile`
+and `admin_grant_points` are the way in; each checks `myazar.admins` itself
+and raises `not_admin` otherwise.
+
+**The phone is not editable, and that is the point.** `profiles.phone` is a
+copy of the login identity in `auth.users`. Writing one without the other
+gives an account that displays a number it cannot sign in with, so the
+function refuses the field outright rather than trusting a screen not to
+send it. Moving an account to a new number stays the user's own
+OTP-verified action under Change phone.
+
+**A tier can be granted, and it sticks.** `profiles.tier` used to be
+recomputed from points by every RPC that touched a balance, so an
+admin-set tier silently reverted the next time the seller posted anything.
+`profiles.tier_override` now holds the admin's answer, `myazar.effective_tier`
+is the only thing that decides what `tier` becomes, and every write of the
+column goes through it. NULL means "follow the points", which is how every
+account starts and what clearing an override returns them to. Nothing else
+in the app learns about the new column -- `profiles.tier` still carries the
+effective value everywhere it is read.
+
+Changes are recorded in `myazar.admin_actions` -- who, whom, what changed
+and what it was before. Suspension writes there too, through the same
+function as everything else, so the most consequential thing an admin can
+do to an account is not the one thing missing from the log. The table has a
+SELECT policy for admins and no INSERT policy for anyone: an audit trail a
+client can write is not an audit trail. Points grants land in
+`points_transactions` as well, category `bonus` so they sit outside the
+300-a-month earning cap, and the seller reads the reason text on their own
+points activity screen -- write it as a sentence they should see.
 
 ## What is deliberately still missing
 

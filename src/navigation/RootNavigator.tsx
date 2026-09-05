@@ -34,6 +34,7 @@ import AdminCategoryAttributesScreen from '../screens/admin/AdminCategoryAttribu
 import AdminBrandingScreen from '../screens/admin/AdminBrandingScreen';
 import AdminModerationScreen from '../screens/admin/AdminModerationScreen';
 import AdminUsersScreen from '../screens/admin/AdminUsersScreen';
+import AdminUserDetailScreen from '../screens/admin/AdminUserDetailScreen';
 import AdminReportsScreen from '../screens/admin/AdminReportsScreen';
 import AdminCollectionsScreen from '../screens/admin/AdminCollectionsScreen';
 import AdminBannersScreen from '../screens/admin/AdminBannersScreen';
@@ -107,6 +108,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       AdminBranding: 'admin/branding',
       AdminModeration: 'admin/moderation',
       AdminUsers: 'admin/users',
+      AdminUserDetail: 'admin/users/:userId',
       AdminReports: 'admin/reports',
       AdminCollections: 'admin/collections',
       AdminBanners: 'admin/banners',
@@ -170,6 +172,7 @@ export default function RootNavigator() {
         <Stack.Screen name="AdminBranding" component={AdminBrandingScreen} />
         <Stack.Screen name="AdminModeration" component={AdminModerationScreen} />
         <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
+        <Stack.Screen name="AdminUserDetail" component={AdminUserDetailScreen} />
         <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
         <Stack.Screen name="AdminCollections" component={AdminCollectionsScreen} />
         <Stack.Screen name="AdminBanners" component={AdminBannersScreen} />

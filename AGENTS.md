@@ -458,6 +458,14 @@ on a `select`, or widen the check to accept an array and intersect — but
 widen it deliberately, for a case that needs it, rather than meeting the
 limit as a field that silently never appears.
 
+**A tier is written through `myazar.effective_tier`, never
+`tier_for_points` directly.** `profiles.tier_override` holds an
+admin-granted tier and NULL means "follow the points"; `effective_tier`
+is what reconciles the two. Any new code path that changes a points
+balance and rewrites the tier alongside it must go through that function,
+or it will silently undo an admin's grant the next time the seller does
+anything. See @ACCOUNTS.md, "Editing an account as an admin".
+
 A category's condition question belongs to `categories.condition_mode`,
 never to an attribute row. An attribute whose slug is `condition` puts a
 second condition picker on the form next to the real one, with its own

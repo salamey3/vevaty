@@ -1,25 +1,39 @@
-import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import React, { useCallback, useEffect, useRef, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { Alert } from '../../lib/alertShim';
-import { useNavigation } from '@react-navigation/native';
+import { useFocusEffect, useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../../components/Screen';
 import Pressy from '../../components/Pressy';
 import Icon from '../../icons/Icon';
-import Button from '../../components/Button';
 import { colors, type, radius } from '../../theme/theme';
 import { supabase } from '../../lib/supabase';
 import { RootStackParamList } from '../../navigation/types';
 
-type AdminProfile = {
+// Find a user, then open them. Editing lives on AdminUserDetailScreen --
+// this screen's whole job is getting to the right person.
+//
+// The search runs on the SERVER (myazar.admin_search_users), not over a
+// list fetched here, for two reasons. Phone and email cannot be read by a
+// client at all -- `authenticated` has no column grant on them, deliberately,
+// because profiles' SELECT policy is `true` and a grant would publish every
+// user's number to every signed-in account. And a client-side filter can
+// only search what it has already downloaded, which stops being every user
+// the moment there are more than a few hundred.
+//
+// The guest split is server-side for that second reason specifically: the
+// search returns at most fifty rows, so hiding guests after the fact would
+// show fewer than fifty registered accounts while looking like the whole
+// answer. The counts come from their own query over the whole table.
+
+type AdminUserRow = {
   id: string;
   fullName: string;
+  phone: string | null;
   district: string | null;
   points: number;
   tier: string;
-  createdAt: string;
+  tierOverride: string | null;
   isSuspended: boolean;
-  suspendedReason: string | null;
   // Registered = got through phone OTP. A guest is an anonymous browsing
   // session: it cannot post, chat, or be contacted, so there is nothing an
   // admin can do to it -- but it used to sit in this list looking exactly
@@ -30,120 +44,84 @@ type AdminProfile = {
   isRegistered: boolean;
 };
 
-type UserListing = { id: string; titleEn: string; status: string; price: number };
-
 export default function AdminUsersScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
 
-  const [rows, setRows] = useState<AdminProfile[]>([]);
+  const [rows, setRows] = useState<AdminUserRow[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [query, setQuery] = useState('');
-  const [expandedId, setExpandedId] = useState<string | null>(null);
-  const [suspendingId, setSuspendingId] = useState<string | null>(null);
-  const [suspendReason, setSuspendReason] = useState('');
-  const [busyId, setBusyId] = useState<string | null>(null);
+  // Guests are OFF by default. They outnumbered the real accounts roughly
+  // fifty to one, all of them called "Vevaty user", so the two accounts
+  // that actually matter were two rows in a hundred.
   const [showGuests, setShowGuests] = useState(false);
-  const [listingsByUser, setListingsByUser] = useState<Record<string, UserListing[] | 'loading'>>({});
+  const [guestCount, setGuestCount] = useState(0);
 
-  const load = useCallback(async () => {
+  // Guards against a slow early request landing on top of a later, faster
+  // one and repainting the list with results for words the admin has
+  // already finished deleting.
+  const seqRef = useRef(0);
+
+  const search = useCallback(async (q: string, includeGuests: boolean) => {
+    const seq = ++seqRef.current;
     setLoading(true);
     setError(null);
     try {
-      const { data, error: err } = await supabase
-        .from('profiles')
-        .select('id,full_name,district,points,tier,created_at,is_suspended,suspended_reason,is_phone_verified')
-        .order('created_at', { ascending: false });
+      const { data, error: err } = await supabase.rpc('admin_search_users', {
+        p_query: q,
+        p_limit: 50,
+        p_include_guests: includeGuests,
+      });
       if (err) throw err;
+      if (seq !== seqRef.current) return;
       setRows(
         (data || []).map((row: any) => ({
           id: row.id,
           fullName: row.full_name || 'Vevaty user',
+          phone: row.phone,
           district: row.district,
           points: row.points ?? 0,
           tier: row.tier || 'bronze',
-          createdAt: row.created_at,
+          tierOverride: row.tier_override,
           isSuspended: !!row.is_suspended,
-          suspendedReason: row.suspended_reason,
           isRegistered: !!row.is_phone_verified,
         }))
       );
     } catch (e: any) {
-      setError(e?.message || String(e));
+      if (seq !== seqRef.current) return;
+      setError(e?.message === 'not_admin' ? 'This account is not an admin.' : e?.message || String(e));
     } finally {
-      setLoading(false);
+      if (seq === seqRef.current) setLoading(false);
     }
   }, []);
 
+  // Whole-table, so the "N guest sessions" line is a fact about the
+  // marketplace rather than about the fifty rows that came back.
+  const loadCounts = useCallback(async () => {
+    const { data } = await supabase.rpc('admin_user_counts');
+    const row = Array.isArray(data) ? data[0] : data;
+    if (row) setGuestCount(row.guests ?? 0);
+  }, []);
+
+  // Debounced: an admin typing a phone number should not fire nine queries.
   useEffect(() => {
-    load();
-  }, [load]);
+    const handle = setTimeout(() => search(query.trim(), showGuests), query.trim() ? 300 : 0);
+    return () => clearTimeout(handle);
+  }, [query, showGuests, search]);
 
-  const guestCount = useMemo(() => rows.filter((r) => !r.isRegistered).length, [rows]);
-
-  const filtered = useMemo(() => {
-    // Guests are OFF by default. They outnumbered the real accounts
-    // roughly fifty to one, all of them called "Vevaty user", so the two
-    // accounts that actually matter were two rows in a hundred.
-    const visible = showGuests ? rows : rows.filter((r) => r.isRegistered);
-    const q = query.trim().toLowerCase();
-    if (!q) return visible;
-    return visible.filter((r) => r.fullName.toLowerCase().includes(q) || (r.district || '').toLowerCase().includes(q));
-  }, [rows, query, showGuests]);
-
-  const toggleExpand = async (row: AdminProfile) => {
-    const next = expandedId === row.id ? null : row.id;
-    setExpandedId(next);
-    setSuspendingId(null);
-    if (next && !listingsByUser[row.id]) {
-      setListingsByUser((prev) => ({ ...prev, [row.id]: 'loading' }));
-      const { data } = await supabase
-        .from('listings')
-        .select('id,title_en,status,price')
-        .eq('seller_id', row.id)
-        .order('created_at', { ascending: false });
-      setListingsByUser((prev) => ({
-        ...prev,
-        [row.id]: (data || []).map((l: any) => ({ id: l.id, titleEn: l.title_en || '(untitled)', status: l.status, price: Number(l.price) || 0 })),
-      }));
-    }
-  };
-
-  const unsuspend = async (row: AdminProfile) => {
-    setBusyId(row.id);
-    try {
-      const { error: err } = await supabase
-        .from('profiles')
-        .update({ is_suspended: false, suspended_reason: null, suspended_at: null })
-        .eq('id', row.id);
-      if (err) throw err;
-      setRows((prev) => prev.map((r) => (r.id === row.id ? { ...r, isSuspended: false, suspendedReason: null } : r)));
-    } catch (e: any) {
-      Alert.alert('Could not update user', e?.message || String(e));
-    } finally {
-      setBusyId(null);
-    }
-  };
-
-  const confirmSuspend = async (row: AdminProfile) => {
-    setBusyId(row.id);
-    try {
-      const { error: err } = await supabase
-        .from('profiles')
-        .update({ is_suspended: true, suspended_reason: suspendReason.trim() || null, suspended_at: new Date().toISOString() })
-        .eq('id', row.id);
-      if (err) throw err;
-      setRows((prev) =>
-        prev.map((r) => (r.id === row.id ? { ...r, isSuspended: true, suspendedReason: suspendReason.trim() || null } : r))
-      );
-      setSuspendingId(null);
-      setSuspendReason('');
-    } catch (e: any) {
-      Alert.alert('Could not update user', e?.message || String(e));
-    } finally {
-      setBusyId(null);
-    }
-  };
+  // Coming back from the detail screen after an edit should not show the
+  // values from before it. Deliberately reads the current query and toggle
+  // from refs rather than depending on them: this fires on every focus, and
+  // depending on them would duplicate the debounced search above on every
+  // keystroke.
+  const liveRef = useRef({ query, showGuests });
+  liveRef.current = { query, showGuests };
+  useFocusEffect(
+    useCallback(() => {
+      search(liveRef.current.query.trim(), liveRef.current.showGuests);
+      loadCounts();
+    }, [search, loadCounts])
+  );
 
   return (
     <Screen maxWidth={720}>
@@ -152,19 +130,35 @@ export default function AdminUsersScreen() {
           <Icon name="back" size={18} />
         </Pressy>
         <Text style={type.h3}>Users</Text>
-        <Pressy onPress={load} style={styles.iconBtn}>
+        <Pressy onPress={() => { search(query.trim(), showGuests); loadCounts(); }} style={styles.iconBtn}>
           <Icon name="rotate" size={16} />
         </Pressy>
       </View>
 
       <View style={styles.searchWrap}>
         <Icon name="search" size={15} color={colors.inkSoft} />
-        <TextInput value={query} onChangeText={setQuery} placeholder="Search by name or district" style={styles.searchInput} />
+        <TextInput
+          value={query}
+          onChangeText={setQuery}
+          placeholder="Name, phone number, email or district"
+          style={styles.searchInput}
+          autoCapitalize="none"
+          autoCorrect={false}
+        />
+        {query.length > 0 && (
+          <Pressy onPress={() => setQuery('')} style={styles.clearBtn}>
+            <Icon name="close" size={13} color={colors.inkSoft} />
+          </Pressy>
+        )}
       </View>
+      <Text style={styles.hint}>
+        A phone number matches however it is written -- "70 529 123", "70529123" and "+96170529123" all find the
+        same account.
+      </Text>
 
       {/* Nothing is hidden -- the guests are counted in plain sight and one
           tap away -- but they do not get to bury the members. */}
-      {!loading && !error && guestCount > 0 && (
+      {!error && guestCount > 0 && (
         <Pressy onPress={() => setShowGuests((g) => !g)} style={styles.guestToggle}>
           <Icon name={showGuests ? 'eye' : 'eyeOff'} size={14} color={colors.inkSoft} />
           <Text style={styles.guestToggleText}>
@@ -179,90 +173,43 @@ export default function AdminUsersScreen() {
       ) : error ? (
         <View style={styles.center}><Text style={type.soft}>{error}</Text></View>
       ) : (
-        <ScrollView contentContainerStyle={styles.scroll}>
-          <Text style={styles.hint}>New listings are posted instantly (no pre-approval) -- suspending a user only stops them from posting new ones; their existing listings stay as-is unless removed from Moderation.</Text>
-          {filtered.length === 0 && <Text style={styles.emptyText}>No users match this search.</Text>}
-          {filtered.map((row) => {
-            const expanded = expandedId === row.id;
-            const listings = listingsByUser[row.id];
-            return (
-              <View key={row.id} style={styles.card}>
-                <Pressy onPress={() => toggleExpand(row)} style={styles.row}>
-                  <View style={styles.avatar}>
-                    <Icon name="user" size={18} color={colors.inkSoft} />
-                  </View>
-                  <View style={{ flex: 1 }}>
-                    <Text style={styles.rowTitle}>{row.fullName}</Text>
-                    <Text style={styles.rowSub} numberOfLines={1}>
-                      {row.district || 'No district'} · {row.tier} · {row.points} pts
-                    </Text>
-                  </View>
-                  {!row.isRegistered && (
-                    <View style={styles.guestBadge}>
-                      <Text style={styles.guestBadgeText}>Guest</Text>
-                    </View>
-                  )}
-                  {row.isSuspended && (
-                    <View style={styles.suspendedBadge}>
-                      <Text style={styles.suspendedBadgeText}>Suspended</Text>
-                    </View>
-                  )}
-                </Pressy>
-
-                {expanded && (
-                  <View style={styles.expandBody}>
-                    {row.isSuspended && row.suspendedReason && (
-                      <Text style={styles.reasonText}>Reason: {row.suspendedReason}</Text>
-                    )}
-
-                    <Text style={styles.sectionLabel}>Listings</Text>
-                    {listings === 'loading' || !listings ? (
-                      <ActivityIndicator color={colors.ink} style={{ marginVertical: 10 }} />
-                    ) : listings.length === 0 ? (
-                      <Text style={styles.rowSub}>No listings.</Text>
-                    ) : (
-                      listings.map((l) => (
-                        <Pressy
-                          key={l.id}
-                          onPress={() => navigation.navigate('ListingDetail', { listingId: l.id })}
-                          style={styles.listingRow}
-                        >
-                          <Text style={styles.listingTitle} numberOfLines={1}>{l.titleEn}</Text>
-                          <Text style={styles.listingMeta}>${l.price.toLocaleString()} · {l.status}</Text>
-                        </Pressy>
-                      ))
-                    )}
-
-                    <View style={styles.actionsRow}>
-                      {row.isSuspended ? (
-                        <Button label="Unsuspend" variant="secondary" onPress={() => unsuspend(row)} loading={busyId === row.id} style={{ flex: 1 }} />
-                      ) : suspendingId === row.id ? (
-                        <View style={{ flex: 1 }}>
-                          <TextInput
-                            value={suspendReason}
-                            onChangeText={setSuspendReason}
-                            placeholder="Reason (optional)"
-                            style={styles.reasonInput}
-                          />
-                          <View style={styles.actionsRow}>
-                            <Pressy onPress={() => { setSuspendingId(null); setSuspendReason(''); }} style={styles.cancelBtn}>
-                              <Text style={styles.cancelBtnText}>Cancel</Text>
-                            </Pressy>
-                            <Button label="Confirm suspend" onPress={() => confirmSuspend(row)} loading={busyId === row.id} style={{ flex: 1 }} />
-                          </View>
-                        </View>
-                      ) : (
-                        <Pressy onPress={() => setSuspendingId(row.id)} style={styles.dangerBtn}>
-                          <Icon name="close" size={13} color={colors.danger} />
-                          <Text style={styles.dangerBtnText}>Suspend</Text>
-                        </Pressy>
-                      )}
-                    </View>
-                  </View>
-                )}
+        <ScrollView contentContainerStyle={styles.scroll} keyboardShouldPersistTaps="handled">
+          {rows.length === 0 && (
+            <Text style={styles.emptyText}>
+              {query.trim() ? 'No users match this search.' : 'No registered users yet.'}
+            </Text>
+          )}
+          {rows.map((row) => (
+            <Pressy
+              key={row.id}
+              onPress={() => navigation.navigate('AdminUserDetail', { userId: row.id })}
+              style={styles.card}
+            >
+              <View style={styles.avatar}>
+                <Icon name="user" size={18} color={colors.inkSoft} />
               </View>
-            );
-          })}
+              <View style={{ flex: 1 }}>
+                <Text style={styles.rowTitle} numberOfLines={1}>{row.fullName}</Text>
+                <Text style={styles.rowSub} numberOfLines={1}>
+                  {row.phone || 'No phone'} · {row.district || 'No district'}
+                </Text>
+                <Text style={styles.rowSub} numberOfLines={1}>
+                  {row.tier}{row.tierOverride ? ' (set by admin)' : ''} · {row.points} pts
+                </Text>
+              </View>
+              {!row.isRegistered && (
+                <View style={styles.guestBadge}>
+                  <Text style={styles.guestBadgeText}>Guest</Text>
+                </View>
+              )}
+              {row.isSuspended && (
+                <View style={styles.suspendedBadge}>
+                  <Text style={styles.suspendedBadgeText}>Suspended</Text>
+                </View>
+              )}
+              <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+            </Pressy>
+          ))}
         </ScrollView>
       )}
     </Screen>
@@ -279,14 +226,17 @@ const styles = StyleSheet.create({
     borderRadius: radius.sm, paddingHorizontal: 14, height: 40,
   },
   searchInput: { flex: 1, fontSize: 13.5, color: colors.ink, height: '100%' },
-  scroll: { paddingHorizontal: 18, paddingTop: 14, paddingBottom: 60 },
-  hint: { ...type.tiny, textTransform: 'none', letterSpacing: 0, lineHeight: 16, marginBottom: 14 },
+  clearBtn: { width: 24, height: 24, borderRadius: 12, alignItems: 'center', justifyContent: 'center' },
+  hint: { ...type.tiny, textTransform: 'none', letterSpacing: 0, lineHeight: 16, marginHorizontal: 18, marginTop: 8 },
+  guestToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, marginHorizontal: 18, paddingVertical: 8 },
+  guestToggleText: { ...type.tiny, color: colors.inkSoft },
+  scroll: { paddingHorizontal: 18, paddingTop: 6, paddingBottom: 60 },
   emptyText: { ...type.soft, textAlign: 'center', marginTop: 30 },
   card: {
+    flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12,
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
-    borderRadius: radius.md, marginBottom: 10, overflow: 'hidden',
+    borderRadius: radius.md, marginBottom: 10,
   },
-  row: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 12 },
   avatar: {
     width: 40, height: 40, borderRadius: 20, backgroundColor: colors.surface,
     alignItems: 'center', justifyContent: 'center',
@@ -303,28 +253,4 @@ const styles = StyleSheet.create({
     backgroundColor: colors.line, alignItems: 'center', justifyContent: 'center',
   },
   guestBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.inkSoft, textTransform: 'uppercase' },
-  guestToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 8 },
-  guestToggleText: { ...type.tiny, color: colors.inkSoft },
-  expandBody: { padding: 12, paddingTop: 0 },
-  reasonText: { ...type.soft, marginBottom: 10 },
-  sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 4 },
-  listingRow: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
-    paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.line,
-  },
-  listingTitle: { fontSize: 13, color: colors.ink, flex: 1, marginRight: 8 },
-  listingMeta: { ...type.tiny },
-  actionsRow: { flexDirection: 'row', gap: 10, marginTop: 12, alignItems: 'center' },
-  dangerBtn: {
-    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 6,
-    height: 44, paddingHorizontal: 16, borderRadius: radius.pill,
-    borderWidth: 1, borderColor: colors.line, flex: 1,
-  },
-  dangerBtnText: { fontSize: 13.5, fontWeight: '600', color: colors.danger },
-  reasonInput: {
-    backgroundColor: colors.surface, borderWidth: 1, borderColor: colors.line,
-    borderRadius: radius.sm, paddingHorizontal: 14, height: 40, fontSize: 13.5, color: colors.ink, marginBottom: 8,
-  },
-  cancelBtn: { height: 44, paddingHorizontal: 16, borderRadius: radius.pill, alignItems: 'center', justifyContent: 'center' },
-  cancelBtnText: { fontSize: 13.5, fontWeight: '600', color: colors.inkSoft },
 });

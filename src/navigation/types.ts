@@ -105,6 +105,11 @@ export type RootStackParamList = {
   AdminBranding: undefined;
   AdminModeration: undefined;
   AdminUsers: undefined;
+  // One user, everything about them: profile fields, points, tier, their
+  // listings, suspension, and what admins have already changed. Keyed by id
+  // rather than carrying the row over from the list, so the screen that
+  // edits a record is always looking at the record itself.
+  AdminUserDetail: { userId: string };
   AdminReports: undefined;
   // Curating Editor's Picks -- the only collection kind with any admin
   // input; Hot Deals/Just Listed resolve themselves entirely from live

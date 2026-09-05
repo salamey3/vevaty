@@ -123,6 +123,41 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**Admins can edit a user**, 5 Sep 2026. Admin → Users is a search box over
+name, phone, email and district that opens one person on their own screen:
+their details, their points, their tier, their listings, suspension, and a
+record of what admins have already changed. @ACCOUNTS.md carries the
+reasoning; three things in it are worth knowing on their own.
+
+Searching by phone was not a UI problem. `authenticated` has no column
+grant on `profiles.phone`/`email`/`whatsapp` — deliberately, because that
+table's SELECT policy is `true` and a grant would publish every user's
+number to every signed-in account — so a client genuinely cannot read them,
+and the whole screen reads and writes through SECURITY DEFINER functions
+instead. The phone stays visible and searchable but not editable: it is a
+copy of the login identity in `auth.users`, and writing one without the
+other leaves an account displaying a number it cannot sign in with.
+
+Granting a tier needed a schema change rather than a form field. `tier` was
+recomputed from points by every RPC that touched a balance, so setting one
+by hand lasted until the seller's next listing. `profiles.tier_override`
+now holds the admin's answer and `myazar.effective_tier` is the only thing
+that writes `tier` — which is now a rule in @AGENTS.md, because the trap is
+for whatever touches points next, not for the code that exists today.
+
+Suspension moved onto the same path as every other edit. It had been a
+direct table update from the client while the rest went through the audited
+function, which put the most consequential thing an admin can do outside
+the log — found in review, not in use.
+
+The guest/registered split from earlier the same day survives, and moved
+server-side with everything else: the search returns fifty rows at most, so
+hiding guests after the fact would have shown fewer than fifty registered
+accounts while looking like the whole answer. `admin_search_users` takes
+the flag and `admin_user_counts` counts both kinds over the whole table, so
+the "N guest sessions" line stays a fact about the marketplace rather than
+about the page.
+
 **Every category has specs now**, 5 Sep 2026. Two batches of pure database
 work — no app code in either, because every screen that reads specs (the
 wizard, the batch flow, filters, card specs, the admin editor) has been
