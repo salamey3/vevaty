@@ -150,6 +150,47 @@ The `name` step is therefore no longer part of the normal path — the form
 covers it — but it remains as the repair screen for both failures above, and
 it still catches long-standing accounts that predate having a name at all.
 
+## The guest accounts, and the six of them per launch
+
+The admin Users list showed about a hundred members against two real
+accounts. Every one of the others was a guest: an anonymous session, no
+name, no listing, no chat, no favourite, nothing that could be
+administered.
+
+Guests themselves are by design -- `ensureSession` signs everyone in
+anonymously so every write has an `auth.uid()` for RLS to check, without a
+login screen. What was NOT by design is how many. Six stores call
+`ensureSession` the moment the app mounts (AppStore, SettingsStore,
+FavoritesStore, SavedSearchesStore, BannerStore, CollectionsStore), all in
+the same tick. Each found no session, and each created its own anonymous
+account. 413 anonymous users existed against roughly sixty real launches;
+327 of them were created within one second of the one before, in bursts of
+six, ten, and once thirty. `getSession()` is not a lock, and nothing else
+was one either.
+
+The in-flight promise is now shared, so the losers of the race await the
+winner's sign-in instead of starting a second one. It is cleared once
+settled: after that the persisted session answers, and a sign-in that
+FAILED must not be remembered as the answer.
+
+The 413 anonymous accounts and the 96 guest profile rows they left behind
+were deleted -- checked first against every table that references a user,
+which returned zero rows for all 413. Two accounts remain, which is the
+true number.
+
+The admin list defaults to registered accounts now, with the guest count
+in plain sight and one tap from showing them, labelled. `is_phone_verified`
+is what separates them: `verifyCode` writes it through
+`upsertOwnProfile` the instant an OTP is accepted, before anything else in
+signup can fail, so it is a fact about the account rather than a guess
+from its name or its listing count.
+
+Two things this leaves open. A guest still gets a `profiles` row written
+at launch, which is a row per device for people who may never register --
+harmless at this size, worth revisiting if guest traffic ever gets real.
+And nothing sweeps anonymous accounts on a schedule; the next hundred will
+need the same clean-up by hand.
+
 ## What is deliberately still missing
 
 - **Nothing verifies the email.** By design, per the above. If that ever

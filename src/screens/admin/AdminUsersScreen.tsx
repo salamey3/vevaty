@@ -20,6 +20,14 @@ type AdminProfile = {
   createdAt: string;
   isSuspended: boolean;
   suspendedReason: string | null;
+  // Registered = got through phone OTP. A guest is an anonymous browsing
+  // session: it cannot post, chat, or be contacted, so there is nothing an
+  // admin can do to it -- but it used to sit in this list looking exactly
+  // like a member. is_phone_verified is written by verifyCode's
+  // upsertOwnProfile the instant an OTP is accepted, before anything else
+  // in signup can fail, which is what makes it a safe test for "real
+  // account" rather than a guess from the name or the listing count.
+  isRegistered: boolean;
 };
 
 type UserListing = { id: string; titleEn: string; status: string; price: number };
@@ -35,6 +43,7 @@ export default function AdminUsersScreen() {
   const [suspendingId, setSuspendingId] = useState<string | null>(null);
   const [suspendReason, setSuspendReason] = useState('');
   const [busyId, setBusyId] = useState<string | null>(null);
+  const [showGuests, setShowGuests] = useState(false);
   const [listingsByUser, setListingsByUser] = useState<Record<string, UserListing[] | 'loading'>>({});
 
   const load = useCallback(async () => {
@@ -43,7 +52,7 @@ export default function AdminUsersScreen() {
     try {
       const { data, error: err } = await supabase
         .from('profiles')
-        .select('id,full_name,district,points,tier,created_at,is_suspended,suspended_reason')
+        .select('id,full_name,district,points,tier,created_at,is_suspended,suspended_reason,is_phone_verified')
         .order('created_at', { ascending: false });
       if (err) throw err;
       setRows(
@@ -56,6 +65,7 @@ export default function AdminUsersScreen() {
           createdAt: row.created_at,
           isSuspended: !!row.is_suspended,
           suspendedReason: row.suspended_reason,
+          isRegistered: !!row.is_phone_verified,
         }))
       );
     } catch (e: any) {
@@ -69,11 +79,17 @@ export default function AdminUsersScreen() {
     load();
   }, [load]);
 
+  const guestCount = useMemo(() => rows.filter((r) => !r.isRegistered).length, [rows]);
+
   const filtered = useMemo(() => {
+    // Guests are OFF by default. They outnumbered the real accounts
+    // roughly fifty to one, all of them called "Vevaty user", so the two
+    // accounts that actually matter were two rows in a hundred.
+    const visible = showGuests ? rows : rows.filter((r) => r.isRegistered);
     const q = query.trim().toLowerCase();
-    if (!q) return rows;
-    return rows.filter((r) => r.fullName.toLowerCase().includes(q) || (r.district || '').toLowerCase().includes(q));
-  }, [rows, query]);
+    if (!q) return visible;
+    return visible.filter((r) => r.fullName.toLowerCase().includes(q) || (r.district || '').toLowerCase().includes(q));
+  }, [rows, query, showGuests]);
 
   const toggleExpand = async (row: AdminProfile) => {
     const next = expandedId === row.id ? null : row.id;
@@ -146,6 +162,18 @@ export default function AdminUsersScreen() {
         <TextInput value={query} onChangeText={setQuery} placeholder="Search by name or district" style={styles.searchInput} />
       </View>
 
+      {/* Nothing is hidden -- the guests are counted in plain sight and one
+          tap away -- but they do not get to bury the members. */}
+      {!loading && !error && guestCount > 0 && (
+        <Pressy onPress={() => setShowGuests((g) => !g)} style={styles.guestToggle}>
+          <Icon name={showGuests ? 'eye' : 'eyeOff'} size={14} color={colors.inkSoft} />
+          <Text style={styles.guestToggleText}>
+            {guestCount} guest {guestCount === 1 ? 'session' : 'sessions'} (not registered) ·{' '}
+            {showGuests ? 'hide' : 'show'}
+          </Text>
+        </Pressy>
+      )}
+
       {loading ? (
         <View style={styles.center}><ActivityIndicator color={colors.ink} /></View>
       ) : error ? (
@@ -169,6 +197,11 @@ export default function AdminUsersScreen() {
                       {row.district || 'No district'} · {row.tier} · {row.points} pts
                     </Text>
                   </View>
+                  {!row.isRegistered && (
+                    <View style={styles.guestBadge}>
+                      <Text style={styles.guestBadgeText}>Guest</Text>
+                    </View>
+                  )}
                   {row.isSuspended && (
                     <View style={styles.suspendedBadge}>
                       <Text style={styles.suspendedBadgeText}>Suspended</Text>
@@ -262,6 +295,16 @@ const styles = StyleSheet.create({
   rowSub: { ...type.soft, marginTop: 2 },
   suspendedBadge: { paddingHorizontal: 8, height: 20, borderRadius: radius.pill, backgroundColor: '#f5e4e2', alignItems: 'center', justifyContent: 'center' },
   suspendedBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.danger, textTransform: 'uppercase' },
+  // Deliberately quiet -- a guest is not a problem to flag, just a row
+  // that is not a member, so it reads as grey information rather than as
+  // the red Suspended badge beside it.
+  guestBadge: {
+    paddingHorizontal: 8, height: 20, borderRadius: radius.pill,
+    backgroundColor: colors.line, alignItems: 'center', justifyContent: 'center',
+  },
+  guestBadgeText: { fontSize: 10.5, fontWeight: '700', color: colors.inkSoft, textTransform: 'uppercase' },
+  guestToggle: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingHorizontal: 4, paddingVertical: 8 },
+  guestToggleText: { ...type.tiny, color: colors.inkSoft },
   expandBody: { padding: 12, paddingTop: 0 },
   reasonText: { ...type.soft, marginBottom: 10 },
   sectionLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6, marginTop: 4 },

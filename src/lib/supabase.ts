@@ -108,13 +108,54 @@ export const supabase = createClient(SUPABASE_URL, SUPABASE_PUBLISHABLE_KEY, {
 // Level Security has something to check — without ever showing a login
 // screen. Anyone can later upgrade this anonymous account to a real one
 // (email/phone) without losing their listings or points.
+// ONE anonymous sign-in per launch, however many callers ask for it.
+//
+// Six stores call this the moment the app mounts -- AppStore,
+// SettingsStore, FavoritesStore, SavedSearchesStore, BannerStore,
+// CollectionsStore -- and they all call it in the same tick. Every one of
+// them found no session, and every one of them then created its OWN
+// anonymous account: six auth.users rows per launch, sometimes thirty when
+// a screen remounted mid-flight. 413 anonymous users existed against about
+// sixty real app launches, 327 of them created inside one second of the
+// one before, and each one that got as far as the profile bootstrap left a
+// row in the admin Users list. That list read as a marketplace with a
+// hundred members on it.
+//
+// The in-flight promise is shared instead, so the losers of the race await
+// the winner's sign-in rather than starting their own. It is cleared once
+// settled: by then getSession() answers from the persisted session and
+// never reaches this path again, and a sign-in that FAILED must not be
+// remembered as the answer for the rest of the session.
+let pendingAnonymousSignIn: Promise<Awaited<ReturnType<typeof supabase.auth.signInAnonymously>>['data']['session']> | null =
+  null;
+
 export async function ensureSession() {
   const { data: existing } = await supabase.auth.getSession();
   if (existing.session) return existing.session;
 
-  const { data, error } = await supabase.auth.signInAnonymously();
-  if (error) throw error;
-  return data.session;
+  if (!pendingAnonymousSignIn) {
+    pendingAnonymousSignIn = (async () => {
+      // Asked again INSIDE the shared promise: between the check above and
+      // this line another caller's sign-in may have landed and been
+      // persisted, and signing in again would discard the session it just
+      // created along with the account it belongs to.
+      const { data: recheck } = await supabase.auth.getSession();
+      if (recheck.session) return recheck.session;
+
+      const { data, error } = await supabase.auth.signInAnonymously();
+      if (error) throw error;
+      return data.session;
+    })();
+  }
+
+  // Held in a local so the `finally` cannot clear a NEWER attempt than the
+  // one this caller awaited.
+  const inFlight = pendingAnonymousSignIn;
+  try {
+    return await inFlight;
+  } finally {
+    if (pendingAnonymousSignIn === inFlight) pendingAnonymousSignIn = null;
+  }
 }
 
 // Real login/signup (AuthScreen), gating posting a listing and viewing a
