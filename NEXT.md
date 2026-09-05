@@ -123,6 +123,15 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**A Sponsored pill on boosted listings**, 5 Sep 2026. A listing someone has
+paid points to feature now says so, bottom-left of the photo on its card and
+top-left of the media box on the listing itself. Featured only -- a Bump Up
+has no duration to be currently anything for, so it deliberately gets no
+pill. Derived inside `ListingCard` from the listing rather than passed in as
+a prop, so all nine surfaces that draw a card got it at once. @CARDS.md
+carries the reasoning, including why the seller still reads "Featured" for
+the same state.
+
 **Admins can edit a user**, 5 Sep 2026. Admin → Users is a search box over
 name, phone, email and district that opens one person on their own screen:
 their details, their points, their tier, their listings, suspension, and a

@@ -36,6 +36,8 @@ import { useSettings } from '../store/SettingsStore';
 import { useCollections } from '../store/CollectionsStore';
 import BannerSlot from '../components/BannerSlot';
 import { cornerBadgeFor } from '../lib/collectionBadge';
+import { isFeaturedNow } from '../lib/listingSort';
+import SponsoredPill from '../components/SponsoredPill';
 import { supabase, getSellerContact } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useIsDesktop } from '../hooks/useResponsive';
@@ -165,6 +167,10 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const isDesktop = useIsDesktop();
   const isOwner = !!listing && listing.sellerId === profile.id;
   const favorited = !!listing && isFavorite(listing.id);
+  // `listing` is still nullable this high up (the screen renders a
+  // not-found state below), so this is guarded rather than passed straight
+  // into isFeaturedNow, which expects a listing to exist.
+  const sponsored = !!listing && isFeaturedNow(listing);
 
   // Phase 4 item 18 -- other active listings in the same top-level
   // category, nearest-price-first. Same-category-first (rather than pure
@@ -1026,6 +1032,28 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // arrows and one without (e.g. 3 photos vs. Videos, which never has
   // any) -- every tab renders the same overall box width, canScrollBack/
   // canScrollForward just decide whether either arrow button is visible.
+  // Paid promotion, disclosed, on the media box itself -- the same mark and
+  // the same test (isFeaturedNow) the listing's own card carries in the
+  // grid the buyer arrived from, so the label does not appear or vanish
+  // between the two. Featured only: a Bump Up has no duration to be
+  // "currently" anything for. See components/SponsoredPill.tsx.
+  //
+  // Defined once and reused across all four media tabs rather than written
+  // into each, and defined as an ELEMENT rather than as a component
+  // function declared in this render -- a new component type every render
+  // would remount PhotoGallery and SpinViewer on each one, losing the
+  // photo the buyer had swiped to and restarting the spin.
+  //
+  // Inside each box, not around them: the box already clips to its own
+  // rounded corners and has the exact bounds the photo does, which is what
+  // keeps the pill on the picture on both the 440px desktop column and the
+  // margin-inset mobile one. pointerEvents none so it never eats a swipe.
+  const mediaSponsoredOverlay = sponsored ? (
+    <View style={styles.sponsoredOverlay} pointerEvents="none">
+      <SponsoredPill />
+    </View>
+  ) : null;
+
   const mediaBox = (extraStyle: any) => {
     if (mediaTab === 'video') {
       // Wrapped in CarouselArrows with both arrows off for the same reason
@@ -1044,6 +1072,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             ) : (
               mediaEmptyState('camera', t('listingDetail.noVideos'))
             )}
+            {mediaSponsoredOverlay}
           </View>
         </CarouselArrows>
       );
@@ -1052,7 +1081,10 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       if (!hasSpin) {
         return (
           <CarouselArrows onScrollBy={() => {}} step={1} canScrollBack={false} canScrollForward={false}>
-            <View style={extraStyle}>{mediaEmptyState('rotate', t('listingDetail.noSpin'))}</View>
+            <View style={extraStyle}>
+              {mediaEmptyState('rotate', t('listingDetail.noSpin'))}
+              {mediaSponsoredOverlay}
+            </View>
           </CarouselArrows>
         );
       }
@@ -1067,6 +1099,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <View style={extraStyle}>
             {/* Keyed per set -- see SpinViewer's own note. */}
             <SpinViewer key={activeSet.id} frames={activeSet.frames} />
+            {mediaSponsoredOverlay}
           </View>
         </CarouselArrows>
       );
@@ -1090,6 +1123,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             // PhotoGallery's own `allowFullscreen` comment for why.
             allowFullscreen={isDesktop}
           />
+          {mediaSponsoredOverlay}
         </View>
       </CarouselArrows>
     );
@@ -1349,6 +1383,9 @@ const styles = StyleSheet.create({
   actionBtnText: { fontSize: 13, fontWeight: '700', color: colors.inkSoft },
   actionBtnTextActive: { color: colors.danger },
   scroll: { paddingBottom: 20 },
+  // Top-left of the media box, the corner a photo is least likely to have
+  // its subject in and the one the card uses for the same class of mark.
+  sponsoredOverlay: { position: 'absolute', top: 10, left: 10 },
   photo: {
     // 3:4 (width:height) instead of a fixed pixel height -- tall enough to
     // do right by the vertical photos most sellers actually shoot, while

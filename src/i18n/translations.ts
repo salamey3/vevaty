@@ -320,6 +320,12 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // ListingDetailScreen for such a listing, and by StorefrontScreen
     // itself (mirrors sellerProfile.* one-for-one).
     'listingCard.outOfStock': 'Out of stock',
+    // The paid-promotion mark shown to buyers on a listing whose seller has
+    // spent points to feature it. Sellers see the same state worded as
+    // "Featured" on their own My Listings row -- that is what they bought;
+    // this is what a buyer is owed, which is the disclosure that its
+    // placement was paid for.
+    'listing.sponsored': 'Sponsored',
     'listingCard.conditionNew': 'New',
     'listingCard.conditionUsed': 'Used',
     'listingCard.conditionSale': 'For sale',
@@ -1334,6 +1340,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.aiTag': 'إعلان بمساعدة الذكاء الاصطناعي — تمت مراجعته من البائع',
     'listingDetail.seller': 'البائع',
     'listingCard.outOfStock': 'نفدت الكمية',
+    'listing.sponsored': 'مموّل',
     'listingCard.conditionNew': 'جديد',
     'listingCard.conditionUsed': 'مستعمل',
     'listingCard.conditionSale': 'للبيع',

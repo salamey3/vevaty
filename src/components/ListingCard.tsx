@@ -18,6 +18,8 @@ import { relativeTimeFrom } from '../lib/relativeTime';
 import { cardKindLabel, cardConditionLabel, resolveCardSpecs } from '../lib/cardSpecs';
 import { listingPriceLines } from '../lib/priceDisplay';
 import { gridCardWidthPct } from '../lib/cardWidth';
+import { isFeaturedNow } from '../lib/listingSort';
+import SponsoredPill from './SponsoredPill';
 import { RootStackParamList } from '../navigation/types';
 
 // How long the cursor has to sit still on a card before its preview
@@ -117,6 +119,12 @@ export default function ListingCard({
   const cat = categoryById(listing.cat);
   const widthPct = gridCardWidthPct(columns);
   const favorited = isFavorite(listing.id);
+  // Paid promotion, disclosed. Featured only -- a Bump Up has no duration
+  // to be "currently" anything for; see SponsoredPill for the reasoning.
+  // Read straight off the listing rather than recomputed against a clock
+  // this component owns: isFeaturedNow is the same test the browse sort
+  // uses, so what a buyer is told matches why they are seeing it here.
+  const sponsored = isFeaturedNow(listing);
   const [favBusy, setFavBusy] = useState(false);
   // Nothing to save about your own listing -- same reasoning as
   // ListingDetailScreen hiding its contact CTA from the owner.
@@ -409,13 +417,24 @@ export default function ListingCard({
             <Icon name="heart" size={14} color={favorited ? colors.danger : colors.white} filled={favorited} />
           </Pressy>
         )}
-        {/* Shop pill, vertical layout only -- lives on the photo itself
-            (bottom-left, fixed regardless of RTL, same as every other
-            badge in this thumb) rather than in the white section below.
-            The horizontal layout keeps it in the text column instead, at
-            the top of the pinned footer -- see the footer block below. */}
-        {!horizontal && storefrontPill && (
-          <View style={styles.storefrontOverlay}>{storefrontPill}</View>
+        {/* Bottom-left stack: Sponsored above the shop pill. Both answer
+            "where is this coming from", so they read as one group, and
+            neither is a tap target competing with the heart. Derived from
+            the listing here rather than passed in as a prop like
+            cornerBadge: a boosted listing is boosted on every surface that
+            draws a card, and threading a prop through nine call sites is
+            how one of them ends up forgotten.
+
+            Lifted clear of the out-of-stock ribbon when there is one --
+            that band is full-width at the bottom of the same box, so
+            without this the pill would sit on top of the words in it.
+            Same treatment as spinBadgeBelowCorner above, for the same
+            reason. */}
+        {(sponsored || (!horizontal && storefrontPill)) && (
+          <View style={[styles.bottomOverlay, listing.stockQty === 0 && styles.bottomOverlayAboveRibbon]}>
+            {sponsored && <SponsoredPill compact />}
+            {!horizontal && storefrontPill}
+          </View>
         )}
       </View>
       {/* One surface, not two. This used to be a forest-green band carrying
@@ -538,7 +557,7 @@ export default function ListingCard({
             line float back up under the price. */}
         <View style={styles.footer}>
           {/* Shop pill, horizontal layout only -- the vertical card puts this
-              on the photo instead (see storefrontOverlay). INSIDE the footer,
+              on the photo instead (see bottomOverlay). INSIDE the footer,
               and above the rule rather than below the district: the footer is
               pinned to the bottom of the card, so a pill hanging underneath it
               would push a shop-sourced card's district line ~26px above a
@@ -952,7 +971,7 @@ const styles = StyleSheet.create({
   // (warnBg fill, radius.pill) as the visual basis, at a smaller
   // card-appropriate scale. No standalone "Storefront" label next to it
   // any more on either layout -- the building icon carries that meaning
-  // on its own. Position on screen differs by layout (storefrontOverlay
+  // on its own. Position on screen differs by layout (bottomOverlay
   // below for vertical; for horizontal it is the first child of the pinned
   // footer, which spaces it with its own gap -- the RTL alignment below is
   // the only extra style it takes there); this base style is shared by both.
@@ -965,7 +984,7 @@ const styles = StyleSheet.create({
   // Right-aligns the pill within the horizontal layout's RTL column,
   // same as every other right-aligned element there -- not used on the
   // vertical layout, whose overlay position stays fixed regardless of
-  // language (see storefrontOverlay below, and favoriteBadge/cornerBadge
+  // language (see bottomOverlay below, and favoriteBadge/cornerBadge
   // above, which are fixed corners for the same reason).
   storefrontPillRTL: { alignSelf: 'flex-end' },
   // Vertical layout only: the shop pill lives on the photo, bottom-left,
@@ -975,5 +994,14 @@ const styles = StyleSheet.create({
   // than flowing text. Just the pill, no wrapping bar or gradient
   // behind it: the pill is already an opaque cream chip, so it reads
   // fine straight on top of any photo without extra scaffolding.
-  storefrontOverlay: { position: 'absolute', left: 8, right: 8, bottom: 8, alignItems: 'flex-start' },
+  // Was storefrontOverlay, which held one pill; it holds a stack now (see
+  // the Sponsored block in the thumb). alignItems flex-start rather than
+  // stretch so each pill is as wide as its own text instead of both being
+  // stretched to the widest.
+  bottomOverlay: {
+    position: 'absolute', left: 8, right: 8, bottom: 8,
+    alignItems: 'flex-start', gap: 4,
+  },
+  // The out-of-stock ribbon is full-width at bottom 0 and about 26 tall.
+  bottomOverlayAboveRibbon: { bottom: 34 },
 });

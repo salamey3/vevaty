@@ -445,6 +445,36 @@ below it, a shop-sourced card's district line sat ~26px above a plain card's
 in the same row — the pinning would have swapped one misalignment for
 another.
 
+## The Sponsored pill says it was PAID for
+
+A listing whose seller has spent points to feature it carries a gold
+"Sponsored" pill, bottom-left of the photo on the card and top-left of the
+media box on the listing itself. Same mark and same test in both places, so
+it does not appear or vanish between the grid and the page it opens.
+
+Three decisions are worth keeping.
+
+**Featured only, never a Bump Up.** They are the two things points buy, and
+only one of them is a state. Featured has an end date -- `featured_until` --
+so "currently sponsored" is a fact the database can answer. A Bump Up moves
+the listing once, the way re-posting would, and then it is over; there is no
+window during which the pill would be true, and picking one (a day? three?)
+would be a claim nothing backs. `isFeaturedNow` in `lib/listingSort.ts` is
+the single test, and it is the same one the browse sort uses -- so what a
+buyer is told matches why the listing is where they found it.
+
+**Derived in the card, not passed to it.** `cornerBadge` is a prop because
+a collection badge depends on which collection row is drawing the card. Being
+sponsored does not: it is true of the listing on every surface, so
+`ListingCard` reads it off the listing itself. Nine call sites render a card,
+and threading a prop through them is how the tenth gets forgotten.
+
+**"Sponsored" to buyers, "Featured" to the seller.** The seller's own My
+Listings row still says Featured, because that is the name of the thing they
+bought. A buyer is owed something else -- that the placement was paid for --
+and the word for that is the one every other marketplace uses. The two labels
+describe the same state on purpose.
+
 ## Known limits
 
 - **~88 categories have no `card_priority` set** and therefore show no spec
