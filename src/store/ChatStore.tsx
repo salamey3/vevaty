@@ -34,7 +34,12 @@ function dbMessageToLocal(row: any): ChatMessage {
     senderId: row.sender_id,
     body: row.body,
     createdAt: new Date(row.created_at).getTime(),
-    kind: row.kind === 'offer' ? 'offer' : 'text',
+    // Every kind the database knows, named explicitly. The previous
+    // version read `row.kind === 'offer' ? 'offer' : 'text'`, which
+    // silently turned anything new into a plain bubble -- so the first
+    // 'system' announcement Vevaty posted would have rendered as a chat
+    // message from a person, with a reply box under it.
+    kind: row.kind === 'offer' ? 'offer' : row.kind === 'system' ? 'system' : 'text',
     offerAmount: row.offer_amount != null ? Number(row.offer_amount) : null,
     offerStatus: row.offer_status === 'pending' || row.offer_status === 'accepted' || row.offer_status === 'declined' ? row.offer_status : null,
   };

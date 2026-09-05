@@ -14,6 +14,7 @@ import { ScrollChromeProvider } from './src/store/ScrollChromeContext';
 import { LanguageProvider } from './src/i18n/LanguageContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
+import AuctionOutcomeHost from './src/components/AuctionOutcomeHost';
 import AdminLockScreen from './src/components/AdminLockScreen';
 import SystemBottomStrip from './src/components/SystemBottomStrip';
 
@@ -238,6 +239,11 @@ export default function App() {
                         <StatusBar style="dark" />
                         <RootNavigator />
                         <AlertHost />
+                        {/* How an auction lot ended, shown once to each
+                            bidder. Here rather than on a screen because a
+                            lot closes on its own clock and the bidder could
+                            be anywhere in the app when it does. */}
+                        <AuctionOutcomeHost />
                         <AdminLockScreen />
                         <AdminActivityListener />
                         <WebFocusStyles />

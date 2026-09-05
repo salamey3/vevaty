@@ -1,6 +1,6 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
-import { ContactOutcome, ContactPrompt, Listing, LISTING_STATUSES, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch } from '../types';
+import { ContactOutcome, ContactPrompt, Listing, LISTING_STATUSES, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch, AuctionAnnouncement } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, BOOST_COSTS, tierForPoints } from '../data/points';
@@ -266,6 +266,13 @@ interface AppStoreValue {
   // already calls this on launch/sign-in; exposed for a screen that wants
   // to refresh it on its own (e.g. PointsActivityScreen on focus).
   fetchPointsHistory: () => Promise<void>;
+  // How auction lots this account bid on ended -- one row per lot, written
+  // by myazar.advance_auctions when the lot closes, cleared by the popup
+  // that shows it. Only ever the UNSEEN ones: a result the bidder has
+  // already been shown is not worth carrying around.
+  auctionAnnouncements: AuctionAnnouncement[];
+  fetchAuctionAnnouncements: () => Promise<void>;
+  markAnnouncementSeen: (id: string) => Promise<void>;
   // The signed-in user's own storefront, if they've created one -- null
   // for the overwhelming majority of accounts (ordinary buyers/sellers
   // with no shop). Unlike `listings`, this is never a cache of other
@@ -787,6 +794,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [listings, setListings] = useState<Listing[]>([]);
   const [profile, setProfile] = useState<Profile>(DEFAULT_PROFILE);
   const [pointsHistory, setPointsHistory] = useState<PointsEvent[]>([]);
+  const [auctionAnnouncements, setAuctionAnnouncements] = useState<AuctionAnnouncement[]>([]);
   const [myShop, setMyShop] = useState<Shop | null>(null);
   const userIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile>(DEFAULT_PROFILE);
@@ -842,6 +850,24 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   // The seller's real points ledger -- myazar.points_transactions, RLS'd
   // to their own rows, read directly rather than through an RPC since it's
   // a plain filtered SELECT. Called from syncFromSupabase below (app
+// One auction result, flattened. The nested select comes back as either an
+// object or a single-element array depending on how PostgREST reads the
+// relationship, so both shapes are handled rather than assumed -- an
+// assumption here would show "this lot" in a congratulations message.
+function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
+  const lot = Array.isArray(row.lots) ? row.lots[0] : row.lots;
+  const listing = lot && (Array.isArray(lot.listings) ? lot.listings[0] : lot.listings);
+  return {
+    id: row.id,
+    lotId: row.lot_id,
+    outcome: row.outcome,
+    amount: row.amount === null || row.amount === undefined ? null : Number(row.amount),
+    lotNumber: lot?.lot_number ?? null,
+    titleEn: listing?.title_en ?? null,
+    titleAr: listing?.title_ar ?? null,
+    createdAt: row.created_at ? new Date(row.created_at).getTime() : Date.now(),
+  };
+}
   // launch, sign-in, and any future manual refresh that calls it) and
   // right after claimPostingPoints/claimSalePoints/redeemBoost each
   // succeed, since by then the row this reads already exists -- riding
@@ -864,6 +890,39 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       return;
     }
     if (data) setPointsHistory(data.map(dbPointsEventToLocal));
+  }, []);
+
+  // Auction results waiting to be shown. A lot can close at 8pm on a Sunday
+  // with nobody watching, so the outcome is a row in the database rather
+  // than a live event -- read on launch, shown once, marked seen. RLS
+  // already scopes myazar.auction_announcements to the caller, so there is
+  // no user filter here to get wrong.
+  const fetchAuctionAnnouncements = useCallback(async () => {
+    const uid = userIdRef.current;
+    if (!uid) return;
+    const { data, error } = await supabase
+      .from('auction_announcements')
+      .select('id, lot_id, outcome, amount, created_at, lots:auction_lots(lot_number, listings(title_en, title_ar))')
+      .is('seen_at', null)
+      .order('created_at', { ascending: true });
+    if (error) {
+      console.warn('[AppStore] auction announcements fetch failed:', error.message);
+      return;
+    }
+    if (data) setAuctionAnnouncements(data.map(dbAnnouncementToLocal));
+  }, []);
+
+  // Dropped from local state FIRST, then written. The popup closes the
+  // instant it is dismissed either way, and a failed write only means the
+  // same result reappears next launch -- which is a far better failure than
+  // a modal that sits there while a round trip decides whether it may go.
+  const markAnnouncementSeen = useCallback(async (id: string) => {
+    setAuctionAnnouncements((prev) => prev.filter((a) => a.id !== id));
+    const { error } = await supabase
+      .from('auction_announcements')
+      .update({ seen_at: new Date().toISOString() })
+      .eq('id', id);
+    if (error) console.warn('[AppStore] could not mark announcement seen:', error.message);
   }, []);
 
   // 2) In the background, sign in (anonymously, silently, no login screen)
@@ -1003,10 +1062,11 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       }
 
       await fetchPointsHistory();
+      await fetchAuctionAnnouncements();
     } catch (e) {
       // Offline or backend unreachable — silently keep using local data.
     }
-  }, [fetchPointsHistory]);
+  }, [fetchPointsHistory, fetchAuctionAnnouncements]);
 
   useEffect(() => {
     (async () => {
@@ -3337,6 +3397,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       profile,
       pointsHistory,
       fetchPointsHistory,
+      auctionAnnouncements,
+      fetchAuctionAnnouncements,
+      markAnnouncementSeen,
       myShop,
       createShop,
       updateShop,
@@ -3368,6 +3431,9 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
       profile,
       pointsHistory,
       fetchPointsHistory,
+      auctionAnnouncements,
+      fetchAuctionAnnouncements,
+      markAnnouncementSeen,
       myShop,
       createShop,
       updateShop,

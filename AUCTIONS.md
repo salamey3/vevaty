@@ -522,6 +522,70 @@ way back through the app. The listing update now reads the lot update's own
 `returning` rows. A cascade must be scoped to the rows the same call
 changed, not to the parent.
 
+## Telling bidders how it ended
+
+A lot closes on its own clock. Nobody is watching at 8pm on a Sunday, so
+every outcome is a ROW, written by `advance_auctions` in the same
+transaction that closes the lot -- not an event fired at whoever happens to
+be connected. Three of them go out, and the same pass writes all three.
+
+**The popup.** `myazar.auction_announcements`, one row per bidder per lot,
+`UNIQUE (user_id, lot_id)`. `AuctionOutcomeHost` (mounted beside AlertHost,
+not on a screen, because a lot can close while the bidder is anywhere) shows
+the oldest unseen one, marks it seen, and moves to the next. A bidder who
+slept through a fifteen-lot auction gets fifteen, one at a time -- stacking
+them would bury the one saying they won something.
+
+**The chat message**, posted as Vevaty. This is the bit worth reading twice:
+a thread is `(listing, buyer, seller)` and RLS shows it to the buyer or the
+seller, so posting as the SELLER would work and would be wrong -- a
+fifteen-lot auction with several bidders each would drop a conversation into
+the consignor's inbox for every person who did not buy anything. Vevaty has
+its own profile row (`11111111-1111-4111-8111-111111111111`, no phone, no
+password, nobody can sign in as it) and sits on the seller side of these
+threads instead. No schema change, no policy change. `chat_messages.kind`
+gained `'system'`, rendered as a centred notice rather than a bubble,
+because a bubble invites a reply and there is nobody there to read one.
+The body is bilingual in one string: that column is a single text field, and
+an announcement written only in English reaches half this market in a
+language it did not pick.
+
+**The winner's phone**, through `myazar.outbound_messages` and the
+`send-auction-messages` edge function on a two-minute cron. Queued rather
+than sent inline because `advance_auctions` runs inside the one-minute cron
+transaction -- an HTTP call that hung in there would hold the close open,
+and a failed send would be lost instead of retried. Three attempts, then the
+row is marked failed so one unreachable number cannot occupy the queue.
+
+Three decisions inside that last one:
+
+- **SMS today, WhatsApp the day Meta relents.** A business-initiated
+  WhatsApp needs an approved template and this WABA still may not create one
+  (subCode 2388185). The function checks `TWILIO_AUCTION_TEMPLATE_SID`
+  first and falls back to SMS, so the channel changes by setting a secret
+  rather than by editing code. Worth the SMS money here where it was not for
+  expiry reminders: those scale with every listing on the site, wins scale
+  with sales -- at most 15 a fortnight, about $141/year at Lebanese rates.
+- **English only, and short.** One Arabic character switches an SMS to the
+  70-character encoding and multiplies what a message to Lebanon costs. The
+  in-app copy is bilingual; the SMS is not.
+- **Not gated on `whatsapp_opt_in`**, unlike `send-expiry-reminders`. That
+  flag is consent to be marketed to about your own listings. This is the
+  outcome of a sale someone entered by putting a card on file, and
+  withholding it because they did not tick a marketing box reads the consent
+  wrongly. If that judgement is ever reversed the filter belongs in the
+  queue's own query.
+
+An unsold lot gets its own wording rather than the losing one. "You have not
+won this bid" implies somebody outbid you; when a lot fails its reserve
+nobody won, and saying otherwise would be a small lie told at scale.
+
+Reruns are safe, which matters because this runs every minute: the closing
+UPDATE's `RETURNING` names exactly the lots that just moved out of `live`,
+the announcement insert is `ON CONFLICT DO NOTHING`, and its own `RETURNING`
+is what the chat and SMS writes key off. Tested by calling the closer twice
+in a row -- the second pass reports zeroes across the board.
+
 ## What is deliberately not built yet
 
 - **Seller submission.** v1 has the admin creating lots directly, both

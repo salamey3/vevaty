@@ -675,6 +675,25 @@ export interface Profile {
 // (posting/selling awards) and 'bonus' (reserved for the not-yet-wired
 // review/referral/verification/clean-record earns, see data/points.ts)
 // are both always-positive earns and read identically today.
+// How an auction lot this account bid on ended. Written server-side by
+// myazar.advance_auctions the moment the lot closes, so it survives the
+// bidder not being there -- a lot closing on a Sunday evening is read on
+// Monday morning. The app shows each one once and marks it seen.
+export interface AuctionAnnouncement {
+  id: string;
+  lotId: string;
+  // 'won' -> this bidder won it. 'lost' -> somebody else did.
+  // 'unsold' -> nobody did: the bidding never reached the reserve. Kept
+  // distinct from 'lost' because "you were outbid" would be untrue.
+  outcome: 'won' | 'lost' | 'unsold';
+  // The winning bid, on a win. Null otherwise -- there is no amount to name.
+  amount: number | null;
+  lotNumber: number | null;
+  titleEn: string | null;
+  titleAr: string | null;
+  createdAt: number;
+}
+
 export interface PointsEvent {
   id: string;
   label: string;
@@ -705,8 +724,11 @@ export interface ChatMessage {
   // Phase 4 item 15 -- 'text' is a normal typed message (every message
   // before this feature, and most since). 'offer' additionally carries
   // offerAmount + offerStatus and renders as a structured card with
-  // Accept/Decline actions instead of a plain bubble.
-  kind: 'text' | 'offer';
+  // Accept/Decline actions instead of a plain bubble. 'system' is Vevaty
+  // itself speaking -- an auction result, so far -- posted by the server
+  // and rendered as a centred notice with no reply affordance, because
+  // there is nobody on the other end of that thread to read an answer.
+  kind: 'text' | 'offer' | 'system';
   offerAmount: number | null;
   offerStatus: 'pending' | 'accepted' | 'declined' | null;
 }

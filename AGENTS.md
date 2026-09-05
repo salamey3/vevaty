@@ -434,6 +434,15 @@ for as long as that code existed. All the "show me this category" jumps
 now live in `lib/browseNav.ts` so this cannot be re-decided one screen at
 a time.
 
+**A mapper that collapses an unknown value into a default is a silent
+bug waiting for the next enum member.** `ChatStore`'s
+`row.kind === 'offer' ? 'offer' : 'text'` was correct for exactly as long as
+there were two kinds; the day the database grew a third, the new one arrived
+in the app disguised as the oldest one -- a system announcement rendering as
+a chat bubble from a person. Name every case you know and let an unknown one
+be visibly wrong rather than quietly ordinary. The same shape hides in any
+`x === 'a' ? 'a' : 'b'` over a column with a CHECK constraint.
+
 # Category structure
 
 Leaf-ness is **derived**, never stored: a category is postable when it has

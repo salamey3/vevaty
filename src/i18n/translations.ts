@@ -326,6 +326,18 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // this is what a buyer is owed, which is the disclosure that its
     // placement was paid for.
     'listing.sponsored': 'Sponsored',
+    // How an auction lot ended, shown once to each bidder the next time
+    // they open the app. 'unsold' is kept apart from 'lost' on purpose:
+    // telling somebody they were outbid when nobody won would be untrue.
+    'auctionOutcome.lotLine': 'Lot {number}',
+    'auctionOutcome.wonTitle': 'Congratulations — you won!',
+    'auctionOutcome.wonBody': 'The lot is yours for {amount}. Vevaty has sent you a message to arrange payment and collection.',
+    'auctionOutcome.lostTitle': 'Hard luck',
+    'auctionOutcome.lostBody': 'You have not won this bid. Vevaty wishes you better luck next time.',
+    'auctionOutcome.unsoldTitle': 'This lot did not sell',
+    'auctionOutcome.unsoldBody': 'The bidding never reached the seller\u2019s reserve price, so nobody won it. Vevaty wishes you better luck next time.',
+    'auctionOutcome.dismiss': 'Close',
+    'auctionOutcome.more': '{count} more result to see',
     'listingCard.conditionNew': 'New',
     'listingCard.conditionUsed': 'Used',
     'listingCard.conditionSale': 'For sale',
@@ -1341,6 +1353,15 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.seller': 'البائع',
     'listingCard.outOfStock': 'نفدت الكمية',
     'listing.sponsored': 'مموّل',
+    'auctionOutcome.lotLine': 'القطعة {number}',
+    'auctionOutcome.wonTitle': 'تهانينا — لقد ربحت!',
+    'auctionOutcome.wonBody': 'القطعة لك بمبلغ {amount}. أرسلت فيفاتي لك رسالة لترتيب الدفع والاستلام.',
+    'auctionOutcome.lostTitle': 'حظاً أوفر',
+    'auctionOutcome.lostBody': 'لم تربح هذه المزايدة. فيفاتي تتمنى لك حظاً أفضل في المرة القادمة.',
+    'auctionOutcome.unsoldTitle': 'لم تُبَع هذه القطعة',
+    'auctionOutcome.unsoldBody': 'لم تصل المزايدة إلى السعر الأدنى للبائع، لذلك لم يربحها أحد. نتمنى لك حظاً أوفر في المرة القادمة.',
+    'auctionOutcome.dismiss': 'إغلاق',
+    'auctionOutcome.more': 'لديك {count} نتيجة أخرى',
     'listingCard.conditionNew': 'جديد',
     'listingCard.conditionUsed': 'مستعمل',
     'listingCard.conditionSale': 'للبيع',

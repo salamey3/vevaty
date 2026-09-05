@@ -239,6 +239,20 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             renderItem={({ item }) => {
               const mine = item.senderId === profile.id;
+              // An announcement from Vevaty itself -- an auction result, so
+              // far. Centred and full width rather than a bubble on one
+              // side, because a bubble invites a reply and there is nobody
+              // on the other end of this one to read it.
+              if (item.kind === 'system') {
+                return (
+                  <View style={styles.systemRow}>
+                    <View style={styles.systemCard}>
+                      <Icon name="sparkle" size={13} color={colors.accentDeep} />
+                      <Text style={styles.systemText}>{item.body}</Text>
+                    </View>
+                  </View>
+                );
+              }
               if (item.kind === 'offer') {
                 return (
                   <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
@@ -394,6 +408,16 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   empty: { flex: 1, alignItems: 'center', justifyContent: 'center', paddingHorizontal: 40 },
   messages: { padding: 16, gap: 8 },
+  // Vevaty's own announcements. Deliberately unlike both bubbles: full
+  // width, centred text, no tail, so it reads as the app speaking rather
+  // than as a person who might answer.
+  systemRow: { paddingVertical: 10, paddingHorizontal: 4 },
+  systemCard: {
+    flexDirection: 'row', alignItems: 'flex-start', gap: 8,
+    backgroundColor: colors.accentTint, borderRadius: radius.md,
+    paddingVertical: 12, paddingHorizontal: 14,
+  },
+  systemText: { flex: 1, fontSize: 13, lineHeight: 19, color: colors.ink },
   bubbleRow: { flexDirection: 'row' },
   bubbleRowMine: { justifyContent: 'flex-end' },
   bubbleRowTheirs: { justifyContent: 'flex-start' },

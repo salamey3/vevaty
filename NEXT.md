@@ -40,8 +40,11 @@ Two things worth fixing:
 - **Auctions: what is genuinely not built.** Settlement is the big one —
   lots close to `won`/`unsold` and stop there; charging, invoicing and the
   commission split are waiting on a real payment provider rather than on
-  design. Then outbid/won notifications, which want the WhatsApp channel
-  Meta still will not approve; a seller submission queue (v1 has the admin
+  design. Then OUTBID notifications --
+  a won/lost/unsold announcement now goes out on close (popup, chat and an
+  SMS to the winner, see @AUCTIONS.md), but nothing tells a bidder they have
+  been outbid while the lot is still running, which is the one that actually
+  brings people back; a seller submission queue (v1 has the admin
   creating every lot, which is how the first few will really run); category
   attributes on a from-scratch lot, so its card has a spec row; and a
   terminal listing status for a settled lot, which currently sits at
@@ -122,6 +125,26 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Bidders are told how a lot ended**, 5 Sep 2026. A won/lost/unsold popup
+the next time they open the app, the same news as a message from Vevaty in
+their chat, and an SMS to the winner. All three are written by
+`advance_auctions` in the transaction that closes the lot, so they survive
+nobody being there to watch it close. @AUCTIONS.md, "Telling bidders how it
+ended", carries the reasoning -- why Vevaty has its own profile row rather
+than posting as the seller, why an unsold lot gets different words from a
+lost one, and why the phone message is SMS and English-only for now.
+
+The sending half is dormant until one secret is set: the
+`send-auction-messages` function returns `twilio_not_configured` without
+`TWILIO_MESSAGING_SERVICE_SID` (or `TWILIO_SMS_FROM`). Everything else works
+today.
+
+Found in review: `ChatStore`'s row mapper read
+`row.kind === 'offer' ? 'offer' : 'text'`, so the first `'system'` message
+would have rendered as an ordinary bubble from a person, with a reply box
+under it. Now in @AGENTS.md as a rule.
+
 
 **A Sponsored pill on boosted listings**, 5 Sep 2026. A listing someone has
 paid points to feature now says so, bottom-left of the photo on its card and
