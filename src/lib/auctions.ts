@@ -789,6 +789,8 @@ export type MonitorLot = {
   bidCount: number;
   closesAt: string | null;
   leader: string | null;
+  // Present whenever the lot has a leader at all, name or no name.
+  leaderId: string | null;
   // What the leader is actually willing to pay. Admin-only, and the reason
   // an automatic bid in the feed below is not a mystery.
   leaderMax: number | null;
@@ -805,9 +807,16 @@ export type MonitorLot = {
   ratesCustom: boolean;
   // Frozen at close, so the books of a settled lot cannot be restated.
   ratesLocked: boolean;
-  // Null until the lot is actually won. An unsold lot charges nobody:
+  // Null until the lot would actually sell. An unsold lot charges nobody:
   // no sale, no commission, no premium.
   settlement: LotSettlement | null;
+  // Which kind of money the figures above are. 'settled' is owed;
+  // 'projected' is what WOULD be owed if the clock stopped now -- a live
+  // lot with a leader and its reserve met. Null when there is no money
+  // either way. Carried from SQL rather than re-derived from `status`
+  // here, so the screen and the totals can never disagree about which
+  // lots are provisional.
+  settlementBasis: 'settled' | 'projected' | null;
 };
 
 // What a hammer price is worth to each side. Computed by
@@ -835,7 +844,17 @@ export type AuctionSettlement = LotSettlement & {
   lotsWon: number;
   lotsUnsold: number;
   lotsOpen: number;
+  // Live lots that have bids but are still short of their reserve. This is
+  // why a running total can be lower than the prices on screen suggest, so
+  // the panel says it rather than leaving the reader to work it out.
+  // (How many lots ARE projecting is `projection.lots` -- one source, not
+  // two that can disagree.)
+  lotsUnderReserve: number;
 };
+
+// The same six figures for a subset of the sale. `lots` is how many lots
+// are in it.
+export type SettlementTotals = LotSettlement & { lots: number };
 
 export type MonitorBid = {
   id: string;
@@ -861,7 +880,14 @@ export type AuctionMonitor = {
   buyerPremiumPct: number;
   lots: MonitorLot[];
   feed: MonitorBid[];
+  // What is BANKED: won lots only, the real books.
   settlement: AuctionSettlement;
+  // What is in flight: live lots that would sell if the clock stopped.
+  projection: SettlementTotals;
+  // Where the sale lands if nothing else changes. Not derived by adding
+  // the two above in the client -- SQL sums the per-lot lines once, and
+  // one place doing the arithmetic is the whole point.
+  combined: SettlementTotals;
 };
 
 // Everything the monitor screen shows, in one round trip. Two calls per
@@ -890,9 +916,21 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
       bidCount: Number(l.bid_count) || 0,
       closesAt: l.closes_at ?? null,
       leader: l.leader ?? null,
+      // The ID, not the name, is what says "somebody is leading this".
+      // full_name is nullable, so gating anything on `leader` alone hides
+      // a real leader whose profile has no name on it.
+      leaderId: l.leader_id ?? null,
       leaderMax: l.leader_max == null ? null : Number(l.leader_max),
       winner: l.winner ?? null,
       seller: l.seller || 'Vevaty',
+      // Narrowed, not cast. An `as` would type any future third basis as
+      // one of these two, and an unrecognised value silently reading as
+      // 'settled' would show provisional money as banked -- the one
+      // failure this whole feature exists to prevent.
+      settlementBasis:
+        l.settlement_basis === 'settled' || l.settlement_basis === 'projected'
+          ? l.settlement_basis
+          : null,
       sellerPct: Number(l.seller_pct) || 0,
       buyerPct: Number(l.buyer_pct) || 0,
       ratesCustom: !!l.rates_custom,
@@ -915,8 +953,15 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
       lotsWon: Number(data?.settlement?.lots_won) || 0,
       lotsUnsold: Number(data?.settlement?.lots_unsold) || 0,
       lotsOpen: Number(data?.settlement?.lots_open) || 0,
+      lotsUnderReserve: Number(data?.settlement?.lots_under_reserve) || 0,
     },
+    projection: mapTotals(data?.projection ?? {}),
+    combined: mapTotals(data?.combined ?? {}),
   };
+}
+
+function mapTotals(s: any): SettlementTotals {
+  return { ...mapSettlement(s), lots: Number(s?.lots) || 0 };
 }
 
 // numeric comes back from PostgREST as a string once it has decimals, so

@@ -31,12 +31,22 @@ import { RootStackParamList } from '../../navigation/types';
 // The countdown ticks locally off each lot's closes_at rather than asking
 // the server every second.
 //
-// Once lots start closing the screen becomes the sale's books as well as
-// its scoreboard: every won lot shows what the seller collects after
-// commission and what the buyer owes with the premium on top, and the
-// auction gets a total. None of that arithmetic happens here -- it comes
-// from myazar.lot_settlement() so that the invoices settlement eventually
-// generates cannot disagree with what the admin read off this screen.
+// It is the sale's books as well as its scoreboard, and it does not wait
+// for the close to start being one. A lot that WOULD sell if the clock
+// stopped -- live, with a leader, reserve met -- shows the same six
+// figures as a projection, recomputed on every refetch, so the numbers
+// move with each outbid. A lot still short of its reserve is heading for
+// unsold and shows nothing: projecting it would invent revenue from a
+// sale that is not going to happen.
+//
+// The running total sits ABOVE the lots, because "what is this sale worth
+// to us right now" is the question being asked every few seconds, and
+// putting it under fifteen lot cards means scrolling to it every time.
+//
+// None of the arithmetic happens here -- it comes from
+// myazar.lot_settlement() and myazar.sum_settlements() so that the
+// invoices settlement eventually generates cannot disagree with what the
+// admin read off this screen.
 export default function AdminAuctionMonitorScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const route = useRoute<RouteProp<RootStackParamList, 'AdminAuctionMonitor'>>();
@@ -142,6 +152,64 @@ export default function AdminAuctionMonitorScreen() {
             </Text>
           </View>
 
+          {/* ---- what the sale is worth, right now ---- */}
+          {/* Shown whenever there is anything to say -- including a sale
+              where every bid-on lot is under its reserve, which is
+              precisely when "why is the take zero" needs answering, and a
+              finished sale where nothing sold. */}
+          {(data.combined.lots > 0
+            || data.settlement.lotsUnderReserve > 0
+            || data.settlement.lotsUnsold > 0) && (
+            <View style={styles.take}>
+              <Text style={styles.takeLabel}>Vevaty — this sale</Text>
+              <Text style={styles.takeValue}>{formatMoney(data.combined.vevatyTake)}</Text>
+              <Text style={styles.takeSub}>
+                on {formatMoney(data.combined.hammer)} hammer across {data.combined.lots}
+                {data.combined.lots === 1 ? ' lot' : ' lots'} of {data.settlement.lotsTotal}
+              </Text>
+
+              {/* Banked and provisional kept apart. They are not the same
+                  kind of number and a single total that silently mixes
+                  them is how a forecast gets mistaken for a receipt. */}
+              <View style={styles.takeSplit}>
+                <View style={styles.takeCol}>
+                  <Text style={styles.takeColLabel}>Settled</Text>
+                  <Text style={styles.takeColValue}>{formatMoney(data.settlement.vevatyTake)}</Text>
+                  <Text style={styles.takeColSub}>
+                    {data.settlement.lotsWon} won
+                    {data.settlement.lotsUnsold > 0 ? ` · ${data.settlement.lotsUnsold} unsold` : ''}
+                  </Text>
+                </View>
+                <View style={styles.takeDivider} />
+                <View style={styles.takeCol}>
+                  <Text style={styles.takeColLabel}>Projected</Text>
+                  <Text style={[styles.takeColValue, styles.projectedInk]}>
+                    {formatMoney(data.projection.vevatyTake)}
+                  </Text>
+                  {/* "would sell", not "still running": the books below
+                      use "still running" for every open lot, and a column
+                      that counted only the ones over reserve while naming
+                      more beside it contradicted itself. */}
+                  <Text style={styles.takeColSub}>
+                    {data.projection.lots} would sell
+                    {data.settlement.lotsUnderReserve > 0
+                      ? ` · ${data.settlement.lotsUnderReserve} under reserve`
+                      : ''}
+                  </Text>
+                </View>
+              </View>
+
+              <View style={styles.takeFeet}>
+                <Text style={styles.takeFoot}>
+                  Sellers collect <Text style={styles.takeFootNum}>{formatMoney(data.combined.sellerPayout)}</Text>
+                </Text>
+                <Text style={styles.takeFoot}>
+                  Buyers pay <Text style={styles.takeFootNum}>{formatMoney(data.combined.buyerTotal)}</Text>
+                </Text>
+              </View>
+            </View>
+          )}
+
           {/* ---- the lots ---- */}
           <Text style={styles.sectionTitle}>Lots</Text>
           {data.lots.length === 0 && <Text style={type.soft}>No lots in this auction yet.</Text>}
@@ -203,6 +271,10 @@ export default function AdminAuctionMonitorScreen() {
                     because they are two different invoices to two
                     different people -- not one number split up. */}
                 {l.settlement && (
+                  <View style={[styles.moneyWrap, l.settlementBasis === 'projected' && styles.moneyWrapProjected]}>
+                  {l.settlementBasis === 'projected' && (
+                    <Text style={styles.projectedTag}>if it closed now</Text>
+                  )}
                   <View style={styles.money}>
                     <View style={styles.moneySide}>
                       <Text style={styles.moneyWho} numberOfLines={1}>
@@ -217,7 +289,7 @@ export default function AdminAuctionMonitorScreen() {
                     <View style={styles.moneyDivider} />
                     <View style={styles.moneySide}>
                       <Text style={styles.moneyWho} numberOfLines={1}>
-                        {l.winner || 'Buyer'} pays
+                        {l.winner || l.leader || 'Buyer'} pays
                       </Text>
                       <Text style={styles.moneyBig}>{formatMoney(l.settlement.buyerTotal)}</Text>
                       <Text style={styles.moneyWorking}>
@@ -226,10 +298,26 @@ export default function AdminAuctionMonitorScreen() {
                       </Text>
                     </View>
                   </View>
+                  </View>
                 )}
                 {l.settlement && (
-                  <Text style={styles.moneyTake}>
+                  <Text style={[styles.moneyTake, l.settlementBasis === 'projected' && styles.projectedInk]}>
                     Vevaty {formatMoney(l.settlement.vevatyTake)}
+                  </Text>
+                )}
+                {/* Bid on, but not going to sell as it stands. Said out
+                    loud, because an empty space where every other lot has
+                    money reads as a bug rather than as a fact. */}
+                {!l.settlement && l.status === 'live' && l.leaderId && !l.reserveMet && (
+                  <Text style={styles.noMoneyYet}>
+                    {/* Past its close but not yet swept: advance_auctions
+                        runs on a one-minute tick, so for up to a minute a
+                        finished lot is still 'live' and telling the reader
+                        the bidding could still clear the reserve would be
+                        a lie by then. */}
+                    {l.closesAt && new Date(l.closesAt).getTime() <= Date.now()
+                      ? 'Under reserve at the close — heading for unsold, nothing owed'
+                      : `Under reserve — nothing owed unless the bidding clears ${formatBidAmount(l.reservePrice ?? 0)}`}
                   </Text>
                 )}
               </View>
@@ -239,7 +327,7 @@ export default function AdminAuctionMonitorScreen() {
           {/* ---- the auction's books ---- */}
           {data.settlement.lotsWon > 0 && (
             <>
-              <Text style={styles.sectionTitle}>The books</Text>
+              <Text style={styles.sectionTitle}>The books — settled lots only</Text>
               <View style={styles.books}>
                 <Text style={styles.booksLead}>
                   {data.settlement.lotsWon} of {data.settlement.lotsTotal} lots sold
@@ -289,6 +377,11 @@ export default function AdminAuctionMonitorScreen() {
             pill like "6/15" was negotiated, the rest run on the sale's default terms — which is why
             the totals are the sum of the lot lines and not a percentage of the total hammer. Rates
             freeze the moment a lot is won, so a settled account cannot be restated.
+            {'\n\n'}
+            A lot that would sell if the clock stopped shows its money as a projection, marked
+            "if it closed now", and it moves with every bid. A lot still under its reserve shows
+            none — it is heading for unsold, and counting it would be inventing revenue. The
+            panel at the top keeps settled and projected apart for the same reason.
           </Text>
         </ScrollView>
       ) : null}
@@ -347,6 +440,41 @@ const styles = StyleSheet.create({
 
   sectionTitle: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginTop: 18, marginBottom: 8 },
 
+  take: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.primary,
+    borderRadius: radius.md, padding: 15, marginTop: 12,
+  },
+  takeLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, color: colors.inkSoft },
+  takeValue: {
+    fontSize: 30, lineHeight: 36, fontWeight: '800', color: colors.ink,
+    fontVariant: ['tabular-nums'], marginTop: 2,
+  },
+  takeSub: { ...type.tiny, color: colors.inkSoft, marginTop: 1 },
+  takeSplit: {
+    flexDirection: 'row', gap: 14, marginTop: 13, paddingTop: 12,
+    borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  takeCol: { flex: 1, gap: 1 },
+  takeDivider: { width: 1, backgroundColor: colors.line },
+  takeColLabel: { ...type.tiny, color: colors.inkSoft },
+  takeColValue: { fontSize: 17, fontWeight: '800', color: colors.ink, fontVariant: ['tabular-nums'] },
+  takeColSub: { fontSize: 10.5, lineHeight: 14, color: colors.inkSoft },
+  takeFeet: {
+    flexDirection: 'row', flexWrap: 'wrap', gap: 16, marginTop: 12,
+    paddingTop: 10, borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  takeFoot: { ...type.tiny, color: colors.inkSoft },
+  takeFootNum: { color: colors.ink, fontWeight: '700', fontVariant: ['tabular-nums'] },
+
+  // Projected money is the brand gold, settled money is ink. One glance
+  // has to say which is a receipt and which is a forecast.
+  projectedInk: { color: colors.accentDeep },
+  projectedTag: {
+    fontSize: 9.5, fontWeight: '800', color: colors.accentDeep,
+    textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 2,
+  },
+  noMoneyYet: { ...type.tiny, color: colors.inkSoft, fontStyle: 'italic' },
+
   lotCard: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.md, padding: 13, marginBottom: 8, gap: 10,
@@ -379,16 +507,22 @@ const styles = StyleSheet.create({
   leaderText: { flex: 1, fontSize: 13, fontWeight: '600', color: colors.ink },
   leaderMax: { ...type.tiny, color: colors.inkSoft, fontVariant: ['tabular-nums'] },
 
-  money: {
-    flexDirection: 'row', gap: 12,
-    backgroundColor: colors.surface, borderRadius: radius.sm, padding: 11,
-  },
+  // The wrapper carries the tint and the tag; the row inside it stays a
+  // row. Putting the tag inside `money` and flipping it to a column
+  // stacked the seller and buyer sides on top of each other, which is the
+  // one thing the side-by-side layout exists to avoid.
+  moneyWrap: { backgroundColor: colors.surface, borderRadius: radius.sm, padding: 11 },
+  moneyWrapProjected: { backgroundColor: colors.accentTint },
+  money: { flexDirection: 'row', gap: 12 },
   moneySide: { flex: 1, gap: 2 },
   moneyDivider: { width: 1, backgroundColor: colors.line },
   moneyWho: { ...type.tiny, color: colors.inkSoft },
   moneyBig: { fontSize: 16, fontWeight: '800', color: colors.ink, fontVariant: ['tabular-nums'] },
   moneyWorking: { fontSize: 10.5, lineHeight: 14, color: colors.inkSoft, fontVariant: ['tabular-nums'] },
-  moneyTake: { ...type.tiny, color: colors.accentDeep, fontWeight: '700', textAlign: 'right' },
+  // Ink by default so that projectedInk below actually changes something:
+  // both were accentDeep, which made the conditional a no-op and left
+  // settled and projected takes pixel-identical on this line.
+  moneyTake: { ...type.tiny, color: colors.ink, fontWeight: '700', textAlign: 'right' },
 
   books: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,

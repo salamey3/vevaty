@@ -746,6 +746,31 @@ with the price checks, before the photo and 360 uploads, because those take
 minutes and refusing a typo'd percentage on the far side of them would
 throw all that work away.
 
+**The money does not wait for the close.** A lot that WOULD sell if the
+clock stopped -- live, with a leader, reserve met -- shows the same six
+figures as a **projection**, on the brand gold and tagged "if it closed
+now", recomputed on every refetch so it moves with each outbid. A lot with
+bids but still short of its reserve shows none, and says why: it is
+heading for `unsold`, and projecting it would invent revenue from a sale
+that is not going to happen.
+
+Above the lots sits **the running total** -- Vevaty's take across the whole
+sale, split into *Settled* (won lots, in ink) and *Projected* (live lots,
+in gold), with the sellers' and buyers' totals underneath. Settled and
+projected are kept apart rather than merged into one figure, because they
+are not the same kind of number and a total that silently mixes them is
+how a forecast gets mistaken for a receipt. The panel sits at the top
+because "what is this sale worth to us right now" is the question being
+asked every few seconds, and putting it under fifteen lot cards means
+scrolling to it every time.
+
+`myazar.sum_settlements(auction_id, bases)` does those rollups -- one
+function for settled, projected and both, since they differ only in which
+lots they let through. The RPC's `settlement` key still means WON LOTS
+ONLY, exactly as it did; the projection was added beside it rather than
+folded into it, so an installed build that has not taken the OTA update
+yet cannot silently start showing provisional money as if it were banked.
+
 Once lots start closing, the same screen becomes the sale's **books**. Every
 won lot grows a two-column block -- what the seller collects after
 commission on the left, what the buyer owes with the premium on the right,
