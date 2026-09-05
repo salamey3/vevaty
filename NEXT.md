@@ -126,6 +126,14 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**A live monitor for a running auction**, 5 Sep 2026. Admin -> Auctions ->
+the eye icon: every lot with its price, reserve state, leader and that
+leader's hidden maximum, plus a feed of bids across the sale with automatic
+ones marked. Live via a realtime subscription on `auction_bids` used as a
+nudge to refetch, with a ten-second poll underneath so a dropped socket
+shows as stale rather than as quiet. @AUCTIONS.md, "Watching a sale run".
+
+
 **Bidders are told how a lot ended**, 5 Sep 2026. A won/lost/unsold popup
 the next time they open the app, the same news as a message from Vevaty in
 their chat, and an SMS to the winner. All three are written by

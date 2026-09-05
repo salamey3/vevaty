@@ -718,3 +718,84 @@ export async function deleteAuction(auctionId: string): Promise<void> {
   const { error } = await supabase.rpc('delete_auction', { p_auction_id: auctionId });
   if (error) throw toAuctionError(error);
 }
+
+// ---- Admin live monitor ----
+
+export type MonitorLot = {
+  lotId: string;
+  lotNumber: number;
+  title: string;
+  status: string;
+  startPrice: number;
+  reservePrice: number | null;
+  currentPrice: number | null;
+  reserveMet: boolean;
+  bidCount: number;
+  closesAt: string | null;
+  leader: string | null;
+  // What the leader is actually willing to pay. Admin-only, and the reason
+  // an automatic bid in the feed below is not a mystery.
+  leaderMax: number | null;
+  winner: string | null;
+};
+
+export type MonitorBid = {
+  id: string;
+  createdAt: string;
+  amount: number;
+  maxAmount: number;
+  isAuto: boolean;
+  lotNumber: number;
+  title: string;
+  bidder: string;
+};
+
+export type AuctionMonitor = {
+  auctionId: string;
+  title: string;
+  status: string;
+  registeredBidders: number;
+  antiSnipeSeconds: number;
+  lots: MonitorLot[];
+  feed: MonitorBid[];
+};
+
+// Everything the monitor screen shows, in one round trip. Two calls per
+// tick would be two chances to paint half of an update.
+export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMonitor> {
+  const { data, error } = await supabase.rpc('admin_auction_monitor', { p_auction_id: auctionId });
+  if (error) throw toAuctionError(error);
+  const a = data?.auction ?? {};
+  return {
+    auctionId: a.id,
+    title: a.title_en || 'Auction',
+    status: a.status || 'draft',
+    registeredBidders: Number(a.registered_bidders) || 0,
+    antiSnipeSeconds: Number(a.anti_snipe_seconds) || 0,
+    lots: (data?.lots || []).map((l: any) => ({
+      lotId: l.lot_id,
+      lotNumber: Number(l.lot_number),
+      title: l.title,
+      status: l.status,
+      startPrice: Number(l.start_price) || 0,
+      reservePrice: l.reserve_price == null ? null : Number(l.reserve_price),
+      currentPrice: l.current_price == null ? null : Number(l.current_price),
+      reserveMet: !!l.reserve_met,
+      bidCount: Number(l.bid_count) || 0,
+      closesAt: l.closes_at ?? null,
+      leader: l.leader ?? null,
+      leaderMax: l.leader_max == null ? null : Number(l.leader_max),
+      winner: l.winner ?? null,
+    })),
+    feed: (data?.feed || []).map((b: any) => ({
+      id: b.id,
+      createdAt: b.created_at,
+      amount: Number(b.amount) || 0,
+      maxAmount: Number(b.max_amount) || 0,
+      isAuto: !!b.is_auto,
+      lotNumber: Number(b.lot_number),
+      title: b.title,
+      bidder: b.bidder,
+    })),
+  };
+}

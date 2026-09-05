@@ -135,6 +135,9 @@ export type RootStackParamList = {
   // Building an auction: create the event, add lots, set prices, publish.
   AdminAuctions: undefined;
   AdminAuctionLots: { auctionId: string };
+  // Watching a sale run: every lot with its leader and a live feed of bids.
+  // Read-only -- changing a lot is AdminAuctionLots' job.
+  AdminAuctionMonitor: { auctionId: string };
 };
 
 export type MainTabParamList = {

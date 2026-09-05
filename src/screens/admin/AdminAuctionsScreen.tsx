@@ -433,6 +433,17 @@ export default function AdminAuctionsScreen() {
                     Seller {a.sellerCommissionPct}% · Buyer {a.buyerPremiumPct}%
                   </Text>
                 </Pressy>
+                {/* Straight to the live view. Only offered once the sale
+                    is actually running or done -- there is nothing to watch
+                    on a draft. */}
+                {a.status !== 'draft' && (
+                  <Pressy
+                    onPress={() => navigation.navigate('AdminAuctionMonitor', { auctionId: a.id })}
+                    style={styles.iconAction}
+                  >
+                    <Icon name="eye" size={15} color={a.status === 'live' ? colors.primary : colors.inkSoft} />
+                  </Pressy>
+                )}
                 {a.status === 'draft' && (
                   <Pressy onPress={() => publish(a)} style={styles.publishBtn} disabled={busy}>
                     <Text style={styles.publishText}>Publish</Text>

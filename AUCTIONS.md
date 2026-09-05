@@ -586,6 +586,41 @@ the announcement insert is `ON CONFLICT DO NOTHING`, and its own `RETURNING`
 is what the chat and SMS writes key off. Tested by calling the closer twice
 in a row -- the second pass reports zeroes across the board.
 
+## Watching a sale run
+
+Admin -> Auctions -> the eye icon on any published auction opens
+`AdminAuctionMonitorScreen`: every lot on one screen with its current price,
+whether the reserve is met, who is leading and what their hidden maximum is,
+plus one feed of bids across the whole sale with the automatic ones marked.
+Read-only by design -- the place to CHANGE a lot is AdminAuctionLots, and a
+screen that both watches and edits is a screen where a mis-tap during a live
+sale costs something.
+
+It is live by two mechanisms on purpose:
+
+- **A realtime subscription** on `myazar.auction_bids` (added to the
+  `supabase_realtime` publication for this), so a bid shows within a moment.
+  It is used as a NUDGE, never as the data: the payload carries a
+  `bidder_id` rather than a name, and none of the derived state -- who now
+  leads, whether the reserve is met, whether anti-snipe moved the clock --
+  is in that row. An event just triggers the same refetch the poll uses, so
+  the screen never reimplements the bidding engine to stay correct.
+- **A ten-second poll** underneath it. A dropped socket, a throttled
+  background tab, or an RLS rule that quietly withholds the event would
+  otherwise leave the monitor frozen while looking live. Stale-but-honest
+  beats confidently wrong, and this is the screen someone watches to decide
+  whether a sale is going well.
+
+The countdown ticks locally off each lot's `closes_at`. A countdown that
+needs a round trip per second is a countdown that stutters.
+
+Everything comes from `myazar.admin_auction_monitor(auction_id)` in one
+call -- two calls per tick would be two chances to paint half an update. It
+is SECURITY DEFINER and checks `myazar.admins` itself, because it reads
+every bidder's name and every hidden maximum: RLS filters rows, it never
+confers a privilege, and this is exactly the data that must not leak to a
+bidder who could use it to snipe.
+
 ## What is deliberately not built yet
 
 - **Seller submission.** v1 has the admin creating lots directly, both

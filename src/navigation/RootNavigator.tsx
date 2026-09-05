@@ -44,6 +44,7 @@ import AuctionLotScreen from '../screens/AuctionLotScreen';
 import AuctionRegisterScreen from '../screens/AuctionRegisterScreen';
 import AdminAuctionsScreen from '../screens/admin/AdminAuctionsScreen';
 import AdminAuctionLotsScreen from '../screens/admin/AdminAuctionLotsScreen';
+import AdminAuctionMonitorScreen from '../screens/admin/AdminAuctionMonitorScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
@@ -123,6 +124,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       AuctionRegister: 'auction/:auctionId/register',
       AdminAuctions: 'admin/auctions',
       AdminAuctionLots: 'admin/auctions/:auctionId/lots',
+      AdminAuctionMonitor: 'admin/auctions/:auctionId/monitor',
     },
   },
 };
@@ -186,6 +188,7 @@ export default function RootNavigator() {
         <Stack.Screen name="AuctionRegister" component={AuctionRegisterScreen} options={{ presentation: 'modal' }} />
         <Stack.Screen name="AdminAuctions" component={AdminAuctionsScreen} />
         <Stack.Screen name="AdminAuctionLots" component={AdminAuctionLotsScreen} />
+        <Stack.Screen name="AdminAuctionMonitor" component={AdminAuctionMonitorScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );
