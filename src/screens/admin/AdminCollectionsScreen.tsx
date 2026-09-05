@@ -24,14 +24,16 @@ const KIND_LABEL: Record<CollectionKind, string> = {
   curated: "Editor's Picks",
   price_drop: 'Hot Deals',
   recent: 'Just Listed',
+  featured: 'Featured',
 };
 
-// Curates all three collections. Editor's Picks (kind='curated') is 100%
+// Curates all four collections. Editor's Picks (kind='curated') is 100%
 // manual, same as always: the "in this collection" list IS its entire
-// membership. Hot Deals/Just Listed resolve themselves from live listing
-// data, but an admin can still PIN a specific listing in (shown ahead of
-// the algorithmic picks, same "search and add" flow as Editor's Picks) or
-// EXCLUDE a specific listing that would otherwise qualify -- see
+// membership. Hot Deals/Just Listed/Featured resolve themselves from live
+// listing data (Featured = whoever currently has a live featuredUntil, see
+// listingSort.ts), but an admin can still PIN a specific listing in (shown
+// ahead of the algorithmic picks, same "search and add" flow as Editor's
+// Picks) or EXCLUDE a specific listing that would otherwise qualify -- see
 // CollectionsStore's resolveCollection for exactly how pins/exclusions
 // combine with the algorithmic result.
 //
@@ -58,7 +60,15 @@ export default function AdminCollectionsScreen() {
   const collection = collections.find((c) => c.kind === selectedKind);
   const isAlgorithmic = selectedKind !== 'curated';
 
-  const items = collection ? resolveCollection(collection) : [];
+  // Memoized rather than called inline: 'featured' shuffles its algorithmic
+  // candidates on every resolveCollection call (see CollectionsStore/
+  // listingSort.ts), and this screen re-renders on every keystroke in the
+  // search box below -- without this, the Featured tab's list (and the
+  // pinned-block indices `move`/reorder rely on) would visibly reshuffle
+  // out from under the admin while they typed. Stable now the same way
+  // HomeScreen's collectionCarousels already is, since resolveCollection's
+  // own identity only changes when the underlying data actually does.
+  const items = useMemo(() => (collection ? resolveCollection(collection) : []), [collection, resolveCollection]);
   const pinnedIds = collection ? new Set(pinnedListingIds(collection.id)) : new Set<string>();
   // resolveCollection puts pinned items first -- so the first pinnedIds.size
   // entries of `items` are exactly the pinned ones, in reorderable order;

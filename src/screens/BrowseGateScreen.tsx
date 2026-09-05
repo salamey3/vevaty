@@ -26,6 +26,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { RootStackParamList, HomeStackParamList } from '../navigation/types';
 import { Listing, ListingDomain } from '../types';
+import { listingSortTime } from '../lib/listingSort';
 
 // The buyer's gate, and the app's home screen: which section are you
 // shopping in? Asked every launch and never remembered, so nobody is ever
@@ -191,8 +192,13 @@ export default function BrowseGateScreen() {
     [domains, siteSettings.auctionsEnabled]
   );
 
+  // Bump-aware (see listingSort.ts): a bumped listing counts as freshly
+  // posted here too. Not Featured-pinned on purpose, same reasoning as
+  // CollectionsStore's 'recent' kind -- this row is specifically "newest
+  // across the site", and an old-but-Featured listing topping it would
+  // misstate how recently it was actually posted.
   const newest = useMemo(
-    () => [...listings].sort((a, b) => b.createdAt - a.createdAt).slice(0, NEWEST_ROW_CAP),
+    () => [...listings].sort((a, b) => listingSortTime(b) - listingSortTime(a)).slice(0, NEWEST_ROW_CAP),
     [listings]
   );
 

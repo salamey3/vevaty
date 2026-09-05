@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useMemo, useState } from 'react';
 import { ActivityIndicator, FlatList, StyleSheet, Text, View } from 'react-native';
 import { LinearGradient } from 'expo-linear-gradient';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
@@ -40,9 +40,18 @@ export default function CollectionScreen({ route, navigation }: Props) {
   // Scoped to the section it was opened from, if any -- a Just Listed row
   // inside Properties that opens onto cars and phones would undo the
   // scoping the row itself just did. See DOMAINS.md.
-  const items = collection
-    ? resolveCollection(collection, domain ? (l) => domainOfCategory(l.cat)?.id === domain : undefined)
-    : [];
+  //
+  // Memoized rather than called inline: a Featured collection shuffles its
+  // candidates on every resolveCollection call (see CollectionsStore/
+  // listingSort.ts), and this screen re-renders on things unrelated to the
+  // listing data (handleShare's shareState, for one) -- without this, the
+  // grid would visibly reshuffle out from under someone just for tapping
+  // Share. resolveCollection's own identity only changes when the
+  // underlying data actually does, so this stays stable otherwise.
+  const items = useMemo(
+    () => (collection ? resolveCollection(collection, domain ? (l) => domainOfCategory(l.cat)?.id === domain : undefined) : []),
+    [collection, resolveCollection, domain, domainOfCategory]
+  );
 
   const [shareState, setShareState] = useState<'idle' | 'copied' | 'error'>('idle');
 

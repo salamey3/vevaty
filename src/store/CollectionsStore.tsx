@@ -3,6 +3,7 @@ import { supabase, ensureSession } from '../lib/supabase';
 import { useAppStore } from './AppStore';
 import { Collection, CollectionItem, Listing } from '../types';
 import { offersRent } from '../lib/rentTerms';
+import { isFeaturedNow, listingSortTime, shuffle } from '../lib/listingSort';
 
 // Home-screen collections (Editor's Picks, Hot Deals, Just Listed) -- see
 // myazar.collections/collection_items/listing_price_changes, and the
@@ -207,8 +208,8 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
           .filter((l): l is Listing => !!l);
       }
 
-      // 'recent' / 'price_drop': pinned items first (an admin's explicit
-      // "yes, include this" -- see addCollectionItem), then the
+      // 'recent' / 'price_drop' / 'featured': pinned items first (an admin's
+      // explicit "yes, include this" -- see addCollectionItem), then the
       // algorithmic candidates filling the rest of limitCount, with
       // anything an admin excluded (see excludeFromCollection) dropped
       // from the algorithmic side only -- a pin always wins.
@@ -223,7 +224,17 @@ export function CollectionsStoreProvider({ children }: { children: React.ReactNo
 
       const algorithmic =
         collection.kind === 'recent'
-          ? eligible.slice().sort((a, b) => b.createdAt - a.createdAt)
+          ? // Bump-aware, same as the general browse sort in listingSort.ts --
+            // a bumped listing counts as "just listed" the same way a fresh
+            // post would. Not Featured-pinned on purpose: an old-but-Featured
+            // listing topping "Just Listed" would misstate how recently it
+            // was actually posted.
+            eligible.slice().sort((a, b) => listingSortTime(b) - listingSortTime(a))
+          : collection.kind === 'featured'
+          ? // Shuffled, not newest-boost-first -- see the pilot decision
+            // recorded alongside redeem_boost: sellers paying for the same
+            // tier get an equal shot at the top rather than a fixed queue.
+            shuffle(eligible.filter(isFeaturedNow))
           : eligible
               .map((l) => {
                 // A property that rents holds its rent value in `price`

@@ -489,8 +489,11 @@ export interface Listing {
   // is a marker of when the seller last bumped this listing -- there is no
   // "until", the effect is the one-time sort refresh at that moment, not a
   // window. featuredUntil is a real window: non-null and in the future
-  // means the Featured badge/placement should show. Neither one feeds the
-  // browse/search sort order yet -- see NEXT.md.
+  // means the Featured badge/placement should show. Both feed browse/
+  // search ordering now -- see listingSort.ts (listingSortTime treats a
+  // bump as fresh, isFeaturedNow/sortListingsForBrowse pins Featured
+  // above regular results) -- and 'featured' is also its own home-screen
+  // CollectionKind.
   bumpedAt: number | null;
   featuredUntil: number | null;
   // Set when buyers reported this listing as already sold and it was
@@ -857,13 +860,17 @@ export interface SavedCard {
   status: 'active' | 'expired' | 'removed';
 }
 
-// A Home-screen collection (Editor's Picks, Hot Deals, Just Listed) and its
-// own shareable page -- see myazar.collections. `kind` decides how it gets
-// its listings: 'curated' is hand-picked (see CollectionItem below);
-// 'recent' and 'price_drop' are both resolved client-side against whatever
-// is already in AppStore's `listings`/CollectionsStore's `priceChanges`,
-// never stored as rows of their own. See CollectionsStore.tsx.
-export type CollectionKind = 'curated' | 'recent' | 'price_drop';
+// A Home-screen collection (Editor's Picks, Hot Deals, Just Listed,
+// Featured) and its own shareable page -- see myazar.collections. `kind`
+// decides how it gets its listings: 'curated' is hand-picked (see
+// CollectionItem below); 'recent', 'price_drop' and 'featured' are all
+// resolved client-side against whatever is already in AppStore's
+// `listings`/CollectionsStore's `priceChanges`, never stored as rows of
+// their own. See CollectionsStore.tsx. 'featured' is Bump Up/Featured's
+// buyer-facing home -- everyone currently mid-featuredUntil, shuffled
+// (see listingSort.ts) rather than newest-boost-first, so paying for the
+// same tier gets an equal shot at the top.
+export type CollectionKind = 'curated' | 'recent' | 'price_drop' | 'featured';
 
 export interface Collection {
   id: string;
@@ -875,8 +882,8 @@ export interface Collection {
   descriptionAr: string | null;
   active: boolean;
   sortOrder: number;
-  // Cap on how many listings a 'recent'/'price_drop' collection resolves
-  // to. Meaningless for 'curated' (its size is just however many
+  // Cap on how many listings a 'recent'/'price_drop'/'featured' collection
+  // resolves to. Meaningless for 'curated' (its size is just however many
   // CollectionItem rows exist), kept anyway so the column always has a
   // sane value rather than needing a kind-conditional read everywhere.
   limitCount: number;

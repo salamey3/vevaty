@@ -63,6 +63,7 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { haversineKm, LatLng } from '../lib/geo';
 import { matchesConditionFilter } from '../lib/rentTerms';
 import { conditionFilterOptionsFor, CONDITION_FILTER_TITLE_KEY } from '../lib/conditionModes';
+import { sortListingsForBrowse } from '../lib/listingSort';
 import { findPlaceByFreeText } from '../data/lebanonPlaces';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import ContactOutcomePrompt from '../components/ContactOutcomePrompt';
@@ -260,8 +261,12 @@ export default function HomeScreen() {
     }
     return m;
   }, [listings, domainOfCategory]);
+  // Featured pinned above regular results, Bump Up counting as freshly
+  // posted -- see listingSort.ts. Applied here, at the root of the
+  // category-carousels/categoryScoped/filtered chain, so every narrower
+  // view downstream inherits it for free: Array.filter preserves order.
   const domainListings = useMemo(
-    () => (domainId ? listings.filter((l) => domainIdByListing.get(l.id) === domainId) : listings),
+    () => sortListingsForBrowse(domainId ? listings.filter((l) => domainIdByListing.get(l.id) === domainId) : listings),
     [listings, domainId, domainIdByListing]
   );
   const [selection, setSelection] = useState<SelectionState>(() => {
