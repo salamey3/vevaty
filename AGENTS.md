@@ -448,6 +448,23 @@ single place this is interpreted, and both listing flows filter their
 `specAttrs` through it — which is why validation, the AI-suggestion schema
 and the saved payload all respect visibility without knowing about it.
 
+**The driver has to be single-valued.** `resolveVisibleAttrs` tests
+`typeof v === 'string'`, so pointing `depends_on_slug` at a `multiselect`
+hides the dependent field for ever — its value is an array, the test is
+false every time, and nothing anywhere reports it. That is why Auto Parts'
+brand/model are ungated rather than hanging off `fits_vehicle_type`, which
+has to be a multiselect because one part fits several vehicle types. Gate
+on a `select`, or widen the check to accept an array and intersect — but
+widen it deliberately, for a case that needs it, rather than meeting the
+limit as a field that silently never appears.
+
+A category's condition question belongs to `categories.condition_mode`,
+never to an attribute row. An attribute whose slug is `condition` puts a
+second condition picker on the form next to the real one, with its own
+values and no relationship to `listings.condition`. Two have been found and
+deleted this way (Watches, Books), both pre-dating `condition_mode`; if a
+category needs its own set of values, add a mode rather than a field.
+
 # Publish only once the media has landed
 
 **@MEDIA.md is the reasoning record** for everything in this section and

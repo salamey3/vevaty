@@ -70,13 +70,16 @@ Two things worth fixing:
   card rebuild and was left alone rather than widened into it; the app is
   unaffected, only Arabic web.
 
-- **~88 categories still have no card specs curated.** Listing cards now show
-  up to three specs chosen per category (@CARDS.md), and Properties, Vehicles,
-  Pets and Fashion are done. Everything else shows no spec row until someone
-  numbers its fields in Admin -> Categories -> Attributes -> "On the listing
-  card". That is deliberate -- the old guess was wrong more often than it was
-  right -- but it means most of the catalogue currently shows less on a card
-  than it could. Electronics and Furniture are the ones worth doing first.
+- **Around sixty categories still have no card specs curated.** Listing
+  cards show up to three specs chosen per category (@CARDS.md). Properties,
+  Vehicles, Pets and Fashion were done in their own overhauls, and the 5 Sep
+  specs pass numbered its own twenty-seven as it went. Everything else shows
+  no spec row until someone numbers its fields in Admin -> Categories ->
+  Attributes -> "On the listing card". That is deliberate -- the old guess
+  was wrong more often than it was right -- but it means a good part of the
+  catalogue still shows less on a card than it could. Electronics is the one
+  worth doing first: it has plenty of attributes already and none of them are
+  numbered.
 
 - **Nothing has confirmed the VV001 path by hand.** When a seller taps
   Restore on an auto-hidden listing that has not passed moderation, they
@@ -96,22 +99,60 @@ Two things worth fixing:
 
 ## After that
 
-Categories still short of specs, in the order they are worth doing.
+The category-specs list that used to live here is finished — see "Every
+category has specs now" below. What is left of that thread is smaller and
+of a different kind:
 
-1. **Auto Parts & Accessories.** Four categories, zero attributes. Not on
-   this list before because it only became a top-level during the Vehicles
-   work — and it sits inside Vehicles, the section a buyer enters
-   expecting what Vehicles now has.
+- **Card specs are curated for the sections that have been through a specs
+  pass, and nowhere else.** Every category done in an overhaul got its
+  `card_priority` numbers set at the same time, so its cards show a spec
+  row. The categories that already had attributes from before the card
+  feature existed — Electronics above all — still show nothing until
+  someone numbers their fields in Admin → Categories → Attributes → "On
+  the listing card". See @CARDS.md.
 
-Everything else — Furniture & Decor and Kids & Babies (nine categories
-each, no attributes at all), then Hobbies, Sports & Equipment and
-Businesses & Industrial — needs attribute rows rather than new mechanisms.
-That is database work with no code behind it.
+- **A few categories may still carry a duplicate Condition spec.** Two
+  have been found and removed so far (Watches during Fashion, Books
+  during the last pass): an attribute-level `condition` field left over
+  from before `categories.condition_mode` existed, which shows a seller
+  two different condition pickers on one form. Worth one query across the
+  whole table rather than finding the third by accident.
 
 Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Every category has specs now**, 5 Sep 2026. Two batches of pure database
+work — no app code in either, because every screen that reads specs (the
+wizard, the batch flow, filters, card specs, the admin editor) has been
+fully generic since Fashion.
+
+*Auto Parts & Accessories.* Its three leaves had zero attributes. All
+Vehicles Accessories and All Vehicles Spare Parts share one shape —
+`fits_vehicle_type` (a multiselect reusing Vehicles' own vehicle-type
+options, because one part fits several), `part_category` (its own option
+list per leaf), `part_origin` (OEM or aftermarket), and brand + model.
+Number Plates is deliberately unlike them: a plate is a registration
+number being resold, not a car part, so it got `plate_format`, `region`
+(the nine governorates, spelled as `lebanonPlacesData.ts` spells them),
+`digit_count` and `is_personalized`.
+
+*Furniture & Decor, Kids & Babies, Sports & Equipment, Businesses &
+Industrial.* Twenty-four leaves, attribute rows only: an `item_type`
+select tailored per leaf, plus material/brand/dimensions for furniture,
+`age_range` for the Kids leaves where it means something, brand for
+sports, and a free-text "what's included" for shop liquidations. Kids &
+Babies Clothing was the one that needed a real decision: it reuses
+Fashion Clothing's per-size stock mechanism with age-based sizes (0-3m
+through 8y) rather than a new one, which is a `stock_mode` value and an
+`is_variant` flag and nothing else — `hasStockStep` reads the category's
+own `stockMode`, so there was no code to write.
+
+Two things found in passing: Books carried a duplicate attribute-level
+Condition field (fixed the way Watches was — `condition_mode = 'graded'`,
+duplicate deleted), and `resolveVisibleAttrs` turns out to only accept a
+single-valued driver, which is now written down in @AGENTS.md.
 
 **360 spinners available in every category**, 4 Sep 2026. A seller added a
 camera and the wizard went from the verification shot straight to Specs,
