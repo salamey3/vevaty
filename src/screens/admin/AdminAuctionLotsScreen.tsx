@@ -22,7 +22,8 @@ import {
 } from '../../lib/bunnyVideo';
 import { conditionOptionsFor } from '../../lib/conditionModes';
 import {
-  AdminLotRow, addAuctionLot, cancelAuctionLot, createAuctionLot, fetchAdminAuctionLots,
+  AdminLotRow, SellerCommissionBasis,
+  addAuctionLot, cancelAuctionLot, createAuctionLot, fetchAdminAuctionLots,
   fetchLotListings, formatBidAmount, removeAuctionLot, updateAuctionLot,
 } from '../../lib/auctions';
 import { adminMessage } from './AdminAuctionsScreen';
@@ -75,6 +76,7 @@ type ScratchForm = {
   descriptionEn: string; descriptionAr: string;
   categoryId: string; district: string; condition: string;
   startPrice: string; reserve: string;
+  sellerBasis?: SellerCommissionBasis;
   // The consignor's terms. Blank on both = the sale's standard terms,
   // which is the common case. This path is where a negotiated rate is most
   // often typed: an item built from scratch is one that arrived at our
@@ -101,10 +103,18 @@ const LOT_STATUSES: AuctionLotStatus[] = [
   'pending', 'live', 'closed', 'won', 'unsold', 'settled', 'cancelled',
 ];
 
+// Whether a lot carries ANY term of its own. One predicate, because the
+// word and the highlight beside it disagreeing is exactly the cue that
+// scans a long list for negotiated deals.
+const hasOwnTerms = (lot: AdminLotRow) =>
+  lot.sellerCommissionPct !== null
+  || lot.buyerPremiumPct !== null
+  || lot.sellerCommissionBasis !== null;
+
 const EMPTY_SCRATCH: ScratchForm = {
   titleEn: '', titleAr: '', descriptionEn: '', descriptionAr: '',
   categoryId: '', district: '', condition: '',
-  startPrice: '', reserve: '', sellerPct: '', buyerPct: '',
+  startPrice: '', reserve: '', sellerPct: '', buyerPct: '', sellerBasis: undefined,
   photos: [], spinFrames: [], spinLabel: '', video: null,
 };
 
@@ -130,6 +140,8 @@ export default function AdminAuctionLotsScreen() {
   // on. Only a consignment that was actually negotiated fills these in.
   const [sellerPct, setSellerPct] = useState('');
   const [buyerPct, setBuyerPct] = useState('');
+  // Undefined = the sale's default, same as a blank rate box.
+  const [sellerBasis, setSellerBasis] = useState<SellerCommissionBasis | undefined>(undefined);
   const [scratch, setScratch] = useState<ScratchForm>(EMPTY_SCRATCH);
   const [catQuery, setCatQuery] = useState('');
   // The in-app camera, shared by both media surfaces on this screen.
@@ -203,6 +215,7 @@ export default function AdminAuctionLotsScreen() {
     startPrice: '', reserve: '',
     // Blank = back to the sale's default terms, same as the reserve box.
     sellerPct: '', buyerPct: '',
+    sellerBasis: undefined as SellerCommissionBasis | undefined,
     status: 'pending' as AuctionLotStatus,
     // Same staleness guard as the auction form: advance_auctions moves lot
     // statuses every minute, so a save must not write back whatever the
@@ -382,6 +395,7 @@ export default function AdminAuctionLotsScreen() {
     setReserve('');
     setSellerPct('');
     setBuyerPct('');
+    setSellerBasis(undefined);
     setScratch(EMPTY_SCRATCH);
     setCatQuery('');
     setEditingLot(null);
@@ -629,6 +643,24 @@ export default function AdminAuctionLotsScreen() {
     return { seller, buyer };
   };
 
+  // A surplus deal has nothing to measure from without a reserve, and the
+  // RPC refuses the combination. Checked here so the refusal arrives at
+  // the moment the admin can act on it -- on the from-scratch form the
+  // save is on the far side of minutes of photo and 360 uploads, and
+  // failing there throws all of that away.
+  const reserveOkForBasis = (
+    basis: SellerCommissionBasis | undefined,
+    reserve: number | null
+  ): boolean => {
+    if (basis !== 'surplus' || reserve !== null) return true;
+    Alert.alert(
+      'This lot needs a reserve',
+      'Charging the seller only on the amount above reserve needs a reserve to measure from. ' +
+        'Set one, or charge on the full sale price.'
+    );
+    return false;
+  };
+
   const parsePrices = (startText: string, reserveText: string) => {
     const start = Number(startText);
     const res = reserveText.trim() ? Number(reserveText) : null;
@@ -649,6 +681,7 @@ export default function AdminAuctionLotsScreen() {
     if (!prices) return;
     const rates = parseRates(sellerPct, buyerPct);
     if (!rates) return;
+    if (!reserveOkForBasis(sellerBasis, prices.res)) return;
     setBusy(true);
     // ONE call. This used to be two writes from here -- insert the lot,
     // then flip the listing -- and either half could land alone. A lot with
@@ -660,6 +693,7 @@ export default function AdminAuctionLotsScreen() {
       await addAuctionLot({
         auctionId, listingId: chosen.id, startPrice: prices.start, reservePrice: prices.res,
         sellerCommissionPct: rates.seller, buyerPremiumPct: rates.buyer,
+        sellerCommissionBasis: sellerBasis ?? null,
       });
     } catch (e: any) {
       setBusy(false);
@@ -687,6 +721,7 @@ export default function AdminAuctionLotsScreen() {
     // side of them would throw that work away.
     const rates = parseRates(scratch.sellerPct, scratch.buyerPct);
     if (!rates) return;
+    if (!reserveOkForBasis(scratch.sellerBasis, prices.res)) return;
     if (scratch.video && videoUploadingFor) {
       // Refused before a byte is sent rather than half way through: there
       // is one upload slot, and the button below is disabled for the same
@@ -769,6 +804,7 @@ export default function AdminAuctionLotsScreen() {
         categoryId: scratch.categoryId,
         sellerCommissionPct: rates.seller,
         buyerPremiumPct: rates.buyer,
+        sellerCommissionBasis: scratch.sellerBasis ?? null,
         district: scratch.district.trim(),
         // Falls back to the first option its category offers rather than a
         // hardcoded 'used', which is the wrong answer under three of the
@@ -1025,6 +1061,7 @@ export default function AdminAuctionLotsScreen() {
       // number if the sale's defaults ever changed.
       sellerPct: lot.sellerCommissionPct === null ? '' : String(lot.sellerCommissionPct),
       buyerPct: lot.buyerPremiumPct === null ? '' : String(lot.buyerPremiumPct),
+      sellerBasis: lot.sellerCommissionBasis ?? undefined,
       status: lot.status as AuctionLotStatus,
       statusTouched: false,
     });
@@ -1036,6 +1073,11 @@ export default function AdminAuctionLotsScreen() {
     if (!prices) return;
     const rates = parseRates(lotEdit.sellerPct, lotEdit.buyerPct);
     if (!rates) return;
+    // The RESOLVED basis, not the override: a blank pill inherits the
+    // sale's, and blanking the reserve on a lot that inherits 'surplus'
+    // is refused by the RPC just the same -- which would otherwise fail an
+    // unrelated title fix on that lot wholesale.
+    if (!reserveOkForBasis(lotEdit.sellerBasis ?? editingLot.effectiveSellerBasis, prices.res)) return;
     // A won lot's rates were stamped at close and its books read off them.
     // Not sending them at all -- rather than sending the same values back
     // -- is what keeps an unrelated edit (a typo in a title, say) from
@@ -1043,7 +1085,8 @@ export default function AdminAuctionLotsScreen() {
     const ratesTouched =
       !editingLot.ratesLocked &&
       (rates.seller !== editingLot.sellerCommissionPct ||
-        rates.buyer !== editingLot.buyerPremiumPct);
+        rates.buyer !== editingLot.buyerPremiumPct ||
+        (lotEdit.sellerBasis ?? null) !== editingLot.sellerCommissionBasis);
     setBusy(true);
     try {
       await updateAuctionLot(editingLot.id, {
@@ -1066,7 +1109,13 @@ export default function AdminAuctionLotsScreen() {
         // reason clearReserve does.
         sellerCommissionPct: ratesTouched ? rates.seller ?? undefined : undefined,
         buyerPremiumPct: ratesTouched ? rates.buyer ?? undefined : undefined,
+        sellerCommissionBasis: ratesTouched ? lotEdit.sellerBasis ?? undefined : undefined,
+        // Two independent clears, not one. Folded together, "blank both
+        // rate boxes but keep the surplus basis" and its mirror were
+        // states this form could not reach: the save reported success and
+        // left the lot exactly as it was.
         clearRates: ratesTouched && rates.seller === null && rates.buyer === null,
+        clearBasis: ratesTouched && !lotEdit.sellerBasis,
       });
     } catch (e: any) {
       setBusy(false);
@@ -1407,6 +1456,35 @@ export default function AdminAuctionLotsScreen() {
           />
         </View>
       </View>
+      {/* What the seller's percentage is charged ON. The two are different
+          KINDS of number -- a share of the upside sits at 25-40% where a
+          commission on the whole hammer sits at 2-15% -- so the hint
+          changes with the choice rather than leaving the admin to
+          remember it. Surplus needs a reserve to measure from; the RPC
+          refuses the combination, and the caption says so first. */}
+      <Text style={styles.fieldLabel}>
+        Seller's commission is charged on{editingLot?.ratesLocked ? ' — settled, no longer editable' : ''}
+      </Text>
+      <View style={styles.pillRow}>
+        {([undefined, 'hammer', 'surplus'] as const).map((b) => (
+          <Pressy
+            key={b ?? 'default'}
+            onPress={() => { if (!editingLot?.ratesLocked) setLotEdit((f) => ({ ...f, sellerBasis: b })); }}
+            disabled={!!editingLot?.ratesLocked}
+            style={[styles.pill, lotEdit.sellerBasis === b && styles.pillOn, editingLot?.ratesLocked && styles.pillLocked]}
+          >
+            <Text style={[styles.pillText, lotEdit.sellerBasis === b && styles.pillTextOn]}>
+              {b === undefined ? 'Sale default' : b === 'hammer' ? 'The full sale price' : 'Only the amount above reserve'}
+            </Text>
+          </Pressy>
+        ))}
+      </View>
+      <Text style={styles.hint}>
+        {lotEdit.sellerBasis === 'surplus'
+          ? 'The seller keeps the whole reserve and shares only what the bidding added on top. Needs a reserve, and the percentage should be an upside share (25-40%), not a commission.'
+          : 'The usual auction-house terms: the percentage comes off the whole winning bid.'}
+        {' The buyer\u2019s premium is always charged on the full sale price either way.'}
+      </Text>
 
       <Text style={styles.fieldLabel}>Status</Text>
       <View style={styles.pillRow}>
@@ -1586,6 +1664,32 @@ export default function AdminAuctionLotsScreen() {
           <TextInput value={buyerPct} onChangeText={setBuyerPct} keyboardType="numeric" style={styles.input} placeholder="10" placeholderTextColor={colors.inkSoft} />
         </View>
       </View>
+      {/* What the seller's percentage is charged ON. The two are different
+          KINDS of number -- a share of the upside sits at 25-40% where a
+          commission on the whole hammer sits at 2-15% -- so the hint
+          changes with the choice rather than leaving the admin to
+          remember it. Surplus needs a reserve to measure from; the RPC
+          refuses the combination, and the caption says so first. */}
+      <Text style={styles.fieldLabel}>Seller's commission is charged on</Text>
+      <View style={styles.pillRow}>
+        {([undefined, 'hammer', 'surplus'] as const).map((b) => (
+          <Pressy
+            key={b ?? 'default'}
+            onPress={() => setSellerBasis(b)}
+            style={[styles.pill, sellerBasis === b && styles.pillOn]}
+          >
+            <Text style={[styles.pillText, sellerBasis === b && styles.pillTextOn]}>
+              {b === undefined ? 'Sale default' : b === 'hammer' ? 'The full sale price' : 'Only the amount above reserve'}
+            </Text>
+          </Pressy>
+        ))}
+      </View>
+      <Text style={styles.hint}>
+        {sellerBasis === 'surplus'
+          ? 'The seller keeps the whole reserve and shares only what the bidding added on top. Needs a reserve, and the percentage should be an upside share (25-40%), not a commission.'
+          : 'The usual auction-house terms: the percentage comes off the whole winning bid.'}
+        {' The buyer\u2019s premium is always charged on the full sale price either way.'}
+      </Text>
 
       <View style={styles.formActions}>
         <Pressy onPress={closeForm} style={styles.cancelBtn} disabled={busy}><Text style={styles.cancelText}>Cancel</Text></Pressy>
@@ -1764,6 +1868,32 @@ export default function AdminAuctionLotsScreen() {
           <TextInput value={scratch.buyerPct} onChangeText={(v) => setScratch((f) => ({ ...f, buyerPct: v }))} keyboardType="numeric" style={styles.input} placeholder="10" placeholderTextColor={colors.inkSoft} />
         </View>
       </View>
+      {/* What the seller's percentage is charged ON. The two are different
+          KINDS of number -- a share of the upside sits at 25-40% where a
+          commission on the whole hammer sits at 2-15% -- so the hint
+          changes with the choice rather than leaving the admin to
+          remember it. Surplus needs a reserve to measure from; the RPC
+          refuses the combination, and the caption says so first. */}
+      <Text style={styles.fieldLabel}>Seller's commission is charged on</Text>
+      <View style={styles.pillRow}>
+        {([undefined, 'hammer', 'surplus'] as const).map((b) => (
+          <Pressy
+            key={b ?? 'default'}
+            onPress={() => setScratch((f) => ({ ...f, sellerBasis: b }))}
+            style={[styles.pill, scratch.sellerBasis === b && styles.pillOn]}
+          >
+            <Text style={[styles.pillText, scratch.sellerBasis === b && styles.pillTextOn]}>
+              {b === undefined ? 'Sale default' : b === 'hammer' ? 'The full sale price' : 'Only the amount above reserve'}
+            </Text>
+          </Pressy>
+        ))}
+      </View>
+      <Text style={styles.hint}>
+        {scratch.sellerBasis === 'surplus'
+          ? 'The seller keeps the whole reserve and shares only what the bidding added on top. Needs a reserve, and the percentage should be an upside share (25-40%), not a commission.'
+          : 'The usual auction-house terms: the percentage comes off the whole winning bid.'}
+        {' The buyer\u2019s premium is always charged on the full sale price either way.'}
+      </Text>
 
       <View style={styles.formActions}>
         <Pressy onPress={closeForm} style={styles.cancelBtn} disabled={busy}><Text style={styles.cancelText}>Cancel</Text></Pressy>
@@ -1832,9 +1962,10 @@ export default function AdminAuctionLotsScreen() {
                   <Text style={styles.rowSub}>
                     {lot.currentPrice === null ? 'No bids' : `${formatBidAmount(lot.currentPrice)} · ${lot.bidCount} bids`}
                     {' · '}
-                    <Text style={lot.sellerCommissionPct !== null || lot.buyerPremiumPct !== null ? styles.rowTermsOwn : undefined}>
+                    <Text style={hasOwnTerms(lot) ? styles.rowTermsOwn : undefined}>
                       {lot.effectiveSellerPct}/{lot.effectiveBuyerPct}
-                      {lot.sellerCommissionPct !== null || lot.buyerPremiumPct !== null ? ' agreed' : ' default'}
+                      {lot.effectiveSellerBasis === 'surplus' ? ' on surplus' : ''}
+                      {hasOwnTerms(lot) ? ' agreed' : ' default'}
                     </Text>
                   </Text>
                 </View>
@@ -2039,6 +2170,7 @@ const styles = StyleSheet.create({
   },
   inputTall: { height: 76, paddingTop: 10, textAlignVertical: 'top' },
   inputLocked: { backgroundColor: colors.surface, color: colors.inkSoft },
+  pillLocked: { opacity: 0.45 },
   rateRow: { flexDirection: 'row', gap: 10 },
   rateField: { flex: 1 },
   rateCaption: { ...type.tiny, color: colors.inkSoft, marginBottom: 4 },

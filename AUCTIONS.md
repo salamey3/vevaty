@@ -203,6 +203,42 @@ a commercial term between Vevaty and one consignor, and a rival consignor
 reading it off the wire is a negotiation problem before it is a privacy
 one.
 
+**What the seller's percentage is charged ON is also per lot.**
+`auction_lots.seller_commission_basis` is `'hammer'` or `'surplus'`, null
+inheriting `auctions.seller_commission_basis` (which is `'hammer'` and is
+deliberately not editable from the app — see below).
+
+- **`hammer`** — the whole winning bid. The auction-house convention, and
+  the default.
+- **`surplus`** — only the part above the reserve. The seller banks the
+  price they said they would accept, in full, and shares what the sale
+  *added* to it. A lot that closes at exactly its reserve owes no seller
+  commission at all.
+
+The pitch this makes possible is a strong one — *you get every dollar you
+asked for, we are only paid on what we add* — but it changes what kind of
+number the percentage is. A share of the upside belongs at 25–40% where a
+commission on the hammer belongs at 2–15%, and nothing enforces that: it is
+a commercial judgement, so the forms say it rather than the constraint.
+
+Two rules that are not optional. **A surplus deal needs a reserve**, and
+all three write paths raise `surplus_needs_reserve` rather than quietly
+charging an upside rate on the whole hammer — which on these lots is a
+four-figure error that would look exactly like a working save. Clearing the
+reserve on a surplus lot is refused for the same reason. And **the basis
+freezes at close** with the percentages, because switching hammer/surplus
+moves the figure far further than a percentage point does.
+
+**The sale-wide basis is not exposed in the app, on purpose.** A surplus
+deal is an agreement about one object; a switch that flipped a whole sale
+at once would silently re-price every reserve-less lot under it. The column
+exists as the inheritance floor and nothing else.
+
+**The buyer's premium is unaffected by any of this** and is charged on the
+full hammer under both bases. It is a charge for buying the thing, not a
+share of anyone's upside, and splitting it would make the buyer's invoice
+depend on a reserve they are not allowed to see.
+
 **The two sides are two different invoices.** The seller's commission comes
 *off* the hammer and the buyer's premium goes *on top* of it, so a lot that
 falls at $1,850 in a 15/10 sale produces:
@@ -216,9 +252,13 @@ falls at $1,850 in a 15/10 sale produces:
 | **Buyer pays** | **$2,035.00** |
 | **Vevaty's take** | **$462.50** |
 
-`myazar.lot_settlement(hammer, seller_pct, buyer_pct)` is the only place
-that arithmetic exists, and it takes the rates as arguments precisely
-because they now vary lot by lot. It returns all six figures as jsonb and the monitor
+`myazar.lot_settlement(hammer, seller_pct, buyer_pct, basis, reserve)` is
+the only place that arithmetic exists, and it takes the terms as arguments
+precisely because they now vary lot by lot. It returns `commission_base`
+alongside the figures — the number the percentage was actually multiplied
+by — so a screen can say "30% of the $9,250 above reserve", which a reader
+can check against the hammer beside it, rather than "30%", which they
+cannot. It returns all six figures as jsonb and the monitor
 reads them from there rather than multiplying in TypeScript -- the invoices
 and payouts settlement eventually generates have to agree with what an
 admin read off the screen to the cent, and two implementations of one sum
@@ -774,7 +814,9 @@ yet cannot silently start showing provisional money as if it were banked.
 Once lots start closing, the same screen becomes the sale's **books**. Every
 won lot grows a two-column block -- what the seller collects after
 commission on the left, what the buyer owes with the premium on the right,
-each showing its own working at that lot's own rates, with a pill on any
+each showing its own working at that lot's own terms — naming the base the
+percentage was applied to, and saying so when a surplus lot sits at exactly
+its reserve and therefore owes no commission at all — with a pill on any
 lot whose terms were negotiated -- and the auction gets a totals panel:
 hammer, commission, payable to sellers, premium, collectable from buyers,
 and Vevaty's take. Those figures come from `myazar.lot_settlement()` (see

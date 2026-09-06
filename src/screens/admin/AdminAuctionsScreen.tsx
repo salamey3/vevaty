@@ -62,6 +62,14 @@ const ADMIN_MESSAGES: Record<string, string> = {
   listing_not_found: 'That listing no longer exists.',
   already_a_lot: 'That listing is already a lot in an auction — including a withdrawn one. Remove that lot first.',
   start_price_invalid: 'Enter a start price above zero.',
+  surplus_needs_reserve:
+    'Charging the seller only on the amount above reserve needs a reserve on the lot — set one, ' +
+    'or charge on the full sale price.',
+  invalid_commission_basis: 'That is not a commission basis.',
+  rate_out_of_range: 'A commission or premium has to be between 0 and 100 percent.',
+  rates_locked:
+    'This lot has been won, so its terms are frozen — the seller has been told what they are owed ' +
+    'on them. Changing a settled lot takes a deliberate correction.',
   reserve_below_start: 'A reserve cannot be below the start price.',
   auction_not_found: 'That auction no longer exists.',
   lot_not_found: 'That lot no longer exists.',

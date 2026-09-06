@@ -146,6 +146,13 @@ export default function AdminAuctionMonitorScreen() {
               {data.registeredBidders} registered {data.registeredBidders === 1 ? 'bidder' : 'bidders'}
               {data.antiSnipeSeconds > 0 ? ` · anti-snipe ${data.antiSnipeSeconds}s` : ''}
               {' · default terms '}{data.sellerCommissionPct}/{data.buyerPremiumPct}
+              {/* The sale-wide basis is deliberately NOT editable from the
+                  app: a surplus deal is an agreement about one object, and
+                  a switch that flipped every lot at once would silently
+                  re-price the reserve-less ones. The column exists as the
+                  inheritance floor, and this reads it rather than assuming
+                  'hammer', so a value changed by hand still shows here. */}
+              {data.sellerCommissionBasis === 'surplus' ? ' on surplus' : ''}
             </Text>
             <Text style={styles.updated}>
               updated {lastUpdated ? clockTime(new Date(lastUpdated).toISOString()) : '—'}
@@ -223,7 +230,7 @@ export default function AdminAuctionMonitorScreen() {
                   {l.ratesCustom && (
                     <View style={styles.termsPill}>
                       <Text style={styles.termsPillText}>
-                        {l.sellerPct}/{l.buyerPct}
+                        {l.sellerPct}/{l.buyerPct}{l.sellerBasis === 'surplus' ? ' surplus' : ''}
                       </Text>
                     </View>
                   )}
@@ -281,9 +288,21 @@ export default function AdminAuctionMonitorScreen() {
                         {l.seller} collects
                       </Text>
                       <Text style={styles.moneyBig}>{formatMoney(l.settlement.sellerPayout)}</Text>
+                      {/* Names the number the percentage was applied to.
+                          "30%" on a surplus deal is unverifiable on its
+                          face; "30% of the $9,250 above reserve" can be
+                          checked against the hammer in the same row. */}
                       <Text style={styles.moneyWorking}>
                         {formatMoney(l.settlement.hammer)} hammer − {formatMoney(l.settlement.sellerCommission)}
-                        {' '}commission ({l.sellerPct}%)
+                        {/* Branched on the base the percentage was
+                            actually applied to, not on the label: a lot
+                            resolving to 'surplus' with no reserve is
+                            charged on the full hammer, and saying "of the
+                            $0.00 above reserve" beside a real commission
+                            would contradict the figure next to it. */}
+                        {l.settlement.commissionBase !== l.settlement.hammer
+                          ? ` commission (${l.sellerPct}% of the ${formatMoney(l.settlement.commissionBase)} above reserve)`
+                          : ` commission (${l.sellerPct}% of the hammer)`}
                       </Text>
                     </View>
                     <View style={styles.moneyDivider} />
@@ -303,6 +322,21 @@ export default function AdminAuctionMonitorScreen() {
                 {l.settlement && (
                   <Text style={[styles.moneyTake, l.settlementBasis === 'projected' && styles.projectedInk]}>
                     Vevaty {formatMoney(l.settlement.vevatyTake)}
+                  </Text>
+                )}
+                {/* The one outcome a surplus deal has that a hammer deal
+                    does not: a lot that sells at exactly its reserve added
+                    nothing, so it owes no seller commission at all and
+                    Vevaty is paid only by the buyer. Worth saying, because
+                    a zero in that column otherwise reads as a fault. */}
+                {/* Tests the thing the sentence claims. A zero commission
+                    can also come from a zero rate, or from a surplus small
+                    enough to round away -- neither of which means the sale
+                    added nothing. */}
+                {l.settlement && l.settlement.basis === 'surplus'
+                  && l.settlement.surplus === 0 && (
+                  <Text style={styles.noMoneyYet}>
+                    At reserve — the sale added nothing, so no seller commission is due
                   </Text>
                 )}
                 {/* Bid on, but not going to sell as it stands. Said out
@@ -373,7 +407,9 @@ export default function AdminAuctionMonitorScreen() {
             {'\n\n'}
             Money appears on a lot only once it is won — an unsold lot charges nobody. The seller's
             commission comes off the hammer; the buyer's premium goes on top of it, so the two sides
-            are two separate invoices. Each lot settles at its own agreed rates — a lot showing a
+            are two separate invoices. A lot marked "surplus" charges its seller only on what the
+            bidding added above the reserve, while the buyer's premium is on the full sale price
+            either way. Each lot settles at its own agreed rates — a lot showing a
             pill like "6/15" was negotiated, the rest run on the sale's default terms — which is why
             the totals are the sum of the lot lines and not a percentage of the total hammer. Rates
             freeze the moment a lot is won, so a settled account cannot be restated.

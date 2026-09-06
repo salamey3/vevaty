@@ -39,6 +39,7 @@ export type AuctionErrorCode =
   | 'listing_not_found' | 'already_a_lot' | 'start_price_invalid'
   | 'reserve_below_start' | 'category_required' | 'invalid_status'
   | 'rate_out_of_range' | 'rates_locked'
+  | 'invalid_commission_basis' | 'surplus_needs_reserve'
   | 'unknown';
 
 export class AuctionError extends Error {
@@ -76,6 +77,7 @@ const KNOWN_CODES = new Set<string>([
   'listing_not_found', 'already_a_lot', 'start_price_invalid',
   'reserve_below_start', 'category_required', 'invalid_status',
   'rate_out_of_range', 'rates_locked',
+  'invalid_commission_basis', 'surplus_needs_reserve',
 ]);
 
 function toAuctionError(error: any): AuctionError {
@@ -500,9 +502,11 @@ export type AdminLotRow = {
   // the auction's defaults.
   sellerCommissionPct: number | null;
   buyerPremiumPct: number | null;
+  sellerCommissionBasis: SellerCommissionBasis | null;
   // What it actually settles at, either way.
   effectiveSellerPct: number;
   effectiveBuyerPct: number;
+  effectiveSellerBasis: SellerCommissionBasis;
   // Won or settled: the rates were stamped at close and the books read off
   // them, so they no longer move.
   ratesLocked: boolean;
@@ -522,8 +526,13 @@ export async function fetchAdminAuctionLots(auctionId: string): Promise<AdminLot
     bidCount: r.bid_count ?? 0,
     sellerCommissionPct: r.seller_commission_pct === null ? null : Number(r.seller_commission_pct),
     buyerPremiumPct: r.buyer_premium_pct === null ? null : Number(r.buyer_premium_pct),
+    sellerCommissionBasis:
+      r.seller_commission_basis === 'surplus' || r.seller_commission_basis === 'hammer'
+        ? r.seller_commission_basis
+        : null,
     effectiveSellerPct: Number(r.effective_seller_pct) || 0,
     effectiveBuyerPct: Number(r.effective_buyer_pct) || 0,
+    effectiveSellerBasis: r.effective_seller_basis === 'surplus' ? 'surplus' : 'hammer',
     ratesLocked: !!r.rates_locked,
   }));
 }
@@ -551,6 +560,7 @@ export async function addAuctionLot(input: {
   // The terms agreed with THIS consignor. Both null means "the sale's
   // standard terms", which is the common case and why they are optional.
   sellerCommissionPct?: number | null; buyerPremiumPct?: number | null;
+  sellerCommissionBasis?: SellerCommissionBasis | null;
 }): Promise<string> {
   const { data, error } = await supabase.rpc('add_auction_lot', {
     p_auction_id: input.auctionId,
@@ -559,6 +569,7 @@ export async function addAuctionLot(input: {
     p_reserve_price: input.reservePrice,
     p_seller_commission_pct: input.sellerCommissionPct ?? null,
     p_buyer_premium_pct: input.buyerPremiumPct ?? null,
+    p_seller_commission_basis: input.sellerCommissionBasis ?? null,
   });
   if (error) throw toAuctionError(error);
   return data as string;
@@ -589,6 +600,7 @@ export async function createAuctionLot(input: {
   // often typed, not least: an item built from scratch is one that arrived
   // at our door, which is where a consignment deal actually gets struck.
   sellerCommissionPct?: number | null; buyerPremiumPct?: number | null;
+  sellerCommissionBasis?: SellerCommissionBasis | null;
 }): Promise<{ lotId: string; listingId: string }> {
   const { data, error } = await supabase.rpc('create_auction_lot', {
     p_auction_id: input.auctionId,
@@ -603,6 +615,7 @@ export async function createAuctionLot(input: {
     p_reserve_price: input.reservePrice,
     p_seller_commission_pct: input.sellerCommissionPct ?? null,
     p_buyer_premium_pct: input.buyerPremiumPct ?? null,
+    p_seller_commission_basis: input.sellerCommissionBasis ?? null,
   });
   if (error) throw toAuctionError(error);
   return { lotId: (data as any).lot_id, listingId: (data as any).listing_id };
@@ -743,7 +756,13 @@ export async function updateAuctionLot(
     // standard terms. Refused with 'rates_locked' once the lot is won --
     // its books have been read off those percentages by then.
     sellerCommissionPct?: number | null; buyerPremiumPct?: number | null;
-    clearRates?: boolean;
+    sellerCommissionBasis?: SellerCommissionBasis | null;
+    // The basis gets its OWN clear flag rather than riding on clearRates.
+    // Folded together they were all-or-nothing across three fields, so
+    // "inherit the rates but override the basis" -- and its mirror -- were
+    // states the editor could not reach: the save reported success and
+    // changed nothing.
+    clearRates?: boolean; clearBasis?: boolean;
   }
 ): Promise<void> {
   const { error } = await supabase.rpc('update_auction_lot', {
@@ -759,6 +778,8 @@ export async function updateAuctionLot(
     p_seller_commission_pct: patch.sellerCommissionPct ?? null,
     p_buyer_premium_pct: patch.buyerPremiumPct ?? null,
     p_clear_rates: patch.clearRates ?? false,
+    p_seller_commission_basis: patch.sellerCommissionBasis ?? null,
+    p_clear_basis: patch.clearBasis ?? false,
   });
   if (error) throw toAuctionError(error);
 }
@@ -801,6 +822,7 @@ export type MonitorLot = {
   // with the consignor, the auction's otherwise.
   sellerPct: number;
   buyerPct: number;
+  sellerBasis: SellerCommissionBasis;
   // True when those came from the lot rather than the sale's defaults.
   // The screen needs the distinction, not just the numbers: "15%" reads
   // very differently as a negotiated term than as a default nobody touched.
@@ -824,7 +846,23 @@ export type MonitorLot = {
 // invoices and payouts settlement eventually generates have to agree with
 // this screen to the cent, and two implementations of the same sum is how
 // a seller gets paid a different figure from the one the admin read out.
-export type LotSettlement = {
+// What the SELLER's percentage is charged on. The buyer's premium is
+// always on the full hammer under either -- it is a charge for buying the
+// thing, not a share of anyone's upside, and splitting it would make the
+// buyer's invoice depend on a reserve they are not allowed to see.
+//
+//   'hammer'  -- the whole winning bid. The auction-house convention.
+//   'surplus' -- only the part above the reserve, so the seller banks the
+//                price they said they would accept in full and shares
+//                what the sale ADDED to it.
+//
+// A 'surplus' rate is a different KIND of number: a share of the upside
+// belongs in the 25-40% range where a hammer commission belongs in the
+// 2-15% one. Nothing enforces that; the forms say it.
+export type SellerCommissionBasis = 'hammer' | 'surplus';
+
+// The six figures, shared by one lot and by a whole-sale total.
+export type MoneyTotals = {
   hammer: number;
   // Off the hammer.
   sellerCommission: number;
@@ -835,11 +873,28 @@ export type LotSettlement = {
   vevatyTake: number;
 };
 
+// One lot's money, which additionally knows the terms it was computed on.
+// Deliberately NOT shared with the totals below: a sale whose lots settle
+// on different bases has no single basis, reserve or surplus, and a type
+// promising those on a total would have the first screen to print one
+// printing a confident lie.
+export type LotSettlement = MoneyTotals & {
+  basis: SellerCommissionBasis;
+  // Null when the lot has no reserve.
+  reserve: number | null;
+  surplus: number | null;
+  // What the seller's percentage was actually multiplied by -- the hammer,
+  // or the surplus. Carried rather than re-derived, so a screen can say
+  // "30% of the $9,250 above reserve", which a reader can check, instead
+  // of "30%", which they cannot.
+  commissionBase: number;
+};
+
 // The same figures for the whole auction. These are the SUM OF THE
 // ROUNDED PER-LOT LINES, not a percentage of the total hammer -- the two
 // differ by a cent or two and only the first reconciles against what was
 // actually charged.
-export type AuctionSettlement = LotSettlement & {
+export type AuctionSettlement = MoneyTotals & {
   lotsTotal: number;
   lotsWon: number;
   lotsUnsold: number;
@@ -854,7 +909,7 @@ export type AuctionSettlement = LotSettlement & {
 
 // The same six figures for a subset of the sale. `lots` is how many lots
 // are in it.
-export type SettlementTotals = LotSettlement & { lots: number };
+export type SettlementTotals = MoneyTotals & { lots: number };
 
 export type MonitorBid = {
   id: string;
@@ -878,6 +933,7 @@ export type AuctionMonitor = {
   // is no single rate for an auction any more.
   sellerCommissionPct: number;
   buyerPremiumPct: number;
+  sellerCommissionBasis: SellerCommissionBasis;
   lots: MonitorLot[];
   feed: MonitorBid[];
   // What is BANKED: won lots only, the real books.
@@ -904,6 +960,7 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
     antiSnipeSeconds: Number(a.anti_snipe_seconds) || 0,
     sellerCommissionPct: Number(a.seller_commission_pct) || 0,
     buyerPremiumPct: Number(a.buyer_premium_pct) || 0,
+    sellerCommissionBasis: a.seller_commission_basis === 'surplus' ? 'surplus' : 'hammer',
     lots: (data?.lots || []).map((l: any) => ({
       lotId: l.lot_id,
       lotNumber: Number(l.lot_number),
@@ -933,9 +990,10 @@ export async function fetchAuctionMonitor(auctionId: string): Promise<AuctionMon
           : null,
       sellerPct: Number(l.seller_pct) || 0,
       buyerPct: Number(l.buyer_pct) || 0,
+      sellerBasis: l.seller_basis === 'surplus' ? 'surplus' : 'hammer',
       ratesCustom: !!l.rates_custom,
       ratesLocked: !!l.rates_locked,
-      settlement: l.settlement ? mapSettlement(l.settlement) : null,
+      settlement: l.settlement ? mapLotSettlement(l.settlement) : null,
     })),
     feed: (data?.feed || []).map((b: any) => ({
       id: b.id,
@@ -966,7 +1024,7 @@ function mapTotals(s: any): SettlementTotals {
 
 // numeric comes back from PostgREST as a string once it has decimals, so
 // every one of these goes through Number() rather than being trusted.
-function mapSettlement(s: any): LotSettlement {
+function mapSettlement(s: any): MoneyTotals {
   return {
     hammer: Number(s?.hammer) || 0,
     sellerCommission: Number(s?.seller_commission) || 0,
@@ -974,5 +1032,15 @@ function mapSettlement(s: any): LotSettlement {
     buyerPremium: Number(s?.buyer_premium) || 0,
     buyerTotal: Number(s?.buyer_total) || 0,
     vevatyTake: Number(s?.vevaty_take) || 0,
+  };
+}
+
+function mapLotSettlement(s: any): LotSettlement {
+  return {
+    ...mapSettlement(s),
+    basis: s?.basis === 'surplus' ? 'surplus' : 'hammer',
+    reserve: s?.reserve == null ? null : Number(s.reserve),
+    surplus: s?.surplus == null ? null : Number(s.surplus),
+    commissionBase: Number(s?.commission_base) || 0,
   };
 }
