@@ -23,7 +23,7 @@ import {
 import { conditionOptionsFor } from '../../lib/conditionModes';
 import {
   AdminLotRow, SellerCommissionBasis,
-  addAuctionLot, cancelAuctionLot, createAuctionLot, fetchAdminAuctionLots,
+  addAuctionLot, cancelAuctionLot, createAuctionLot, duplicateAuctionLot, fetchAdminAuctionLots,
   fetchLotListings, formatBidAmount, removeAuctionLot, updateAuctionLot,
 } from '../../lib/auctions';
 import { adminMessage } from './AdminAuctionsScreen';
@@ -1067,6 +1067,66 @@ export default function AdminAuctionLotsScreen() {
     });
   };
 
+  // Duplicating creates a real listing and a real lot, media and all, so
+  // it asks first -- an accidental tap on a row of small icons would
+  // otherwise put a second Hermes into the sale silently.
+  //
+  // The wording is assembled rather than fixed, because what actually
+  // happens depends on the sale and on who owns the item, and a promise
+  // the next screen cannot keep is worse than no dialog.
+  const confirmDuplicate = (lot: AdminLotRow) => {
+    const listing = lotListings[lot.listingId];
+    const title = listing ? listingTitle(listing, language) : `Lot ${lot.lotNumber}`;
+    const notMine = !!listing && listing.sellerId !== profile.id;
+
+    const lines = [
+      `A second copy of "${title}" joins this auction with the same photos, 360s, start price, ` +
+        'reserve and terms.',
+    ];
+    if (listing?.video) {
+      // Not a limitation worth hiding: it is why the copy is safe. See
+      // duplicateAuctionLot's note.
+      lines.push('The video is NOT copied — a second object needs its own, and sharing one would break both lots.');
+    }
+    if (status === 'live') {
+      lines.push(
+        'This sale is LIVE, so the copy opens for bidding immediately and closes about five ' +
+          'minutes from now. Get the price and reserve right before duplicating, not after.'
+      );
+    }
+    if (notMine) {
+      lines.push("The item belongs to another seller, so the copy's text and media cannot be edited here — only its price, reserve and terms.");
+    }
+
+    Alert.alert('Duplicate this lot?', lines.join('\n\n'), [
+      { text: 'Cancel', style: 'cancel' },
+      {
+        text: 'Duplicate',
+        onPress: async () => {
+          setBusy(true);
+          try {
+            const made = await duplicateAuctionLot(lot.id);
+            setBusy(false);
+            load();
+            // Guarded like every other alert on a path that leaves the
+            // screen reachable: AlertHost is global, and an unguarded one
+            // lands over whatever the admin is looking at now.
+            if (mountedRef.current) {
+              Alert.alert(
+                'Duplicated',
+                `Added as lot ${made.lotNumber}.`
+                  + (made.videoNotCopied ? ' Add a video to it if you want one.' : '')
+              );
+            }
+          } catch (e: any) {
+            setBusy(false);
+            if (mountedRef.current) Alert.alert('Could not duplicate', adminMessage(e));
+          }
+        },
+      },
+    ]);
+  };
+
   const saveLotEdit = async () => {
     if (!editingLot) return;
     const prices = parsePrices(lotEdit.startPrice, lotEdit.reserve);
@@ -1954,12 +2014,12 @@ export default function AdminAuctionLotsScreen() {
                   <Text style={styles.rowTitle} numberOfLines={1}>
                     Lot {lot.lotNumber} · {lotListings[lot.listingId] ? listingTitle(lotListings[lot.listingId], language) : '—'}
                   </Text>
-                  <Text style={styles.rowSub}>
+                  <Text style={styles.rowSub} numberOfLines={1}>
                     Start {formatBidAmount(lot.startPrice)}
                     {lot.reservePrice !== null ? ` · Reserve ${formatBidAmount(lot.reservePrice)}` : ' · No reserve'}
                     {' · '}{lot.status}
                   </Text>
-                  <Text style={styles.rowSub}>
+                  <Text style={styles.rowSub} numberOfLines={1}>
                     {lot.currentPrice === null ? 'No bids' : `${formatBidAmount(lot.currentPrice)} · ${lot.bidCount} bids`}
                     {' · '}
                     <Text style={hasOwnTerms(lot) ? styles.rowTermsOwn : undefined}>
@@ -1969,6 +2029,14 @@ export default function AdminAuctionLotsScreen() {
                     </Text>
                   </Text>
                 </View>
+                {/* Nothing to duplicate INTO once a sale is over: the
+                    copy would land as a pending lot with a clock in a
+                    finished auction, which no screen resolves. */}
+                {!['closed', 'settled', 'cancelled'].includes(status) && (
+                  <Pressy onPress={() => confirmDuplicate(lot)} style={styles.iconAction} disabled={busy}>
+                    <Icon name="copy" size={15} color={colors.inkSoft} />
+                  </Pressy>
+                )}
                 <Pressy
                   onPress={() => (editingLot?.id === lot.id ? setEditingLot(null) : openLotEdit(lot))}
                   style={styles.iconAction}
@@ -2120,14 +2188,16 @@ const styles = StyleSheet.create({
   body: { paddingHorizontal: 18, paddingBottom: 80 },
   note: { ...type.tiny, marginBottom: 14, lineHeight: 16 },
   row: {
-    flexDirection: 'row', alignItems: 'center', gap: 6,
+    // gap 2, not 6: four actions at 34 plus four gaps at 6 took 160px of a
+    // 320pt row and left the item title about ten characters.
+    flexDirection: 'row', alignItems: 'center', gap: 2,
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.md, padding: 12, marginBottom: 8,
   },
-  rowMain: { flex: 1, gap: 2 },
+  rowMain: { flex: 1, gap: 2, minWidth: 0 },
   rowTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
   rowSub: { ...type.tiny },
-  iconAction: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
+  iconAction: { width: 30, height: 34, alignItems: 'center', justifyContent: 'center' },
   addRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   altBtn: {
     flex: 1, flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 7,

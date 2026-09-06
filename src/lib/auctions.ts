@@ -784,6 +784,41 @@ export async function updateAuctionLot(
   if (error) throw toAuctionError(error);
 }
 
+// Two of the same object, without building the second listing by hand.
+//
+// It cannot share the original's listing -- auction_lots_listing_id_key is
+// one listing, one lot, ever -- so the RPC creates a NEW listing carrying
+// the text, category, condition, geography, attributes, photos, 360 sets
+// and hangs a new lot off it with the same start price, reserve and
+// negotiated terms. What it does NOT carry is the original's own history:
+// points already awarded, boosts, expiry, removal.
+//
+// It also does NOT carry the VIDEO, and that is a correction rather than
+// an omission. Copying the row would have put the same bunny_guid on two
+// listings, and the rest of the app assumes one guid to one listing:
+// removing or replacing the video on either lot deletes the asset from
+// Bunny for both, and fetchVideoStatus reads its row with maybeSingle(),
+// which errors on two rows -- silently disabling the poll that recovers a
+// video stuck in 'processing', for the original as much as the copy. A
+// second physical object needs its own footage anyway. `videoNotCopied`
+// says whether the original had one, so the screen can mention it.
+//
+// The copy is `created_for_auction` whatever the original was, because it
+// has no marketplace listing to be handed back to -- removing it should
+// soft-remove rather than publish an item that was never on sale.
+export async function duplicateAuctionLot(lotId: string): Promise<{
+  lotId: string; listingId: string; lotNumber: number; videoNotCopied: boolean;
+}> {
+  const { data, error } = await supabase.rpc('duplicate_auction_lot', { p_lot_id: lotId });
+  if (error) throw toAuctionError(error);
+  return {
+    lotId: (data as any).lot_id,
+    listingId: (data as any).listing_id,
+    lotNumber: Number((data as any).lot_number),
+    videoNotCopied: !!(data as any).video_not_copied,
+  };
+}
+
 // Deleting the whole auction, at any status, bids and all.
 //
 // Each lot's listing is dealt with first, by the same created_for_auction

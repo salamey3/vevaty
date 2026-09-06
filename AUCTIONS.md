@@ -769,6 +769,29 @@ move a day-tap a month backwards. And Clear only appears where the save
 can carry it out — a new auction or a draft — because a button that
 reports success and changes nothing is worse than no button.
 
+**Two of the same object are one duplicate away.** The copy icon on a lot
+row calls `myazar.duplicate_auction_lot(lot_id)`, which cannot share the
+original's listing -- `auction_lots_listing_id_key` is one listing, one
+lot, ever -- so it creates a new listing carrying the text, category,
+condition, geography, attributes, stills and 360 sets, and hangs a new lot
+off it with the same start price, reserve and terms. The seller comes
+across too: two of the same object are two of the same consignor's. The
+copy is `created_for_auction` whatever the original was, because it has no
+marketplace listing to be handed back to.
+
+**It does not copy the video**, and that is a correction rather than an
+omission. The first version did, which put one `bunny_guid` on two
+listings -- and the rest of the app assumes one guid to one listing.
+Removing or replacing the video on either lot deletes the asset from Bunny
+for both, leaving the survivor with a row reading `ready` over a file that
+is gone; and `fetchVideoStatus` reads its row with `maybeSingle()`, which
+ERRORS on two rows and returns null, silently disabling the poll that
+recovers a video stuck in `processing` -- for the original as much as for
+the copy. A second physical object needs its own footage anyway. The
+confirm dialog says so, and also says when the sale is live (the copy opens
+for bidding at once, five minutes out) and when the item belongs to another
+seller (the copy's text and media are not editable here either).
+
 Terms are set where the deal is: **all three lot forms take them** — the
 consign form, the build-from-scratch form, and the lot editor afterwards
 (both blank = sale default, and clearing them puts a lot back on it). The

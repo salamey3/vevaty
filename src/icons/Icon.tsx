@@ -13,7 +13,7 @@ export const ICON_NAMES = [
   'check', 'checkCircle', 'star', 'gear', 'rotate', 'phone',
   'car', 'sofa', 'shirt', 'watch', 'bag', 'wallet', 'banknote',
   'card', 'diamond', 'chevronRight', 'sparkle', 'camera', 'close',
-  'edit', 'trophy', 'globe', 'trash', 'grip',
+  'edit', 'trophy', 'globe', 'trash', 'grip', 'copy',
   'building', 'tv', 'factory', 'paw', 'baby', 'dumbbell', 'briefcase', 'wrench', 'flag', 'lock', 'fingerprint',
   'image', 'expand', 'heart', 'share', 'wand', 'eye', 'eyeOff', 'filter',
   'mail',
@@ -52,6 +52,18 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
   };
   return (
     <Svg width={size} height={size} viewBox="0 0 24 24">
+      {name === 'copy' && (
+        <>
+          {/* Two sheets, the back one peeking out top-left. Drawn as two
+              plain Rects rather than a rotated shape, for the same reason
+              the gavel above is: react-native-svg's transform handling
+              differs enough between the native and web renderers to make a
+              rotated glyph a thing that looks right in one and wrong in
+              the other. */}
+          <Rect x="8.5" y="8.5" width="11.5" height="11.5" rx="2.2" {...common} />
+          <Path d="M15.5 5.5v-1a2 2 0 0 0-2-2h-9a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h1" {...common} />
+        </>
+      )}
       {name === 'gavel' && (
         <>
           {/* Head, handle and sound block. Drawn as a parallelogram rather
