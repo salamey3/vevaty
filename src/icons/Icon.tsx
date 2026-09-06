@@ -125,7 +125,16 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
         </>
       )}
       {name === 'star' && (
-        <Path d="M12 4.2 14.5 9.6 20.5 10.4 16.1 14.4 17.3 20.3 12 17.3 6.7 20.3 7.9 14.4 3.5 10.4 9.5 9.6 Z" {...common} />
+        // Fills like `heart` does, and for the same reason: a rating
+        // control that distinguished chosen from unchosen only by STROKE
+        // colour left a pale hairline outline meaning "not selected",
+        // which is exactly the ambiguity the filled/hollow convention
+        // exists to remove.
+        <Path
+          d="M12 4.2 14.5 9.6 20.5 10.4 16.1 14.4 17.3 20.3 12 17.3 6.7 20.3 7.9 14.4 3.5 10.4 9.5 9.6 Z"
+          {...common}
+          fill={filled ? color : 'none'}
+        />
       )}
       {name === 'gear' && (
         <>
@@ -230,10 +239,9 @@ export default function Icon({ name, size = 22, color = colors.ink, strokeWidth 
         </>
       )}
       {name === 'heart' && (
-        // Phase 4 item 17 -- favorites. `filled` is the only icon in this
-        // set that ever fills: an empty outline heart means "not saved",
-        // a filled one means "saved", same convention as every other app
-        // that has this button.
+        // Phase 4 item 17 -- favorites. An empty outline heart means "not
+        // saved", a filled one means "saved", same convention as every
+        // other app that has this button. `star` fills the same way.
         <Path
           d="M12 20.2 4.9 13.4a5 5 0 0 1 7.1-7 5 5 0 0 1 7.1 7Z"
           {...common}

@@ -247,3 +247,56 @@ points activity screen -- write it as a sentence they should see.
 - **Leaked Password Protection is still off** in the Supabase dashboard.
   It was recommended when regular users first got passwords and has not been
   enabled.
+
+
+## Buyers rating sellers
+
+A buyer who has **contacted** a seller about a listing can rate them one to
+five stars, with an optional comment. One review per buyer per listing,
+editable afterwards.
+
+**The gate is contact, not a sale, and that is a correction.** The `reviews`
+table was keyed to `transaction_id` — and transactions are payment records,
+which do not exist and will not until there is a payment provider. So the
+review system was not half-built, it was built on a gate nobody could ever
+pass: a unique constraint over a column that is always null constrains
+nothing, and no row could be inserted honestly. What is available instead is
+proof of contact, and the app already records it — `get_seller_phone` writes
+a `listing_contact_events` row for exactly this purpose, and a chat thread on
+the listing is the other half. `transaction_id` survives, nullable, so a
+future settled sale can point at its review without a second migration.
+
+A review is per LISTING rather than per seller: it is about one interaction
+over one item, which is what a reader wants to weigh, and it is what makes
+"one each" enforceable (`reviews_one_per_listing`).
+
+**Everything is written through `myazar.leave_review`.** The old
+"reviewer can create a review" policy was dropped and INSERT/UPDATE/DELETE
+revoked from `authenticated`, because that policy could only test
+`reviewer_id = auth.uid()` — which a buyer who had never spoken to the
+seller satisfies perfectly. The gate reads `listing_contact_events` and
+`chat_threads`, neither of which a buyer may select for themselves, so the
+check has to be SECURITY DEFINER on the server rather than a policy the
+client could satisfy by asserting something about itself.
+`myazar.can_review_listing` returns the same decision as a reason code so a
+screen can offer the button only when it will work, rather than offering it
+and then refusing.
+
+**The score is denormalised onto `profiles`.** `rating_avg` and
+`rating_count`, maintained by a trigger on `reviews`, granted SELECT to
+everyone — the whole point of a rating is that a stranger sees it before
+making contact. They are two columns rather than an aggregate because every
+card, seller page and listing wants them and none of those can aggregate
+over a PostgREST call.
+
+**A fabricated rating was removed at the same time.** `listing.rating` is
+hardcoded to `5` everywhere a listing is constructed, so every seller in the
+app displayed "5.0" having never been rated once. On a product whose pitch
+against the incumbent is that its trust signals mean something, an invented
+five stars is worse than no stars. The listing page now shows the real
+average and shows nothing at all until somebody has actually left a review.
+
+`POINTS_RULES.leaveReview` (20) is wired for the first time, on a new review
+only — editing one is not a second contribution — and inside the same
+rolling 300/30-day cap every other recurring award respects, so reviewing
+thirty listings cannot mint a tier.

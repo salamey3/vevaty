@@ -50,6 +50,8 @@ import { listingPriceLines, priceLineText } from '../lib/priceDisplay';
 import { rentPaymentFrequencyLabelKey } from '../lib/rentTerms';
 import { listingTitle, listingDescription, listingDistrict, listingShopName, pickText } from '../lib/listingText';
 import { absoluteDate, monthYear, relativeTimeFrom } from '../lib/relativeTime';
+import ReviewSheet from '../components/ReviewSheet';
+import { fetchSellerRating, reviewGate, ReviewGate } from '../lib/reviews';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { shareLink } from '../lib/share';
 import { Alert } from '../lib/alertShim';
@@ -78,6 +80,18 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   const [soldSheetVisible, setSoldSheetVisible] = useState(false);
   const [markingSold, setMarkingSold] = useState(false);
   const [soldError, setSoldError] = useState<string | null>(null);
+  // The seller's REAL score, and whether this buyer may rate them.
+  //
+  // `listing.rating` is not it: that field is hardcoded to 5 everywhere it
+  // is created, so every seller in the app reads "5.0" having never been
+  // rated once. On a product whose whole pitch against the incumbent is
+  // that its trust signals mean something, an invented five stars is worse
+  // than no stars, so the row below shows this instead and shows nothing
+  // until somebody has actually left a review.
+  const [sellerScore, setSellerScore] = useState<{ average: number | null; count: number }>({ average: null, count: 0 });
+  const [gate, setGate] = useState<ReviewGate | null>(null);
+  const [reviewOpen, setReviewOpen] = useState(false);
+  const [reviewThanks, setReviewThanks] = useState<string | null>(null);
   const [reportVisible, setReportVisible] = useState(false);
   const [reportReason, setReportReason] = useState<ReportReason>('spam');
   const [reportNote, setReportNote] = useState('');
@@ -137,6 +151,44 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         : undefined
     );
   };
+
+  // ---- reviews ----
+  // Both load after the page has painted -- neither gates anything the
+  // buyer is here to read, and the gate check is a round trip that a
+  // signed-out visitor would pay for nothing.
+  const sellerId = listing?.sellerId;
+  const listingId = listing?.id;
+  useEffect(() => {
+    if (!sellerId) return;
+    let cancelled = false;
+    (async () => {
+      const score = await fetchSellerRating(sellerId);
+      if (!cancelled) setSellerScore(score);
+    })();
+    return () => { cancelled = true; };
+  }, [sellerId]);
+
+  useEffect(() => {
+    if (!listingId || !isVerified) { setGate(null); return; }
+    let cancelled = false;
+    (async () => {
+      const g = await reviewGate(listingId);
+      // Null means the CHECK failed, not that the answer is no. Writing it
+      // through would hide the button for the life of the screen after one
+      // transient blip, with nothing on screen saying anything went wrong.
+      if (!cancelled && g) setGate(g);
+    })();
+    return () => { cancelled = true; };
+  }, [listingId, isVerified]);
+
+  // The confirmation is a moment, not a permanent fixture. Without this it
+  // stayed pinned under the seller card for the life of the screen --
+  // through reopening the sheet, editing, and cancelling.
+  useEffect(() => {
+    if (!reviewThanks) return;
+    const id = setTimeout(() => setReviewThanks(null), 6000);
+    return () => clearTimeout(id);
+  }, [reviewThanks]);
   // Which section this listing belongs to. The banner placements below
   // use it: an advertiser who bought Properties wants the people reading
   // an apartment listing, not only the people on the Properties home.
@@ -630,6 +682,34 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     />
   );
 
+  const reviewSheet = gate && listing ? (
+    <ReviewSheet
+      visible={reviewOpen}
+      onClose={() => setReviewOpen(false)}
+      listingId={listing.id}
+      sellerName={listing.sellerName}
+      gate={gate}
+      onSaved={async (result) => {
+        setReviewThanks(
+          result.pointsAwarded > 0
+            ? t('reviews.thanksPoints', { points: result.pointsAwarded })
+            : t('reviews.thanks')
+        );
+        // Re-read both: the average has moved, and the gate now reports
+        // 'already_reviewed' so the button becomes "Edit your review".
+        const [score, g] = await Promise.all([
+          fetchSellerRating(listing.sellerId),
+          reviewGate(listing.id),
+        ]);
+        setSellerScore(score);
+        // Same rule as the effect above, and it matters more here: a
+        // failed re-check would take "Edit your review" away seconds after
+        // the review saved, leaving a thank-you over a button that is gone.
+        if (g) setGate(g);
+      }}
+    />
+  ) : null;
+
   const spinSets = listing.spinSets ?? [];
   const hasSpin = spinSets.length > 0;
 
@@ -822,10 +902,19 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
                 </View>
               )}
             </View>
-            <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
-              <Icon name="star" size={12} color={colors.inkSoft} />
-              <Text style={type.tiny}>{listing.rating.toFixed(1)} {t('listingDetail.rating')}</Text>
-            </View>
+            {/* Only when it is real. See sellerScore's note above. */}
+            {sellerScore.count > 0 && sellerScore.average != null && (
+              <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+                <Icon name="star" size={12} color={colors.accent} filled />
+                <Text style={type.tiny}>
+                  {sellerScore.average.toFixed(1)}
+                  {' · '}
+                  {sellerScore.count === 1
+                    ? t('reviews.fromOne')
+                    : t('reviews.fromN', { count: sellerScore.count })}
+                </Text>
+              </View>
+            )}
             <Text style={[styles.memberSince, isRTL && styles.rtlText]}>
               {t('listingDetail.memberSince', { date: monthYear(listing.sellerMemberSince, language) })}
             </Text>
@@ -835,6 +924,24 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           </View>
         </Pressy>
       )}
+
+      {/* Offered only to somebody who has actually dealt with this seller.
+          The gate is checked on the server (contact event or chat thread),
+          so this is a display decision, not the enforcement -- and the
+          button simply does not appear for everyone else rather than
+          appearing and then refusing. */}
+      {gate?.canReview && (
+        <Pressy
+          onPress={() => { setReviewThanks(null); setReviewOpen(true); }}
+          style={styles.reviewCta}
+        >
+          <Icon name="star" size={15} color={colors.primary} filled={gate.reason === 'already_reviewed'} />
+          <Text style={styles.reviewCtaText}>
+            {gate.reason === 'already_reviewed' ? t('reviews.editYours') : t('reviews.rateSeller')}
+          </Text>
+        </Pressy>
+      )}
+      {reviewThanks ? <Text style={styles.reviewThanks}>{reviewThanks}</Text> : null}
 
     </>
   );
@@ -1317,6 +1424,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         </ScrollView>
         {confirmDialog}
         {soldSheet}
+      {reviewSheet}
         {reportModal}
       </Screen>
     );
@@ -1350,12 +1458,23 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       </View>
       {confirmDialog}
       {soldSheet}
+      {reviewSheet}
       {reportModal}
     </Screen>
   );
 }
 
 const styles = StyleSheet.create({
+  reviewCta: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    marginHorizontal: 16, marginTop: 10, height: 44, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.primary, backgroundColor: colors.primaryTint,
+  },
+  reviewCtaText: { fontSize: 14, fontWeight: '700', color: colors.primary },
+  reviewThanks: {
+    ...type.tiny, color: colors.success, textAlign: 'center',
+    marginHorizontal: 16, marginTop: 7, lineHeight: 16,
+  },
   contactPromptSlot: { marginBottom: 14 },
   center: { flex: 1, alignItems: 'center', justifyContent: 'center' },
   topBar: {

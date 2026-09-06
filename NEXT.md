@@ -86,7 +86,12 @@ Two things worth fixing:
   card rebuild and was left alone rather than widened into it; the app is
   unaffected, only Arabic web.
 
-- **Around sixty categories still have no card specs curated.** Listing
+- **Card specs are numbered everywhere they can be** (6 Sep) — every
+  category that has attributes now has a card spec row. What follows is the
+  older note, kept for the reasoning behind curating them by hand rather
+  than guessing:
+
+- **(DONE 6 Sep) Around sixty categories still have no card specs curated.** Listing
   cards show up to three specs chosen per category (@CARDS.md). Properties,
   Vehicles, Pets and Fashion were done in their own overhauls, and the 5 Sep
   specs pass numbered its own twenty-seven as it went. Everything else shows
@@ -138,6 +143,33 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Buyers can rate sellers**, 6 Sep 2026. One to five stars and an optional
+comment, from any buyer who has contacted that seller about a listing —
+revealed their number or opened a chat. One review per buyer per listing,
+editable. Shown on the listing page and on the seller's profile, with the
+seller's average and count kept on `profiles` by a trigger. @ACCOUNTS.md,
+"Buyers rating sellers", carries the reasoning — above all why the gate is
+contact rather than a completed sale, which the table was originally keyed
+to and which cannot happen until payments exist.
+
+Two things fixed alongside it. `listing.rating` was hardcoded to `5`, so
+every seller in the app read "5.0" having never been rated; that row now
+shows the real score and shows nothing until there is one. And eleven more
+categories carried a duplicate attribute-level "Condition" — the same defect
+found on Watches and on Books — which is now swept: their `condition_mode`
+is `graded` and the duplicate rows are gone. The note below that said "a few
+categories may still carry" one was understating it, and the sweep is a
+query rather than an eye now.
+
+**Every category with attributes has card specs**, 6 Sep 2026. The
+seventeen that had attributes but no `card_priority` on any of them are
+numbered — Electronics above all, which is the highest-volume section in
+this market and showed no spec row at all. Three per category, chosen for
+what a buyer COMPARES on a card rather than what describes the item best:
+brand plus the one or two numbers that separate two otherwise identical
+results. Model is deliberately off most cards — free text, long, and it
+repeats the title.
 
 **The money, live and per lot**, 5 Sep 2026. Four changes that together turn
 the monitor into the sale's books.

@@ -16,6 +16,10 @@ import { RootStackParamList } from '../navigation/types';
 import { useGoBack } from '../hooks/useGoBack';
 import HomeMarkButton from '../components/HomeMarkButton';
 import { monthYear } from '../lib/relativeTime';
+import { fetchSellerRating, fetchSellerReviews, SellerReview } from '../lib/reviews';
+
+// How many a seller page shows before it says there are more.
+const REVIEW_PAGE = 20;
 
 type Props = NativeStackScreenProps<RootStackParamList, 'SellerProfile'>;
 
@@ -27,7 +31,7 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
   const goBack = useGoBack();
   const { sellerId } = route.params;
   const { listings } = useAppStore();
-  const { t, language } = useLanguage();
+  const { t, language, isRTL } = useLanguage();
   const isDesktop = useIsDesktop();
   const columns = useListingGridColumns();
 
@@ -96,6 +100,33 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
       controller.abort();
     };
   }, [sellerId, sellerListings.length]);
+
+  // Reviews load on their own, after the page has already painted. They
+  // are the one thing here that nothing else waits on, and a seller with
+  // no reviews is the common case -- blocking the page on an empty list
+  // would be paying for nothing.
+  const [rating, setRating] = useState<{ average: number | null; count: number }>({ average: null, count: 0 });
+  const [reviews, setReviews] = useState<SellerReview[]>([]);
+  // Three states, not two. "Still loading" and "could not load" both
+  // rendered as "No reviews yet" before, which put that sentence directly
+  // under a header counting seven of them.
+  const [reviewsState, setReviewsState] = useState<'loading' | 'ready' | 'failed'>('loading');
+
+  useEffect(() => {
+    let cancelled = false;
+    setReviewsState('loading');
+    (async () => {
+      const [score, list] = await Promise.all([
+        fetchSellerRating(sellerId),
+        fetchSellerReviews(sellerId, REVIEW_PAGE),
+      ]);
+      if (cancelled) return;
+      setRating(score);
+      setReviews(list ?? []);
+      setReviewsState(list ? 'ready' : 'failed');
+    })();
+    return () => { cancelled = true; };
+  }, [sellerId]);
 
   const sellerName = sellerListings[0]?.sellerName ?? fallbackSeller?.name ?? '';
   const sellerVerified = sellerListings[0]?.sellerVerified ?? fallbackSeller?.verified ?? false;
@@ -173,6 +204,29 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
       <View style={styles.adsPill}>
         <Text style={styles.adsPillText}>{t('sellerProfile.publishedAds', { count: sellerListings.length })}</Text>
       </View>
+      {/* Only once there is something to say. A row of five hollow stars
+          over "no reviews" makes a new seller look rated badly rather
+          than not yet rated. */}
+      {rating.count > 0 && rating.average != null && (
+        <View style={styles.scoreRow}>
+          <View style={styles.scoreStars}>
+            {[1, 2, 3, 4, 5].map((n) => (
+              <Icon
+                key={n}
+                name="star"
+                size={14}
+                filled={n <= Math.round(rating.average!)}
+                color={n <= Math.round(rating.average!) ? colors.accent : 'rgba(255,255,255,0.35)'}
+              />
+            ))}
+          </View>
+          <Text style={styles.scoreText}>
+            {t('reviews.outOfFive', { avg: rating.average.toFixed(1) })}
+            {' · '}
+            {rating.count === 1 ? t('reviews.fromOne') : t('reviews.fromN', { count: rating.count })}
+          </Text>
+        </View>
+      )}
       <Pressy onPress={handleShare} style={styles.shareBtn}>
         <Icon name="share" size={14} color={colors.white} />
         <Text style={styles.shareBtnText}>
@@ -186,10 +240,74 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
     </LinearGradient>
   );
 
+  const reviewsSection = (
+    <>
+      <Text style={styles.sectionLabel}>{t('reviews.sectionTitle', { count: rating.count })}</Text>
+      {reviewsState === 'loading' ? (
+        <View style={styles.noReviews}>
+          <ActivityIndicator size="small" color={colors.inkSoft} />
+        </View>
+      ) : reviewsState === 'failed' ? (
+        <View style={styles.noReviews}>
+          <Text style={type.soft}>{t('reviews.loadFailed')}</Text>
+        </View>
+      ) : reviews.length === 0 ? (
+        <View style={styles.noReviews}>
+          <Text style={type.soft}>{t('reviews.none')}</Text>
+          <Text style={styles.noReviewsHint}>{t('reviews.noneHint')}</Text>
+        </View>
+      ) : (
+        <View style={styles.reviewList}>
+          {reviews.map((r) => (
+            <View key={r.id} style={styles.review}>
+              <View style={[styles.reviewTop, isRTL && styles.rowRTL]}>
+                <View style={[styles.reviewStars, isRTL && styles.rowRTL]}>
+                  {[1, 2, 3, 4, 5].map((n) => (
+                    <Icon
+                      key={n}
+                      name="star"
+                      size={12}
+                      filled={n <= r.rating}
+                      color={n <= r.rating ? colors.accent : colors.line}
+                    />
+                  ))}
+                </View>
+                <Text style={styles.reviewWho} numberOfLines={1}>
+                  {r.reviewerName || t('sellerProfile.unknownSeller')}
+                </Text>
+                {r.edited && <Text style={styles.reviewEdited}>{t('reviews.editedFlag')}</Text>}
+              </View>
+              {/* When it was written. On a trust surface recency is the
+                  field most worth showing, and it was already in hand. */}
+              <Text style={styles.reviewWhen}>
+                {monthYear(new Date(r.createdAt).getTime(), language)}
+              </Text>
+              {r.comment ? <Text style={styles.reviewBody}>{r.comment}</Text> : null}
+              {(r.listingTitleEn || r.listingTitleAr) && (
+                <Text style={styles.reviewItem} numberOfLines={1}>
+                  {language === 'ar'
+                    ? r.listingTitleAr || r.listingTitleEn
+                    : r.listingTitleEn || r.listingTitleAr}
+                </Text>
+              )}
+            </View>
+          ))}
+        </View>
+      )}
+      {/* A seller with forty reviews showed twenty and said nothing. */}
+      {reviewsState === 'ready' && rating.count > reviews.length && (
+        <Text style={styles.reviewsMore}>
+          {t('reviews.showingN', { shown: reviews.length, total: rating.count })}
+        </Text>
+      )}
+    </>
+  );
+
   const listHeader = (
     <>
       {header}
       {hero}
+      {reviewsSection}
       <Text style={styles.sectionLabel}>{t('sellerProfile.listings', { count: sellerListings.length })}</Text>
     </>
   );
@@ -262,6 +380,31 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
 }
 
 const styles = StyleSheet.create({
+  scoreRow: { alignItems: 'center', gap: 4, marginTop: 10 },
+  scoreStars: { flexDirection: 'row', gap: 2 },
+  scoreText: { fontSize: 12, color: 'rgba(255,255,255,0.86)', fontVariant: ['tabular-nums'] },
+
+  // 18 to match sectionLabel and the grid below -- at 12 and 14 the review
+  // cards sat proud of everything above and below them.
+  noReviews: { paddingHorizontal: 18, paddingBottom: 6, gap: 3 },
+  noReviewsHint: { ...type.tiny, color: colors.inkSoft, lineHeight: 16 },
+  reviewList: { paddingHorizontal: 18, gap: 8 },
+  reviewsMore: { ...type.tiny, color: colors.inkSoft, paddingHorizontal: 18, paddingTop: 8 },
+  reviewWhen: { ...type.tiny, color: colors.inkSoft },
+  // This app never flips I18nManager, so every mirrored row is spelled out
+  // (see src/lib/mirrorRow.ts).
+  rowRTL: { flexDirection: 'row-reverse' },
+  review: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
+    borderRadius: radius.md, padding: 12, gap: 5,
+  },
+  reviewTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  reviewStars: { flexDirection: 'row', gap: 1.5 },
+  reviewWho: { flex: 1, fontSize: 12.5, fontWeight: '700', color: colors.ink },
+  reviewEdited: { ...type.tiny, color: colors.inkSoft, fontStyle: 'italic' },
+  reviewBody: { fontSize: 13.5, lineHeight: 19, color: colors.ink },
+  reviewItem: { ...type.tiny, color: colors.inkSoft },
+
   header: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingHorizontal: 12, paddingTop: 4, paddingBottom: 8 },
   backBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   hero: { marginHorizontal: 18, borderRadius: radius.xl, padding: 22, alignItems: 'center', marginTop: 4, marginBottom: 10 },
