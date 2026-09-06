@@ -45,6 +45,9 @@ import AuctionRegisterScreen from '../screens/AuctionRegisterScreen';
 import AdminAuctionsScreen from '../screens/admin/AdminAuctionsScreen';
 import AdminAuctionLotsScreen from '../screens/admin/AdminAuctionLotsScreen';
 import AdminAuctionMonitorScreen from '../screens/admin/AdminAuctionMonitorScreen';
+import AdminAuctionSubmissionsScreen from '../screens/admin/AdminAuctionSubmissionsScreen';
+import SellAtAuctionScreen from '../screens/SellAtAuctionScreen';
+import AuctionSubmissionFormScreen from '../screens/AuctionSubmissionFormScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
@@ -125,6 +128,9 @@ const linking: LinkingOptions<RootStackParamList> = {
       AdminAuctions: 'admin/auctions',
       AdminAuctionLots: 'admin/auctions/:auctionId/lots',
       AdminAuctionMonitor: 'admin/auctions/:auctionId/monitor',
+      SellAtAuction: 'auctions/sell',
+      AuctionSubmissionForm: 'auctions/sell/item',
+      AdminAuctionSubmissions: 'admin/auctions/consignments',
     },
   },
 };
@@ -189,6 +195,15 @@ export default function RootNavigator() {
         <Stack.Screen name="AdminAuctions" component={AdminAuctionsScreen} />
         <Stack.Screen name="AdminAuctionLots" component={AdminAuctionLotsScreen} />
         <Stack.Screen name="AdminAuctionMonitor" component={AdminAuctionMonitorScreen} />
+        {/* Consigning. The form is a modal because it is entered from the
+            list it returns to, and from the auctions front door. */}
+        <Stack.Screen name="SellAtAuction" component={SellAtAuctionScreen} />
+        <Stack.Screen
+          name="AuctionSubmissionForm"
+          component={AuctionSubmissionFormScreen}
+          options={{ presentation: 'modal' }}
+        />
+        <Stack.Screen name="AdminAuctionSubmissions" component={AdminAuctionSubmissionsScreen} />
       </Stack.Navigator>
     </NavigationContainer>
   );

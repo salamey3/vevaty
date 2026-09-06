@@ -858,12 +858,90 @@ every bidder's name and every hidden maximum: RLS filters rows, it never
 confers a privilege, and this is exactly the data that must not leak to a
 bidder who could use it to snipe.
 
+## Consignors offering us things
+
+The two ways in above are both ours: an admin either consigns an existing
+listing or types a lot from scratch. Neither lets a person who owns one
+good watch tell us about it, and sellers are the scarce side of an auction
+house — there is no sale without them.
+
+`myazar.auction_submissions` is that door. It is a **queue, not a draft**.
+Nothing in it is public, nothing in it is browsable, and it holds a request
+rather than a half-built lot.
+
+**The form asks what a specialist would ask on the phone**, and in that
+order: what is it, what makes it that (maker, reference, year, size), what
+state is it in, what comes with it (box, papers, a third-party
+certificate, provenance), is it yours to sell, what do you think it is
+worth, where is it, and at least three photographs. Money is deliberately
+last — a consignor asked their price first anchors on it and then describes
+the object to justify the number.
+
+**Only phone-verified accounts may submit**, the same bar as posting a
+listing. Not friction for its own sake: a declined consignor who can come
+straight back under a fresh anonymous account makes the queue
+unscreenable. Ten open submissions per account is the ceiling.
+
+**The categories are seven, not ninety.** `auction_submission_kinds` —
+watches, jewellery, handbags, art, collectibles, high-end electronics, and
+"something else" — each mapped to the marketplace category the eventual
+listing is filed under. A consignor picking from the real tree lands in
+"Mobile Accessories", and a form that lets someone submit a phone case to a
+luxury sale has failed its first job, which is to screen out the wrong
+items by itself. It is a table rather than a constant so the mapping can be
+retuned without a release; "something else" maps to nothing on purpose,
+which forces the admin to classify it by hand.
+
+**Accepting creates nothing.** This is the part worth remembering.
+`admin_decide_auction_submission` moves the row to `accepted` and stops.
+Turning it into a lot is a second, separate call —
+`admin_convert_submission_to_lot` — because between the two sits a physical
+inspection and a conversation about terms, and those take days. A screen
+that collapsed them would mean quoting a start price off a phone
+photograph. The statuses are `pending`, `needs_info` (sent back with a
+question, which the consignor answers by editing, which resubmits it),
+`accepted`, `declined`, `withdrawn` and `converted`.
+
+**Conversion does not go through `create_auction_lot` or
+`add_auction_lot`, and the reason is ownership.** `create_auction_lot`
+makes the listing with `seller_id` = the admin who called it, which is
+right for house stock and wrong here: the person who gets paid is the
+consignor, and the monitor, the settlement and the name on the lot all read
+`seller_id`. `add_auction_lot` takes an existing listing but stamps
+`created_for_auction = false` and remembers `listing_prev_status` — which
+would mean first creating a listing the consignor owns and can see, and
+handing it back to them as an editable draft of an item we had already
+accepted if the lot were ever removed. So the conversion inserts both rows
+itself, with `created_for_auction = true`, repeating
+`create_auction_lot`'s validation refusal for refusal. Their photographs
+come across as the lot's gallery — nothing is re-uploaded, they were
+already CDN urls.
+
+**Two notes, and only one of them travels.** `admin_note` is written *for*
+the consignor — the question on a `needs_info`, the reason on a decline —
+and they read it on their own screen. `admin_private_note` never leaves the
+building. The server builds a different object for each audience
+(`submission_row_for_seller` and `submission_row_for_admin`) rather than
+one object with a flag, because a flag that decides whether to include a
+secret is a flag somebody eventually passes the wrong way. The private note
+also has its own RPC and its own save button: it exists to survive the days
+between screening an object and deciding on it, and a note only written as
+a side effect of the decision is lost over exactly that gap.
+
+**The queue is ordered oldest-first with undecided rows above everything**,
+because that is the only order a queue can be worked in without somebody
+being forgotten. Each row carries what the consignor has sent us before —
+four previous declines is a different proposition from a first-time
+consignor with the same watch — and the counts are computed over the whole
+table rather than the page, so a filtered view still tells the truth about
+how much is waiting.
+
+There is still **no notification** when one arrives. The admin has to look,
+and the "Waiting" filter opens by default with its count. That is the same
+gap as outbid alerts and it closes the same way.
+
 ## What is deliberately not built yet
 
-- **Seller submission.** v1 has the admin creating lots directly, both
-  ways, which is how the first few will actually run — sourced and curated
-  by hand. A submit-for-review queue roughly doubles v1 and is almost
-  entirely admin screens rather than auction.
 - **Category attributes on a from-scratch lot.** The form writes title,
   description, category, condition, district and price, and no
   `attributes` — so a lot built here has an empty spec row on its card

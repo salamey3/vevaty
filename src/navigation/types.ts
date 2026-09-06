@@ -138,6 +138,17 @@ export type RootStackParamList = {
   // Watching a sale run: every lot with its leader and a live feed of bids.
   // Read-only -- changing a lot is AdminAuctionLots' job.
   AdminAuctionMonitor: { auctionId: string };
+  // The consignor's side: the pitch, and the state of whatever they have
+  // already offered us. No params -- it always shows their own.
+  SellAtAuction: undefined;
+  // Offering one item, or answering a question we asked about one.
+  // `submissionId` present means edit; absent means new. Optional rather
+  // than two routes because it is the same form either way, and a second
+  // route would be the same 500 lines with a different name.
+  AuctionSubmissionForm: { submissionId?: string };
+  // The screening queue. Accepting and converting both live here, and
+  // they are deliberately two acts -- see the screen.
+  AdminAuctionSubmissions: undefined;
 };
 
 export type MainTabParamList = {

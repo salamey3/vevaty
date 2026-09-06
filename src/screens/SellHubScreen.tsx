@@ -146,6 +146,16 @@ export default function SellHubScreen({ navigation, route }: Props) {
           <Text style={styles.cardTitle}>{t('sellHub.batchItemTitle')}</Text>
           <Text style={styles.cardBody}>{t('sellHub.batchItemBody')}</Text>
         </Pressy>
+        {/* The third way to sell, and the only one that is not self-serve:
+            an auction lot is offered, screened and priced with us, so this
+            card goes to a form rather than into the posting flow. */}
+        <Pressy onPress={() => navigation.navigate('SellAtAuction')} style={styles.card}>
+          <View style={styles.cardIcon}>
+            <Icon name="gavel" size={22} color={colors.primary} />
+          </View>
+          <Text style={styles.cardTitle}>{t('sellHub.auctionTitle')}</Text>
+          <Text style={styles.cardBody}>{t('sellHub.auctionBody')}</Text>
+        </Pressy>
       </View>
 
       {!!myShop?.verifiedAt && (

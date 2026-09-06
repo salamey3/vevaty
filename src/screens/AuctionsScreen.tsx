@@ -128,6 +128,24 @@ export default function AuctionsScreen() {
       >
         <Text style={[styles.lede, isRTL && styles.rtl]}>{t('auctions.lede')}</Text>
 
+        {/* The consignor's door, on the section's front page rather than
+            buried in a profile menu. Sellers are the scarce side of an
+            auction house -- there is no sale without them -- and somebody
+            who owns one good watch is far likelier to arrive here, looking
+            at what sold, than to go looking for a form. */}
+        <Pressy onPress={() => navigation.navigate('SellAtAuction')} style={styles.consign}>
+          <View style={[styles.consignRow, mirrorRow(isRTL)]}>
+            <View style={styles.consignIcon}>
+              <Icon name="diamond" size={17} color={colors.primary} />
+            </View>
+            <View style={styles.consignText}>
+              <Text style={[styles.consignTitle, isRTL && styles.rtl]}>{t('consign.ctaTitle')}</Text>
+              <Text style={[styles.consignSub, isRTL && styles.rtl]}>{t('consign.ctaSub')}</Text>
+            </View>
+            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+          </View>
+        </Pressy>
+
         {loading ? (
           <ActivityIndicator style={{ marginTop: 40 }} color={colors.primary} />
         ) : failed ? (
@@ -188,5 +206,18 @@ const styles = StyleSheet.create({
     borderRadius: radius.pill, borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
   },
   retryText: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
+  consign: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
+    borderTopLeftRadius: radius.md, borderBottomRightRadius: radius.md,
+    padding: 13, marginBottom: 20,
+  },
+  consignRow: { flexDirection: 'row', alignItems: 'center', gap: 11 },
+  consignIcon: {
+    width: 34, height: 34, borderRadius: 17, backgroundColor: colors.primaryTint,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  consignText: { flex: 1, gap: 2 },
+  consignTitle: { fontSize: 14, fontWeight: '800', color: colors.ink },
+  consignSub: { ...type.tiny, lineHeight: 15 },
   rtl: { textAlign: 'right', writingDirection: 'rtl' },
 });

@@ -144,6 +144,23 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**Consignors can offer us an item**, 6 Sep 2026. A phone-verified account
+can send us something for a sale: what it is, maker and reference, its
+condition, box/papers/certificate, provenance, their own estimate and
+floor, where it is, and three to eight photographs — picked from seven
+auction-only categories rather than the ninety-leaf marketplace tree. An
+admin works the queue from Admin → Consignments: accept, decline, or send
+it back with a question the consignor answers by editing. Accepting creates
+nothing; a second, separate act turns an accepted item into a listing owned
+by the consignor and a lot in a named sale, with their photographs and
+their text carried across. @AUCTIONS.md, "Consignors offering us things".
+
+Two things it does not do yet, both deliberate: nothing **notifies** the
+admin that a submission has arrived (the Waiting filter and its count are
+the whole mechanism), and nothing notifies the consignor that we answered —
+they see it next time they open the screen. Both close with the same
+notification work outbid alerts are waiting on.
+
 **Buyers can rate sellers**, 6 Sep 2026. One to five stars and an optional
 comment, from any buyer who has contacted that seller about a listing —
 revealed their number or opened a chat. One review per buyer per listing,
