@@ -940,6 +940,61 @@ There is still **no notification** when one arrives. The admin has to look,
 and the "Waiting" filter opens by default with its count. That is the same
 gap as outbid alerts and it closes the same way.
 
+## The conditions each side agrees to
+
+Two documents, both in `myazar.legal_documents`, both versioned:
+`auction_consignment` on the consignment form, `auction_bidding` on the
+registration screen.
+
+**The text lives in the database, not in the bundle**, and that is the
+point rather than a convenience. Both documents end with a clause saying
+the version in force when you agreed is the one that binds you — and that
+sentence is only true if the exact text of that version can still be
+produced afterwards. Text shipped inside a release is gone the moment the
+next release overwrites it, which would make the clause unprovable at
+exactly the moment somebody needed it proved. `ON DELETE RESTRICT` from
+`legal_acceptances` enforces the other half: a version somebody accepted
+can never be deleted, only superseded, and a partial unique index keeps
+exactly one published version per slug.
+
+**The body is structure, not markup.** A legal document has a known shape
+— numbered clauses, headings, paragraphs, lists, tables of figures — so it
+is stored as that shape and rendered natively. Markdown would need a
+parser on the client; HTML would need to be trusted, and this text is
+displayed to every user of the app. `**bold**` is the single inline
+marker. An unrecognised block type is skipped rather than rendered, so an
+older app reading a newer document shows a slightly shorter clause instead
+of a stack trace.
+
+**The gates are in the functions, not the screens.** `submit_auction_item`
+and `register_for_auction` both refuse with `terms_not_accepted` unless
+the currently published version is accepted. A checkbox in an app is a
+courtesy to the reader; it is not a control, and the record that somebody
+agreed is only worth having if no path exists that writes a consignment or
+a registration without one. Editing an existing submission is deliberately
+NOT gated — that is somebody answering a question we asked, and stopping
+them mid-conversation to re-agree to a document we changed in the meantime
+would be our problem made into theirs.
+
+**Ticking records the agreement immediately**, not on submit, because an
+agreement is a thing a person did at a moment and "they ticked it at
+14:32" is the answer if it is ever disputed. Which makes it one-way: there
+is no untick, because you cannot un-agree — somebody who changes their
+mind simply does not submit. `accept_legal_document` takes the VERSION as
+an argument, so the client asserts which text it actually put in front of
+the person; if that is no longer the live one it refuses with
+`version_superseded` rather than recording an agreement to words nobody
+was shown.
+
+Version 1 of both is seeded and published. The English text still carries
+six bracketed placeholders — the legal entity, the premises, the bank, the
+insurance position, the storage and late-payment rates — and those are
+deliberately IN the published text rather than held back: a consignor
+reading a bracket knows something is unsettled, whereas a confident
+sentence with a wrong number in it warns nobody. `body_ar` is null on
+both; the reader falls back to English and says so, because a machine
+translation of an indemnity clause is worse than an honest gap.
+
 ## What is deliberately not built yet
 
 - **Category attributes on a from-scratch lot.** The form writes title,

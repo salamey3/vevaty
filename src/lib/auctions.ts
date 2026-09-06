@@ -40,6 +40,9 @@ export type AuctionErrorCode =
   | 'reserve_below_start' | 'category_required' | 'invalid_status'
   | 'rate_out_of_range' | 'rates_locked'
   | 'invalid_commission_basis' | 'surplus_needs_reserve'
+  // Raised by register_for_auction when the bidder has not agreed to the
+  // conditions of bidding currently in force.
+  | 'terms_not_accepted'
   | 'unknown';
 
 export class AuctionError extends Error {
@@ -78,6 +81,7 @@ const KNOWN_CODES = new Set<string>([
   'reserve_below_start', 'category_required', 'invalid_status',
   'rate_out_of_range', 'rates_locked',
   'invalid_commission_basis', 'surplus_needs_reserve',
+  'terms_not_accepted',
 ]);
 
 function toAuctionError(error: any): AuctionError {

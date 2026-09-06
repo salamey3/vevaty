@@ -12,6 +12,7 @@ import {
   AuctionError, demoCardBrand, fetchMyCards, registerForAuction, saveDemoCard,
 } from '../lib/auctions';
 import { mirrorRow } from '../lib/mirrorRow';
+import TermsTick, { TermsState } from '../components/TermsTick';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from '../navigation/types';
 
@@ -37,6 +38,13 @@ export default function AuctionRegisterScreen() {
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Agreement to the conditions of bidding. Mirrored here only to gate the
+  // button; the real gate is inside register_for_auction, because
+  // registration is the moment a person commits to binding bids and a
+  // checkbox in an app cannot be the thing that holds them to it.
+  const [terms, setTerms] = useState<TermsState>('pending');
+  const onTermsChange = useCallback((v: TermsState) => setTerms(v), []);
+  const [termsRefresh, setTermsRefresh] = useState(0);
   const [number, setNumber] = useState('');
   const [expiry, setExpiry] = useState('');
 
@@ -74,6 +82,10 @@ export default function AuctionRegisterScreen() {
       setExpiry('');
     } catch (e: any) {
       const code = e instanceof AuctionError ? e.code : 'unknown';
+      // The row said accepted and the server disagreed, which means a new
+      // version was published while this screen was open. Reload the row
+      // so the tick is offered again rather than sitting ticked and inert.
+      if (code === 'terms_not_accepted') setTermsRefresh((n) => n + 1);
       setError(code === 'not_signed_in' ? t('auctions.err.signIn') : t('auctions.err.testCardOnly'));
     } finally {
       setBusy(false);
@@ -82,6 +94,8 @@ export default function AuctionRegisterScreen() {
 
   const register = async () => {
     if (!selected) { setError(t('auctions.err.pickCard')); return; }
+    if (terms === 'unavailable') { setError(t('legal.blocked')); return; }
+    if (terms !== 'accepted') { setError(t('legal.needAgree')); return; }
     setBusy(true);
     setError(null);
     try {
@@ -97,11 +111,16 @@ export default function AuctionRegisterScreen() {
       navigation.goBack();
     } catch (e: any) {
       const code = e instanceof AuctionError ? e.code : 'unknown';
+      // The row said accepted and the server disagreed, which means a new
+      // version was published while this screen was open. Reload the row
+      // so the tick is offered again rather than sitting ticked and inert.
+      if (code === 'terms_not_accepted') setTermsRefresh((n) => n + 1);
       setError(
         code === 'phone_not_verified' ? t('auctions.err.verifyPhone')
           : code === 'auction_not_open_for_registration' ? t('auctions.err.auctionClosed')
           : code === 'not_signed_in' ? t('auctions.err.signIn')
           : code === 'payment_method_invalid' ? t('auctions.err.cardUnusable')
+          : code === 'terms_not_accepted' ? t('legal.superseded')
           : code === 'auction_not_found' ? t('auctions.notFound')
           : t('auctions.err.generic')
       );
@@ -182,14 +201,32 @@ export default function AuctionRegisterScreen() {
                 </Pressy>
               </View>
 
+              <View style={styles.terms}>
+                <TermsTick
+                  slug="auction_bidding"
+                  context="auction_registration"
+                  onChange={onTermsChange}
+                  refreshToken={termsRefresh}
+                />
+              </View>
+
               {!!error && <Text style={[styles.error, isRTL && styles.rtl]}>{error}</Text>}
 
+              {/* Never `disabled`, only dimmed -- the same pattern as the
+                  consignment form's submit.
+                  `disabled={!selected}` used to sit here, and Button
+                  applies the caller's `style` AFTER its own disabled
+                  style, so this opacity overrode the 0.4 dim: a bidder who
+                  ticked the terms before entering a card got a
+                  full-brightness button that did nothing at all when
+                  tapped, because register() was never reached and its
+                  "pick a card" sentence never ran. Now every refusal comes
+                  from register(), which says which one it is. */}
               <Button
                 label={t('auctions.registerCta')}
                 onPress={register}
                 loading={busy}
-                disabled={!selected}
-                style={{ marginTop: 16 }}
+                style={{ marginTop: 16, opacity: selected && terms === 'accepted' ? 1 : 0.55 }}
               />
               <Text style={[styles.footNote, isRTL && styles.rtl]}>{t('auctions.registerFootnote')}</Text>
             </>
@@ -231,6 +268,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center',
   },
   addBtnText: { fontSize: 13.5, fontWeight: '700', color: colors.ink },
+  terms: { marginTop: 4, marginBottom: 4 },
   error: { color: colors.danger, fontSize: 12.5, marginTop: 4 },
   footNote: { ...type.tiny, marginTop: 12, lineHeight: 16 },
   rtl: { textAlign: 'right', writingDirection: 'rtl' },

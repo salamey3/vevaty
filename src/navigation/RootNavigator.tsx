@@ -48,6 +48,7 @@ import AdminAuctionMonitorScreen from '../screens/admin/AdminAuctionMonitorScree
 import AdminAuctionSubmissionsScreen from '../screens/admin/AdminAuctionSubmissionsScreen';
 import SellAtAuctionScreen from '../screens/SellAtAuctionScreen';
 import AuctionSubmissionFormScreen from '../screens/AuctionSubmissionFormScreen';
+import LegalDocumentScreen from '../screens/LegalDocumentScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
@@ -131,6 +132,7 @@ const linking: LinkingOptions<RootStackParamList> = {
       SellAtAuction: 'auctions/sell',
       AuctionSubmissionForm: 'auctions/sell/item',
       AdminAuctionSubmissions: 'admin/auctions/consignments',
+      LegalDocument: 'terms/:slug',
     },
   },
 };
@@ -204,6 +206,13 @@ export default function RootNavigator() {
           options={{ presentation: 'modal' }}
         />
         <Stack.Screen name="AdminAuctionSubmissions" component={AdminAuctionSubmissionsScreen} />
+        {/* Modal, because it is always opened from a screen that is asking
+            for agreement and must return to it. */}
+        <Stack.Screen
+          name="LegalDocument"
+          component={LegalDocumentScreen}
+          options={{ presentation: 'modal' }}
+        />
       </Stack.Navigator>
     </NavigationContainer>
   );

@@ -17,6 +17,7 @@ import { useAppStore } from '../store/AppStore';
 import { useIsDesktop, DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 import { uploadPhotosWithThumbnails } from '../lib/photoUpload';
 import { getGovernorateNames } from '../data/lebanonPlaces';
+import TermsTick, { TermsState } from '../components/TermsTick';
 import { RootStackParamList } from '../navigation/types';
 import {
   EMPTY_DRAFT, MAX_SUBMISSION_PHOTOS, MIN_SUBMISSION_PHOTOS, SUBMISSION_CONDITIONS,
@@ -76,6 +77,17 @@ export default function AuctionSubmissionFormScreen() {
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // Whether the consignor has agreed to the conditions of consignment.
+  // Owned by TermsTick and mirrored here only to gate the button -- the
+  // real gate is server-side in submit_auction_item, because a checkbox in
+  // an app is a courtesy to the reader and not a control.
+  const [terms, setTerms] = useState<TermsState>('pending');
+  const onTermsChange = useCallback((v: TermsState) => setTerms(v), []);
+  // Bumped when the SERVER refuses for terms after the row said they were
+  // accepted -- a new version was published while this form sat open. It
+  // forces the row to reload so the tick comes back, instead of leaving a
+  // ticked, disabled row under an error telling them to tick it.
+  const [termsRefresh, setTermsRefresh] = useState(0);
 
   const set = <K extends keyof SubmissionDraft>(key: K, value: SubmissionDraft[K]) =>
     setDraft((d) => ({ ...d, [key]: value }));
@@ -229,8 +241,13 @@ export default function AuctionSubmissionFormScreen() {
     const low = Number(draft.estimateLow);
     const high = Number(draft.estimateHigh);
     if (draft.estimateLow && draft.estimateHigh && high < low) return t('consign.needEstimateOrder');
+    // Last, because it sits last on the form: naming it before the fields
+    // above it would send someone scrolling past what they still have to
+    // fill in.
+    if (!editingId && terms === 'unavailable') return t('legal.blocked');
+    if (!editingId && terms !== 'accepted') return t('legal.needAgree');
     return null;
-  }, [draft, t]);
+  }, [draft, t, terms, editingId]);
 
   const save = async () => {
     if (missing) { setError(missing); return; }
@@ -251,6 +268,7 @@ export default function AuctionSubmissionFormScreen() {
     } catch (e) {
       setSaving(false);
       const code = (e as SubmissionError)?.code;
+      if (code === 'terms_not_accepted') setTermsRefresh((n) => n + 1);
       setError(
         code === 'not_verified' ? t('consign.errNotVerified')
           : code === 'not_signed_in' ? t('consign.errNotSignedIn')
@@ -265,6 +283,7 @@ export default function AuctionSubmissionFormScreen() {
           : code === 'description_required' ? t('consign.needDescription')
           : code === 'invalid_kind' ? t('consign.needKind')
           : code === 'condition_invalid' ? t('consign.needCondition')
+          : code === 'terms_not_accepted' ? t('legal.superseded')
           : t('consign.errGeneric')
       );
     }
@@ -545,6 +564,22 @@ export default function AuctionSubmissionFormScreen() {
             })}
           </Text>
 
+          {/* Only on a NEW submission. An edit is somebody answering a
+              question we asked, and stopping them mid-conversation to
+              re-agree to a document we changed in the meantime would be
+              our problem made into theirs -- which is why the server does
+              not gate the edit either. */}
+          {!editingId ? (
+            <View style={styles.terms}>
+              <TermsTick
+                slug="auction_consignment"
+                context="consignment_form"
+                onChange={onTermsChange}
+                refreshToken={termsRefresh}
+              />
+            </View>
+          ) : null}
+
           {error ? <Text style={[styles.error, rtlText]}>{error}</Text> : null}
 
           {/* Only `saving` disables it. Gating the button on `missing`
@@ -635,6 +670,7 @@ const styles = StyleSheet.create({
   },
   addPhotoText: { fontSize: 10.5, fontWeight: '700', color: colors.inkSoft },
 
+  terms: { marginTop: 22, paddingTop: 18, borderTopWidth: 1, borderTopColor: colors.line },
   error: { ...type.tiny, color: colors.danger, lineHeight: 17, marginTop: 12 },
   submit: {
     marginTop: 18, height: 50, borderRadius: radius.pill, backgroundColor: colors.primary,

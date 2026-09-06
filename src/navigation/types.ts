@@ -149,6 +149,12 @@ export type RootStackParamList = {
   // The screening queue. Accepting and converting both live here, and
   // they are deliberately two acts -- see the screen.
   AdminAuctionSubmissions: undefined;
+
+  // ---- Conditions of sale ----
+  // Reading one of the stored legal documents in full. Keyed by SLUG, not
+  // by id: the app always wants whichever version is currently in force,
+  // and a route holding an id would pin a reader to a superseded one.
+  LegalDocument: { slug: 'auction_consignment' | 'auction_bidding' };
 };
 
 export type MainTabParamList = {

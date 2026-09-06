@@ -160,6 +160,9 @@ export type SubmissionErrorCode =
   | 'already_converted' | 'auction_not_found' | 'category_required'
   | 'start_price_invalid' | 'reserve_below_start' | 'rate_out_of_range'
   | 'invalid_commission_basis' | 'surplus_needs_reserve'
+  // Raised by submit_auction_item when the consignor has not agreed to the
+  // conditions of consignment currently in force.
+  | 'terms_not_accepted'
   | 'unknown';
 
 const CODES: string[] = [
@@ -172,6 +175,7 @@ const CODES: string[] = [
   'already_converted', 'auction_not_found', 'category_required',
   'start_price_invalid', 'reserve_below_start', 'rate_out_of_range',
   'invalid_commission_basis', 'surplus_needs_reserve',
+  'terms_not_accepted',
 ];
 
 // A real Error, so anything generic that catches it -- a log line reading

@@ -144,6 +144,32 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**The conditions of sale are published where each side signs up**, 6 Sep
+2026. Conditions of consignment on the offer-an-item form, conditions of
+bidding on the auction registration screen, both versioned in the database
+and both enforced server-side rather than by the checkbox. @AUCTIONS.md,
+"The conditions each side agrees to".
+
+Still open on them, and all of it is a decision rather than a build:
+
+- **A legal entity to be a party to the contract**, plus the premises, the
+  bank, the insurance position while a lot is in our custody, and the
+  storage and late-payment rates. Six brackets, published as brackets.
+- **What payment methods we accept, and in what dollars.** In Lebanon "US
+  dollars" is not one currency, and a consignor paid in the wrong ones has
+  lost most of the sale.
+- **The post-collection disclaimer wants a lawyer.** "We authenticate
+  everything" and "no responsibility once collected" pull against each
+  other, and Law 659/2005 limits what a contract can waive. The narrower
+  version to put to them: condition exactly as written, authenticity alone
+  carved out — a lot proved a forgery within 12 months is rescinded
+  against return of the item. Consignor clause 13 already lets us recover
+  that from whoever gave us the fake.
+- **The 5-business-day payment window is a recommendation, not a decision.**
+  The card at registration is real; the authorisation hold at bid time is
+  not built, and would not remove the need for a deadline even once it is.
+- **Arabic.** `body_ar` is null on both documents.
+
 **Consignors can offer us an item**, 6 Sep 2026. A phone-verified account
 can send us something for a sale: what it is, maker and reference, its
 condition, box/papers/certificate, provenance, their own estimate and
