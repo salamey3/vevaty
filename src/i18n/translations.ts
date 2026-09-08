@@ -320,6 +320,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // ListingDetailScreen for such a listing, and by StorefrontScreen
     // itself (mirrors sellerProfile.* one-for-one).
     'listingCard.outOfStock': 'Out of stock',
+    // The preview button on a card's photo. Two labels, because the button
+    // both starts and stops -- a screen reader announcing "preview" on a
+    // button that is already playing would describe the state, not the act.
+    'listingCard.previewStart': 'Preview this listing',
+    'listingCard.previewStop': 'Stop the preview',
     // The paid-promotion mark shown to buyers on a listing whose seller has
     // spent points to feature it. Sellers see the same state worded as
     // "Featured" on their own My Listings row -- that is what they bought;
@@ -1524,6 +1529,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.aiTag': 'إعلان بمساعدة الذكاء الاصطناعي — تمت مراجعته من البائع',
     'listingDetail.seller': 'البائع',
     'listingCard.outOfStock': 'نفدت الكمية',
+    'listingCard.previewStart': 'معاينة هذا الإعلان',
+    'listingCard.previewStop': 'إيقاف المعاينة',
     'listing.sponsored': 'مموّل',
     'auctionOutcome.lotLine': 'القطعة {number}',
     'auctionOutcome.wonTitle': 'تهانينا — لقد ربحت!',

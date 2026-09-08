@@ -1,5 +1,6 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
 import { StyleSheet, Text, View, Image, ViewStyle, useWindowDimensions } from 'react-native';
+import * as Haptics from 'expo-haptics';
 import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Pressy from './Pressy';
@@ -29,6 +30,10 @@ import { RootStackParamList } from '../navigation/types';
 // that out, short enough that anyone who's actually looking still reads
 // it as instant.
 const HOVER_PREVIEW_DELAY_MS = 180;
+
+// How long a button-started preview runs before stopping itself. Nothing
+// else can stop it -- see togglePreview.
+const PREVIEW_AUTOSTOP_MS = 20000;
 
 // The horizontal padding a listing grid puts around itself ON A PHONE. Used
 // only for the first-frame estimate of a grid card's width (see
@@ -84,9 +89,9 @@ export default function ListingCard({
   // main browse grid. Defaults on since that's the common case.
   showFavorite = true,
   // Collection badge (Editor's Picks / Hot Deals) -- see CornerBadge above.
-  // Shares the thumbnail's top-right corner with spinBadge; on the rare
+  // Shares the thumbnail's top-right corner with previewButton; on the rare
   // listing that's both a 360-spin AND in a collection, this one wins the
-  // corner and spinBadge shifts down rather than the two overlapping.
+  // corner and previewButton shifts down rather than the two overlapping.
   cornerBadge,
   // 'vertical' (default): photo on top, details below -- the shape every
   // grid and carousel on the app has always used. 'horizontal': photo on
@@ -94,7 +99,7 @@ export default function ListingCard({
   // Hot Deals (every platform) and Editor's Picks (desktop web only) --
   // see that component's own comment for exactly which collection gets
   // which, on which platform. The badges/ribbon inside the thumbnail
-  // (favorite, cornerBadge, spinBadge, out-of-stock) don't need their own
+  // (favorite, cornerBadge, previewButton, out-of-stock) don't need their own
   // layout branch: they're positioned absolute within `thumb`, so they
   // just follow whatever size/shape it resolves to.
   layout = 'vertical',
@@ -208,6 +213,11 @@ export default function ListingCard({
   // though touching a card is also how almost every scroll starts.
   const [previewing, setPreviewing] = useState(false);
   const hoverTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  // The auto-stop for a preview the button started. Separate from the hover
+  // timer because both can be pending at once and one must not cancel the
+  // other. Doubles as the flag for "the button started this", which is why
+  // hover-out below does not switch it off.
+  const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startHoverTimer = () => {
     hoverTimerRef.current = setTimeout(() => setPreviewing(true), HOVER_PREVIEW_DELAY_MS);
   };
@@ -217,10 +227,55 @@ export default function ListingCard({
       hoverTimerRef.current = null;
     }
   };
-  // A card can be recycled out of a FlatList mid-hover (fast scroll while
-  // the pending timer is still ticking) -- without this the timeout would
+  const clearAutoStop = () => {
+    if (autoStopRef.current) {
+      clearTimeout(autoStopRef.current);
+      autoStopRef.current = null;
+    }
+  };
+
+  // THE PREVIEW BUTTON'S ONLY JOB.
+  //
+  // Touch used to start the preview the instant a finger landed and the
+  // release always opened the listing, so looking and entering were the
+  // same gesture: on a phone you could not watch a spin without landing in
+  // the listing. Trying to split one press into two meanings means talking
+  // the press machinery out of a press it has already decided to deliver,
+  // on two platforms that disagree about how. A separate control has no
+  // such argument to win. This button previews; every other pixel of the
+  // card opens the listing, exactly as before.
+  //
+  // stopPropagation is what keeps them apart -- the same thing the
+  // favourite heart and the shop pill on this card already do, which is
+  // why all three can sit on a surface that is itself pressable.
+  const togglePreview = (e: any) => {
+    e?.stopPropagation?.();
+    clearAutoStop();
+    setPreviewing((on) => {
+      const next = !on;
+      if (next) {
+        // Nothing else can stop it: the finger left when the tap ended and
+        // a card scrolled off screen keeps its state, while a running
+        // preview holds every frame of a spin in memory at full size (see
+        // CardPreview). Twenty seconds is several turns of a spin, long
+        // past the point anyone still watching has seen what they came for.
+        autoStopRef.current = setTimeout(() => setPreviewing(false), PREVIEW_AUTOSTOP_MS);
+        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
+      }
+      return next;
+    });
+  };
+
+  // A card can be recycled out of a FlatList mid-hover or mid-preview (fast
+  // scroll while a timer is still ticking) -- without this the timeout would
   // fire setPreviewing on a component nobody can see anymore.
-  useEffect(() => clearHoverTimer, []);
+  useEffect(
+    () => () => {
+      clearHoverTimer();
+      clearAutoStop();
+    },
+    []
+  );
 
   // A sale price, or a rental's rent-and-period, or both lines for a
   // property offered either way -- see listingPriceLines. The 'card'
@@ -293,6 +348,12 @@ export default function ListingCard({
     </Pressy>
   ) : null;
 
+  // What the button would show, and whether it is worth showing at all. A
+  // spin outranks photos because it is the more informative of the two and
+  // it is what CardPreview picks when a listing has both.
+  const hasSpin = (listing.spinSets?.length ?? 0) > 0;
+  const canPreview = hasSpin || listing.photos.length > 1;
+
   const handleFavoritePress = async () => {
     if (!isVerified) {
       navigation.navigate('Auth');
@@ -320,26 +381,17 @@ export default function ListingCard({
       onHoverIn={startHoverTimer}
       onHoverOut={() => {
         clearHoverTimer();
-        setPreviewing(false);
+        // Only a HOVER preview ends here. A mouse leaving the card must not
+        // switch off something the shopper deliberately turned on with the
+        // button.
+        if (!autoStopRef.current) setPreviewing(false);
       }}
-      // Touch (native app or a phone browser): the preview starts the
-      // instant a finger touches the card -- no hold, no debounce --
-      // mirroring hover's role on desktop, where looking (hovering) and
-      // deciding whether to click through are already two separate
-      // moments. A touch that turns out to be the start of a scroll
-      // still touches down on some card first, so this does mean that
-      // card's preview flashes on for an instant before the scroll
-      // takes over -- an accepted, deliberately-chosen tradeoff for
-      // making the preview feel instant on a touch that IS a deliberate
-      // look, rather than debouncing every touch the way hover does.
-      // onPressOut ends it the same way regardless of how the touch
-      // ended -- released after a tap (the screen navigates away right
-      // after, so it's not visible), released after resting in place,
-      // or the gesture handed off to the list's own scroll -- Pressable
-      // reports all three the same way, which is also what already kept
-      // a card's own press-scale animation from getting stuck mid-scroll.
-      onPressIn={() => setPreviewing(true)}
-      onPressOut={() => setPreviewing(false)}
+      // Touch does not preview any more, and that is the change: it starts
+      // the preview on nothing and ends it on nothing, so a tap is a tap
+      // and the button is the only way in. It also retires the tradeoff
+      // the old comment here described out loud -- every scroll that began
+      // on a card used to flash that card's photos on before the scroll
+      // took over. Nothing loads on a touch now.
     >
       <View
         style={[
@@ -403,10 +455,33 @@ export default function ListingCard({
             )}
           </View>
         )}
-        {(listing.spinSets?.length ?? 0) > 0 && (
-          <View style={[styles.spinBadge, cornerBadge && styles.spinBadgeBelowCorner]}>
-            <Icon name="rotate" size={11} color={colors.white} />
-          </View>
+        {/* The badge that said "there is a 360 in here" is now the button
+            that plays it, which is why there is no fourth thing in this
+            corner: a shopper who tapped the rotate icon was already trying
+            to do exactly this. A listing with several photos and no spin
+            gets the same button with a photo glyph -- it has a slideshow
+            worth watching too. One photo and no spin gets nothing, because
+            there is nothing to show. */}
+        {canPreview && (
+          <Pressy
+            onPress={togglePreview}
+            style={[
+              styles.previewButton,
+              cornerBadge && styles.previewButtonBelowCorner,
+              previewing && styles.previewButtonActive,
+            ]}
+            // Bigger than the glyph, because the glyph is 12px and a thumb
+            // is not. The heart across the card does the same.
+            hitSlop={{ top: 10, bottom: 10, left: 10, right: 10 }}
+            accessibilityRole="button"
+            accessibilityLabel={t(previewing ? 'listingCard.previewStop' : 'listingCard.previewStart')}
+          >
+            <Icon
+              name={previewing ? 'close' : hasSpin ? 'rotate' : 'image'}
+              size={12}
+              color={colors.white}
+            />
+          </Pressy>
         )}
         {canFavorite && (
           <Pressy
@@ -428,7 +503,7 @@ export default function ListingCard({
             Lifted clear of the out-of-stock ribbon when there is one --
             that band is full-width at the bottom of the same box, so
             without this the pill would sit on top of the words in it.
-            Same treatment as spinBadgeBelowCorner above, for the same
+            Same treatment as previewButtonBelowCorner above, for the same
             reason. */}
         {(sponsored || (!horizontal && storefrontPill)) && (
           <View style={[styles.bottomOverlay, listing.stockQty === 0 && styles.bottomOverlayAboveRibbon]}>
@@ -759,22 +834,28 @@ const styles = StyleSheet.create({
   // loses more of its sides than it did in a square. resizeMode 'cover'
   // centres what survives, and the alternative was the white gap.
   thumbHorizontal: { alignSelf: 'stretch' },
-  spinBadge: {
-    position: 'absolute', top: 6, right: 6, width: 20, height: 20, borderRadius: 10,
+  // Was spinBadge, an inert 360 marker; same corner, four pixels wider so
+  // a finger has something to hit.
+  previewButton: {
+    position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12,
     backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
   },
-  // Only applied on the rare card that has both a spin set and a
-  // cornerBadge -- pushes the spin icon below it instead of overlapping.
-  spinBadgeBelowCorner: { top: 30 },
+  // Running: the button stops being scenery and reads as the control that
+  // is currently doing something, which is also the cue that tapping it
+  // again is what stops it.
+  previewButtonActive: { backgroundColor: colors.primary },
+  // Only applied on the rare card that has both a preview button and a
+  // cornerBadge -- pushes the button below it instead of overlapping.
+  previewButtonBelowCorner: { top: 30 },
   // Collection badge (Editor's Picks sparkle / Hot Deals "-N%") -- same
-  // corner and footprint as spinBadge, since a card only ever shows one
+  // corner and footprint as previewButton, since a card only ever shows one
   // collection badge at a time and this takes priority for the slot.
   cornerBadge: {
     position: 'absolute', top: 6, right: 6, width: 22, height: 22, borderRadius: 11,
     alignItems: 'center', justifyContent: 'center',
   },
   cornerBadgeText: { fontSize: 8, fontWeight: '800', color: colors.white },
-  // Opposite corner from spinBadge above -- the two can both be visible on
+  // Opposite corner from previewButton above -- the two can both be visible on
   // the same card (a 360°-spin listing someone's favorited) without
   // overlapping.
   favoriteBadge: {
@@ -989,7 +1070,7 @@ const styles = StyleSheet.create({
   storefrontPillRTL: { alignSelf: 'flex-end' },
   // Vertical layout only: the shop pill lives on the photo, bottom-left,
   // fixed regardless of RTL -- same reasoning as favoriteBadge/
-  // cornerBadge/spinBadge above, none of which mirror for RTL either,
+  // cornerBadge/previewButton above, none of which mirror for RTL either,
   // since they're all fixed corners/edges of the photo itself rather
   // than flowing text. Just the pill, no wrapping bar or gradient
   // behind it: the pill is already an opaque cream chip, so it reads

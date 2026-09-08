@@ -120,10 +120,29 @@ function PhotoSlideshow({ photos, photoWidth }: { photos: string[]; photoWidth: 
   );
 }
 
-// Roughly a smooth rotation without costing more than a card thumbnail
-// should: fast enough that a spin reads as motion, not a slideshow of its
-// own frames.
-const SPIN_FRAME_MS = 90;
+// HOW LONG ONE FULL TURN TAKES -- the only number to touch to change the
+// speed of a card's spin preview. Lower is faster.
+//
+// It is a rotation time and not a per-frame delay, which is the point. The
+// fixed 90ms per frame this replaces made the speed a function of however
+// many frames the seller happened to shoot: a 12-frame spin turned in 1.1s
+// and a 24-frame one took twice as long, so two cards side by side spun at
+// visibly different speeds for no reason a shopper could see. Pacing by the
+// turn makes every card on the grid rotate at the same rate whatever is
+// behind it.
+const SPIN_ROTATION_MS = 3250;
+
+// The floor stops a 40-frame set from asking for a repaint every 80ms on a
+// grid full of cards; the ceiling stops a short set -- an old one, or an
+// auction lot below the 12-frame minimum -- from crawling frame by frame
+// and reading as broken rather than slow.
+const SPIN_FRAME_MIN_MS = 100;
+const SPIN_FRAME_MAX_MS = 260;
+
+function spinFrameMs(frameCount: number): number {
+  if (frameCount <= 1) return SPIN_FRAME_MAX_MS;
+  return Math.min(SPIN_FRAME_MAX_MS, Math.max(SPIN_FRAME_MIN_MS, Math.round(SPIN_ROTATION_MS / frameCount)));
+}
 
 function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth: number }) {
   const [setIndex, setSetIndex] = useState(0);
@@ -137,9 +156,18 @@ function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth
     let curSet = 0;
     let curFrame = 0;
 
-    const timer = setInterval(() => {
+    // Re-armed each tick rather than one fixed setInterval: the delay
+    // depends on the CURRENT set's frame count, and a listing can carry
+    // sets of different lengths ("Exterior" 24, "Interior" 12), so a
+    // single interval fixed at mount would pace the second set by the
+    // first one's frame count.
+    let timer: ReturnType<typeof setTimeout>;
+    const tick = () => {
       const frames = spinSets[curSet]?.frames ?? [];
-      if (frames.length === 0) return;
+      if (frames.length === 0) {
+        timer = setTimeout(tick, SPIN_FRAME_MAX_MS);
+        return;
+      }
       curFrame += 1;
       if (curFrame >= frames.length) {
         // One full rotation of this spin just finished -- that's the
@@ -152,9 +180,11 @@ function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth
         setSetIndex(curSet);
       }
       setFrameIndex(curFrame);
-    }, SPIN_FRAME_MS);
+      timer = setTimeout(tick, spinFrameMs(spinSets[curSet]?.frames.length ?? 0));
+    };
+    timer = setTimeout(tick, spinFrameMs(spinSets[0]?.frames.length ?? 0));
 
-    return () => clearInterval(timer);
+    return () => clearTimeout(timer);
   }, [spinSets]);
 
   const frames = spinSets[setIndex]?.frames ?? [];
