@@ -39,13 +39,37 @@ Two things worth fixing:
   `site_settings.auctions_enabled`, which is what has to be switched on for
   any of it to be visible to a buyer, and it is still `false`.
 
-- **Auctions: clear out the demo scaffolding before launch.** Ten prop
-  bidders (`dddddddd-0000-4000-a000-000000000001` through `…010`, no phone
-  and no password so nobody can sign in as them), `myazar.demo_bid_script`,
-  `myazar.play_demo_bids()`, the `demo-bids` cron, and the rehearsal
-  auctions. Deleting the ten `auth.users` rows cascades the profiles, bids,
-  registrations and demo cards away. None of it is reachable by a buyer,
-  but none of it should exist on a live site either.
+- **Auctions: the demo scaffolding is PARKED, not gone.** Done 8 Sep 2026,
+  ahead of closed testing. The `demo-bids` cron is unscheduled — it had
+  been firing `play_demo_bids()` every minute, which would have shown a
+  tester lots bidding themselves. `play_demo_bids()` had `EXECUTE` granted
+  to PUBLIC, so any signed-in caller could place bids on other people's
+  behalf with no cron involved; that is revoked. The twenty prop bidders
+  (`dddddddd-0000-4000-a000-000000000001` through `…020`) are suspended
+  and phone-unverified.
+
+  Two things worth knowing about that. `myazar.demo_bid_script` and
+  `play_demo_bids()` were deliberately KEPT — they hold nothing live, and
+  dropping a function to tidy up is how a body gets lost, which this
+  project has already paid for once with `add_auction_lot`. Every step is
+  one line to reverse; the migration
+  `park_demo_bidding_scaffolding` carries each undo in a comment beside
+  the thing it undid.
+
+  And the reason both flags were set: **suspension alone would have done
+  nothing.** `place_bid` does not look at `is_suspended` at all — it only
+  requires a registration — and `register_for_auction` checks
+  `is_phone_verified` but not `is_suspended` either. Clearing the phone
+  verification is what actually closes the chain.
+
+- **A suspended account can still bid.** Found while parking the demo
+  bidders, and it is a real gap rather than a leftover: neither
+  `register_for_auction` nor `place_bid` checks `is_suspended`, so an
+  account suspended AFTER it registered for a sale can go on bidding in
+  that sale until the lot closes — and win it. Harmless today, since the
+  only suspended accounts are props with no registrations, and squarely
+  not harmless the first time somebody is suspended for a reason. One
+  check in each function.
 
 - **Auctions: what is genuinely not built.** Settlement is the big one, and
   it is now HALF built: what each side owes is computed and shown to the
