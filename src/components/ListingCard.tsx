@@ -5,6 +5,7 @@ import { useNavigation } from '@react-navigation/native';
 import { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Pressy from './Pressy';
 import CardPreview from './CardPreview';
+import { claimPreview, nextPreviewToken, releasePreview } from '../lib/cardPreviewBus';
 import Icon, { IconName } from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
 import { Listing } from '../types';
@@ -219,7 +220,7 @@ export default function ListingCard({
   // hover-out below does not switch it off.
   const autoStopRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const startHoverTimer = () => {
-    hoverTimerRef.current = setTimeout(() => setPreviewing(true), HOVER_PREVIEW_DELAY_MS);
+    hoverTimerRef.current = setTimeout(startPreview, HOVER_PREVIEW_DELAY_MS);
   };
   const clearHoverTimer = () => {
     if (hoverTimerRef.current) {
@@ -232,6 +233,35 @@ export default function ListingCard({
       clearTimeout(autoStopRef.current);
       autoStopRef.current = null;
     }
+  };
+
+  // This card's identity in the one-preview-at-a-time claim (see
+  // lib/cardPreviewBus). Per mounted instance, not per listing: the same
+  // listing can be on screen twice at once.
+  const previewTokenRef = useRef<number | null>(null);
+  if (previewTokenRef.current === null) previewTokenRef.current = nextPreviewToken();
+
+  // Everything that turns a preview OFF goes through here, because the
+  // claim has to be given up in the same breath -- including when the stop
+  // was ordered by another card taking the claim.
+  const stopPreview = () => {
+    clearAutoStop();
+    setPreviewing(false);
+    releasePreview(previewTokenRef.current!);
+  };
+
+  // ...and everything that turns one ON goes through here, which is what
+  // stops whichever card was playing before it. On a desktop this changes
+  // nothing that was not already true -- a pointer can only rest on one
+  // card, so leaving one already ended its preview. On touch there is no
+  // pointer to leave, so without this a shopper tapping Preview down a row
+  // of cards left every one of them running.
+  const startPreview = () => {
+    claimPreview(previewTokenRef.current!, () => {
+      clearAutoStop();
+      setPreviewing(false);
+    });
+    setPreviewing(true);
   };
 
   // THE PREVIEW BUTTON'S ONLY JOB.
@@ -250,20 +280,19 @@ export default function ListingCard({
   // why all three can sit on a surface that is itself pressable.
   const togglePreview = (e: any) => {
     e?.stopPropagation?.();
+    if (previewing) {
+      stopPreview();
+      return;
+    }
+    startPreview();
+    // Nothing else can stop it: the finger left when the tap ended and a
+    // card scrolled off screen keeps its state, while a running preview
+    // holds every frame of a spin in memory at full size (see CardPreview).
+    // Twenty seconds is several turns of a spin, long past the point anyone
+    // still watching has seen what they came for.
     clearAutoStop();
-    setPreviewing((on) => {
-      const next = !on;
-      if (next) {
-        // Nothing else can stop it: the finger left when the tap ended and
-        // a card scrolled off screen keeps its state, while a running
-        // preview holds every frame of a spin in memory at full size (see
-        // CardPreview). Twenty seconds is several turns of a spin, long
-        // past the point anyone still watching has seen what they came for.
-        autoStopRef.current = setTimeout(() => setPreviewing(false), PREVIEW_AUTOSTOP_MS);
-        Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
-      }
-      return next;
-    });
+    autoStopRef.current = setTimeout(stopPreview, PREVIEW_AUTOSTOP_MS);
+    Haptics.impactAsync(Haptics.ImpactFeedbackStyle.Light).catch(() => {});
   };
 
   // A card can be recycled out of a FlatList mid-hover or mid-preview (fast
@@ -273,6 +302,10 @@ export default function ListingCard({
     () => () => {
       clearHoverTimer();
       clearAutoStop();
+      // Hands the claim back, so a card recycled out of a FlatList
+      // mid-preview does not leave the registry pointing at a component
+      // that no longer exists.
+      releasePreview(previewTokenRef.current!);
     },
     []
   );
@@ -384,7 +417,7 @@ export default function ListingCard({
         // Only a HOVER preview ends here. A mouse leaving the card must not
         // switch off something the shopper deliberately turned on with the
         // button.
-        if (!autoStopRef.current) setPreviewing(false);
+        if (!autoStopRef.current) stopPreview();
       }}
       // Touch does not preview any more, and that is the change: it starts
       // the preview on nothing and ends it on nothing, so a tap is a tap
@@ -478,9 +511,19 @@ export default function ListingCard({
           >
             <Icon
               name={previewing ? 'close' : hasSpin ? 'rotate' : 'image'}
-              size={12}
+              size={11}
               color={colors.white}
             />
+            {/* The word, because the icon alone was not an invitation. A
+                small glyph in a corner reads as a badge -- a label that
+                other badges on this thumbnail wear too -- and a badge is
+                something you look at, not something you press. A pill with
+                a verb on it is the same control saying what it does. Kept
+                to one short word so it stays inside a narrow card at the
+                app's largest text setting. */}
+            <Text style={styles.previewButtonText} numberOfLines={1}>
+              {t(previewing ? 'listingCard.previewPillStop' : 'listingCard.previewPill')}
+            </Text>
           </Pressy>
         )}
         {canFavorite && (
@@ -834,11 +877,25 @@ const styles = StyleSheet.create({
   // loses more of its sides than it did in a square. resizeMode 'cover'
   // centres what survives, and the alternative was the white gap.
   thumbHorizontal: { alignSelf: 'stretch' },
-  // Was spinBadge, an inert 360 marker; same corner, four pixels wider so
-  // a finger has something to hit.
+  // Was spinBadge, an inert 360 marker, then a 24px round button, now a
+  // labelled pill: the round one worked and nobody pressed it, because a
+  // glyph in the corner of a photo is what every other badge on this
+  // thumbnail looks like. Same corner and the same top offset, so it still
+  // sits clear of the favourite heart opposite and drops below a collection
+  // badge when there is one. No fixed width -- it takes the width of its
+  // label, which is what keeps it honest in Arabic.
   previewButton: {
-    position: 'absolute', top: 6, right: 6, width: 24, height: 24, borderRadius: 12,
-    backgroundColor: 'rgba(20,20,22,0.55)', alignItems: 'center', justifyContent: 'center',
+    position: 'absolute', top: 6, right: 6, height: 24, borderRadius: 12,
+    paddingHorizontal: 9, gap: 5, flexDirection: 'row',
+    backgroundColor: 'rgba(20,20,22,0.68)', alignItems: 'center', justifyContent: 'center',
+  },
+  // Small, heavy and spaced out -- the shape a label takes when it has to
+  // read as a control at 10px over a photograph it does not control the
+  // colour of. The translucent black behind it is a shade darker than the
+  // old round badge for the same reason.
+  previewButtonText: {
+    fontSize: 10, fontWeight: '800', color: colors.white,
+    textTransform: 'uppercase', letterSpacing: 0.4,
   },
   // Running: the button stops being scenery and reads as the control that
   // is currently doing something, which is also the cue that tapping it

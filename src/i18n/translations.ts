@@ -323,6 +323,11 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // The preview button on a card's photo. Two labels, because the button
     // both starts and stops -- a screen reader announcing "preview" on a
     // button that is already playing would describe the state, not the act.
+    // The word ON the pill -- short, because it sits over a photo inside a
+    // card that can be half a phone wide. previewStart/Stop below are the
+    // screen-reader labels for the same control and can afford sentences.
+    'listingCard.previewPill': 'Preview',
+    'listingCard.previewPillStop': 'Stop',
     'listingCard.previewStart': 'Preview this listing',
     'listingCard.previewStop': 'Stop the preview',
     // The paid-promotion mark shown to buyers on a listing whose seller has
@@ -1529,6 +1534,8 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'listingDetail.aiTag': 'إعلان بمساعدة الذكاء الاصطناعي — تمت مراجعته من البائع',
     'listingDetail.seller': 'البائع',
     'listingCard.outOfStock': 'نفدت الكمية',
+    'listingCard.previewPill': 'معاينة',
+    'listingCard.previewPillStop': 'إيقاف',
     'listingCard.previewStart': 'معاينة هذا الإعلان',
     'listingCard.previewStop': 'إيقاف المعاينة',
     'listing.sponsored': 'مموّل',
