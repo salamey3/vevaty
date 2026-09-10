@@ -46,12 +46,15 @@ import AdminAuctionsScreen from '../screens/admin/AdminAuctionsScreen';
 import AdminAuctionLotsScreen from '../screens/admin/AdminAuctionLotsScreen';
 import AdminAuctionMonitorScreen from '../screens/admin/AdminAuctionMonitorScreen';
 import AdminAuctionSubmissionsScreen from '../screens/admin/AdminAuctionSubmissionsScreen';
+import AdminTestersScreen from '../screens/admin/AdminTestersScreen';
+import AdminProblemReportsScreen from '../screens/admin/AdminProblemReportsScreen';
 import SellAtAuctionScreen from '../screens/SellAtAuctionScreen';
 import AuctionSubmissionFormScreen from '../screens/AuctionSubmissionFormScreen';
 import LegalDocumentScreen from '../screens/LegalDocumentScreen';
 import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
+import { navigationRef } from './navigationRef';
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -132,6 +135,8 @@ const linking: LinkingOptions<RootStackParamList> = {
       SellAtAuction: 'auctions/sell',
       AuctionSubmissionForm: 'auctions/sell/item',
       AdminAuctionSubmissions: 'admin/auctions/consignments',
+      AdminTesters: 'admin/testers',
+      AdminProblemReports: 'admin/problem-reports',
       LegalDocument: 'terms/:slug',
     },
   },
@@ -147,7 +152,7 @@ export default function RootNavigator() {
   const initialRouteName = !chosen ? 'LanguageSelect' : 'MainTabs';
 
   return (
-    <NavigationContainer linking={linking}>
+    <NavigationContainer linking={linking} ref={navigationRef}>
       <Stack.Navigator initialRouteName={initialRouteName} screenOptions={{ headerShown: false }}>
         <Stack.Screen name="LanguageSelect" component={LanguageSelectScreen} />
         <Stack.Screen name="MainTabs" component={MainTabs} />
@@ -206,6 +211,8 @@ export default function RootNavigator() {
           options={{ presentation: 'modal' }}
         />
         <Stack.Screen name="AdminAuctionSubmissions" component={AdminAuctionSubmissionsScreen} />
+        <Stack.Screen name="AdminTesters" component={AdminTestersScreen} />
+        <Stack.Screen name="AdminProblemReports" component={AdminProblemReportsScreen} />
         {/* Modal, because it is always opened from a screen that is asking
             for agreement and must return to it. */}
         <Stack.Screen

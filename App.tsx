@@ -15,6 +15,7 @@ import { LanguageProvider } from './src/i18n/LanguageContext';
 import RootNavigator from './src/navigation/RootNavigator';
 import AlertHost from './src/components/AlertHost';
 import AuctionOutcomeHost from './src/components/AuctionOutcomeHost';
+import ReportProblemHost from './src/components/ReportProblemHost';
 import AdminLockScreen from './src/components/AdminLockScreen';
 import SystemBottomStrip from './src/components/SystemBottomStrip';
 
@@ -238,6 +239,10 @@ export default function App() {
                       <View style={styles.root}>
                         <StatusBar style="dark" />
                         <RootNavigator />
+                        {/* The tester round's Report a problem tab. Beside the
+                            navigator rather than on a screen, so it is on every
+                            screen; before AlertHost so an alert still covers it. */}
+                        <ReportProblemHost />
                         <AlertHost />
                         {/* How an auction lot ended, shown once to each
                             bidder. Here rather than on a screen because a

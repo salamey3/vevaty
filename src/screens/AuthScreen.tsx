@@ -15,13 +15,24 @@ import {
   signInWithPhonePassword,
   setAccountPassword,
   upsertOwnProfile,
+  ensureSession,
 } from '../lib/supabase';
 import { emailFieldOk, normalizeEmail } from '../lib/contactDetails';
 import { mirrorRow } from '../lib/mirrorRow';
 import { useSettings } from '../store/SettingsStore';
+import { useAppStore } from '../store/AppStore';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
 import { openLegalPage } from '../lib/legalLinks';
+import {
+  checkTesterInvite,
+  fetchRegistrationOpen,
+  formatInviteCode,
+  joinSignupWaitlist,
+  normalizeInviteCode,
+  redeemTesterInvite,
+  testerErrorWord,
+} from '../lib/testers';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 
@@ -33,7 +44,10 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 // otpPurpose); 'setNewPassword' follows a forgot-password OTP (and is also
 // where a pre-password account sets one for the very first time -- see
 // setAccountPassword's own comment in lib/supabase.ts).
-type Step = 'phone' | 'signup' | 'signin' | 'otp' | 'setNewPassword' | 'name' | 'adminMfaEnroll' | 'adminMfaChallenge';
+// 'invite': the number is not registered and sign-up is invite-only right
+// now (the tester round, see TESTERS.md) -- enter a code, or leave the number
+// on the waitlist. Sits between 'phone' and 'signup'; nothing is sent from it.
+type Step = 'phone' | 'invite' | 'signup' | 'signin' | 'otp' | 'setNewPassword' | 'name' | 'adminMfaEnroll' | 'adminMfaChallenge';
 
 // A few failed password attempts pause further tries for a short cooldown
 // -- a plain client-side speed bump, not a real brute-force defense (that
@@ -161,10 +175,84 @@ export default function AuthScreen({ navigation, route }: Props) {
   // to ask.
   const profileWritePendingRef = useRef(false);
 
+  // ---- The tester round's invite step (TESTERS.md) ----
+  const { refreshTesterStatus } = useAppStore();
+  // The code a website invite link carried in (/login?invite=CODE), or one
+  // typed on the invite step or the repair step. Kept across a change of
+  // number: it belongs to the person, not to the number they typed first.
+  const [inviteCode, setInviteCode] = useState(() => normalizeInviteCode(route.params?.invite ?? ''));
+  // The code the invite step confirmed, normalised. Set only by checkInvite,
+  // cleared the moment the box is edited again.
+  const [inviteChecked, setInviteChecked] = useState('');
+  const [waitlistJoined, setWaitlistJoined] = useState(false);
+  // The server refused to make this verified account a member for want of
+  // an invite (VV002): sign-up was shut between the phone step and the text
+  // message, or the code was cancelled in that gap. The repair step then
+  // asks for a code, instead of failing the same way every time Finish is
+  // pressed. A ref as well as state for the same reason as
+  // profileWritePendingRef: afterAuthenticated reads it in the same tick.
+  const [inviteRequired, setInviteRequired] = useState(false);
+  const inviteRequiredRef = useRef(false);
+  // While sign-up is OPEN the invite step never appears, so the form carries
+  // an optional code box of its own -- otherwise a tester who types their
+  // code in the app (links only reach the website) would have nowhere to
+  // put it, and would sign up as an ordinary member with no tester tag.
+  const [showInviteField, setShowInviteField] = useState(false);
+  // The code in that box was checked and refused.
+  const [inviteFieldBad, setInviteFieldBad] = useState(false);
+  // Bumped whenever the person walks away from a step -- back, close, or
+  // the screen unmounting (Android's hardware back pops it without going
+  // through either). A check still in flight compares its own copy before
+  // it acts, so leaving mid-check neither spends a text message on a
+  // number being abandoned nor yanks the person onto a step they left.
+  const navEpochRef = useRef(0);
+  useEffect(() => () => { navEpochRef.current += 1; }, []);
+
+  // The invite this sign-up holds: the one the invite step confirmed, else
+  // whatever a link or the repair step put in the box.
+  const heldInvite = () => inviteChecked || normalizeInviteCode(inviteCode);
+
+  // Claims it for the session that has just been authenticated. On a
+  // sign-up this has to happen BEFORE the profile write, which is where the
+  // server checks for a claimed invite while sign-up is invite-only; it is
+  // also how someone who already has an account, and opens an invite link
+  // and signs in, gets tagged. Never thrown: the profile write that follows
+  // is what knows whether a failed claim mattered.
+  //
+  // Tried twice: a dropped connection at this exact moment would otherwise
+  // cost a tester their tag, or -- while sign-up is shut -- leave the
+  // profile write below to be refused for want of an invite.
+  const claimHeldInvite = async (): Promise<'none' | 'claimed' | 'refused' | 'failed'> => {
+    const code = heldInvite();
+    if (!code) return 'none';
+    for (let attempt = 0; attempt < 2; attempt++) {
+      try {
+        const roles = await redeemTesterInvite(code);
+        if (roles) return 'claimed';
+        // null is the server's "no": the code was used by somebody else or
+        // cancelled after it was checked on this screen.
+        console.warn('[Auth] invite not claimed: the code was refused');
+        return 'refused';
+      } catch (e: any) {
+        console.warn('[Auth] invite claim failed:', e?.message || e);
+      }
+    }
+    return 'failed';
+  };
+
+  // Opened straight from an invite link, this screen can be the only one on
+  // the stack, where goBack() does nothing at all -- a brand-new tester would
+  // finish signing up and stay parked on this screen. Home instead.
+  const leaveScreen = () => {
+    navEpochRef.current += 1;
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+  };
+
   const finishAndLeave = () => {
     const { returnTo, returnToParams } = route.params || {};
     if (returnTo) navigation.replace(returnTo as any, returnToParams);
-    else navigation.goBack();
+    else leaveScreen();
   };
 
   // Shared "what's next" decision after ANY of the three ways this screen
@@ -180,12 +268,44 @@ export default function AuthScreen({ navigation, route }: Props) {
     const { data } = await supabase.auth.getSession();
     const uid = data.session?.user?.id;
     if (!uid) throw new Error('No session');
+    // A sign-up has already claimed its code before the profile write; this
+    // is for an existing member who came in through an invite link. Then
+    // the tester status is re-read, because the one read at launch was for
+    // the anonymous session this sign-in has just replaced.
+    const claim = await claimHeldInvite();
+    // An account that already existed but never became a member (its
+    // sign-up was refused for want of an invite) is let in by the claim
+    // just made -- and nothing else would ask for that until the next
+    // launch: AppStore's repair runs as this session starts, which can be
+    // before the claim lands. Harmless for a member, whom the server never
+    // re-examines. The phone comes from the session, never from state.
+    if (claim === 'claimed') {
+      const authPhone = data.session?.user?.phone;
+      try {
+        await upsertOwnProfile({
+          isPhoneVerified: true,
+          ...(authPhone ? { phone: '+' + authPhone.replace(/^\+/, '') } : {}),
+        });
+        // A sign-up refused for want of an invite has one now. The repair
+        // step below may still be needed for the rest of the details, but
+        // not to say "this account has no invite".
+        inviteRequiredRef.current = false;
+      } catch (e: any) {
+        console.warn('[Auth] membership after claim refused:', e?.code || '', e?.message || e);
+      }
+    }
+    void refreshTesterStatus();
     // Checked before the read, not after it -- see profileWritePendingRef.
     // Every route that ends up here after a failed profile write lands on
     // the repair step, including the one that got there via a failed
     // password attach, which used to slip past this entirely.
     if (profileWritePendingRef.current) {
-      setError(t('auth.detailsSaveFailed'));
+      if (inviteRequiredRef.current) {
+        setInviteRequired(true);
+        setError(t('auth.inviteNeededAfterVerify'));
+      } else {
+        setError(t('auth.detailsSaveFailed'));
+      }
       setStep('name');
       return;
     }
@@ -256,8 +376,25 @@ export default function AuthScreen({ navigation, route }: Props) {
     }
     setLoading(true);
     setError(null);
+    const epoch = navEpochRef.current;
     try {
-      const registered = await isPhoneRegistered(normalized);
+      // Whether sign-up is open is read fresh here, with the registration
+      // check, rather than trusted from launch: getting it wrong in the
+      // "open" direction sends a paid text message for an account the server
+      // will then refuse to make a member (see fetchRegistrationOpen).
+      //
+      // A code confirmed earlier on this screen, or carried in by a link, is
+      // checked again with them: it may have been used or cancelled since,
+      // and a form shown on the strength of a dead code ends in a paid text
+      // message the server then refuses. An answer we could not get (null)
+      // changes nothing.
+      const held = heldInvite();
+      const [registered, open, heldValid] = await Promise.all([
+        isPhoneRegistered(normalized),
+        fetchRegistrationOpen(),
+        held ? checkTesterInvite(held).catch(() => null) : Promise.resolve(null),
+      ]);
+      if (navEpochRef.current !== epoch) return;
       setCheckedPhone(normalized);
       setSigninPassword('');
       setSignupPassword('');
@@ -291,9 +428,83 @@ export default function AuthScreen({ navigation, route }: Props) {
       setFailedAttempts(0);
       setLockedUntil(null);
       setForgotMode(false);
-      setStep(registered ? 'signin' : 'signup');
+      setWaitlistJoined(false);
+      setInviteRequired(false);
+      inviteRequiredRef.current = false;
+      // An invite already confirmed on this screen still counts after a
+      // change of number -- it is the person's, not the number's. A link's
+      // code that checks out counts as confirmed, so a link tester goes
+      // straight to the form instead of pressing Continue on a box already
+      // filled in for them.
+      const invite = heldValid === true ? held : heldValid === false ? '' : inviteChecked;
+      setInviteChecked(invite);
+      setInviteFieldBad(heldValid === false);
+      // A dead code is shown where it can be fixed: in the box on the invite
+      // step while sign-up is shut, in the form's own box while it is open.
+      if (heldValid === false && !registered && !open) setError(t('auth.inviteInvalid'));
+      setStep(registered ? 'signin' : open || invite ? 'signup' : 'invite');
     } catch (e: any) {
-      setError(t('auth.phoneCheckFailed'));
+      if (navEpochRef.current === epoch) setError(t('auth.phoneCheckFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 'invite' step's Continue. Nothing is sent to the phone from here: the
+  // code is checked first, so an invalid one costs nothing.
+  const checkInvite = async () => {
+    const code = normalizeInviteCode(inviteCode);
+    if (code.length < 4) {
+      setError(t('auth.inviteInvalid'));
+      return;
+    }
+    setLoading(true);
+    setError(null);
+    const epoch = navEpochRef.current;
+    try {
+      const valid = await checkTesterInvite(code);
+      if (navEpochRef.current !== epoch) return;
+      if (!valid) {
+        setError(t('auth.inviteInvalid'));
+        return;
+      }
+      setInviteChecked(code);
+      setStep('signup');
+    } catch {
+      if (navEpochRef.current === epoch) setError(t('auth.inviteCheckFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // 'invite' step's "Tell me when it opens". Every answer gets its own
+  // outcome; none of them is a silent "done".
+  const joinWaitlist = async () => {
+    setLoading(true);
+    setError(null);
+    const epoch = navEpochRef.current;
+    try {
+      let outcome = await joinSignupWaitlist(checkedPhone, language);
+      // No session at all: the anonymous sign-in at launch never happened,
+      // usually because the app opened offline. Nothing else on this screen
+      // would ever make one, so retrying as-is could never work.
+      if (outcome === 'no_session') {
+        await ensureSession();
+        outcome = await joinSignupWaitlist(checkedPhone, language);
+      }
+      if (navEpochRef.current !== epoch) return;
+      if (outcome === 'ok') setWaitlistJoined(true);
+      // Sign-up opened while they were reading this screen: nothing to wait for.
+      else if (outcome === 'open') setStep('signup');
+      // Registered moments ago, on another device or tab.
+      else if (outcome === 'already_member') setStep('signin');
+      else if (outcome === 'too_many') setError(t('auth.waitlistTooMany'));
+      // Still no session after trying to make one: a connection problem,
+      // not a bad number.
+      else if (outcome === 'no_session') setError(t('auth.waitlistFailed'));
+      else setError(t('auth.invalidPhone'));
+    } catch {
+      if (navEpochRef.current === epoch) setError(t('auth.waitlistFailed'));
     } finally {
       setLoading(false);
     }
@@ -349,13 +560,56 @@ export default function AuthScreen({ navigation, route }: Props) {
     }
     setLoading(true);
     setError(null);
+    const epoch = navEpochRef.current;
     try {
+      // Asked once more, right before the text message -- the step that
+      // costs money. Sign-up can have been shut, or the code used or
+      // cancelled, while this form was being filled in, and the server
+      // would then verify the number and refuse to make it a member.
+      const held = heldInvite();
+      let open: boolean;
+      let heldValid: boolean | null;
+      try {
+        [open, heldValid] = await Promise.all([
+          fetchRegistrationOpen(),
+          held ? checkTesterInvite(held) : Promise.resolve(null),
+        ]);
+      } catch {
+        if (navEpochRef.current === epoch) setError(t('auth.sendFailed'));
+        return;
+      }
+      // Walked away while that was being asked: send nothing.
+      if (navEpochRef.current !== epoch) return;
+      if (heldValid === false) {
+        setInviteChecked('');
+        setError(t('auth.inviteInvalid'));
+        if (open) {
+          // Open: the code only decides whether this is a tester account, so
+          // it is theirs to fix or clear, in the box on this form.
+          setInviteFieldBad(true);
+          setShowInviteField(true);
+        } else {
+          setStep('invite');
+        }
+        return;
+      }
+      if (!open && heldValid !== true) {
+        setError(t('auth.inviteClosedMeanwhile'));
+        setStep('invite');
+        return;
+      }
+      if (heldValid === true) setInviteChecked(held);
       await sendPhoneOtp(checkedPhone, channel);
+      // Sent, but they have since left this step -- the text is on its way
+      // and cannot be recalled, and pulling them back onto the code screen
+      // for a number they walked away from would be worse.
+      if (navEpochRef.current !== epoch) return;
       setSentPhone(checkedPhone);
       setOtpPurpose('signup');
       setOtp('');
       setStep('otp');
     } catch (e: any) {
+      if (navEpochRef.current !== epoch) return;
       const msg: string = e?.message || '';
       setError(/not enabled|provider|unsupported/i.test(msg) ? t('auth.notConfiguredYet') : t('auth.sendFailed'));
     } finally {
@@ -415,6 +669,9 @@ export default function AuthScreen({ navigation, route }: Props) {
       const session = await verifyPhoneOtp(sentPhone, otp.trim());
       const uid = session?.user?.id;
       if (!uid) throw new Error('No session after verification');
+      // Before the profile write below, which is where the server checks for
+      // a claimed invite while sign-up is invite-only.
+      await claimHeldInvite();
       // Persist the verified phone immediately, regardless of what happens
       // next -- see this same call's original comment history: a user
       // who verifies but never reaches the end of whichever step follows
@@ -448,8 +705,10 @@ export default function AuthScreen({ navigation, route }: Props) {
             : {}),
         });
         profileWritePendingRef.current = false;
-      } catch {
+        inviteRequiredRef.current = false;
+      } catch (e) {
         profileWritePendingRef.current = true;
+        inviteRequiredRef.current = testerErrorWord(e) === 'invite_required';
       }
 
       if (signingUp) {
@@ -551,6 +810,16 @@ export default function AuthScreen({ navigation, route }: Props) {
       // verifyCode's note on why a literal false is not the same as omitting
       // it, and would quietly revoke a consent set months ago from the
       // profile screen.
+      // The repair step can be where an invite is entered (see
+      // inviteRequired), so the claim comes first here too -- and when that
+      // is why they are here, a refused code is said out loud rather than
+      // left to the profile write, which would only repeat "this account
+      // has no invite" with their code sitting in the box.
+      const claim = await claimHeldInvite();
+      if (inviteRequired && claim === 'refused') {
+        setError(t('auth.inviteInvalid'));
+        return;
+      }
       await upsertOwnProfile({
         phone: sentPhone || undefined,
         fullName: name.trim(),
@@ -559,9 +828,20 @@ export default function AuthScreen({ navigation, route }: Props) {
         ...(effectiveWhatsapp ? { whatsapp: effectiveWhatsapp, whatsappOptIn } : {}),
       });
       profileWritePendingRef.current = false;
+      inviteRequiredRef.current = false;
+      setInviteRequired(false);
+      void refreshTesterStatus();
       finishAndLeave();
     } catch (e: any) {
-      setError(t('auth.verifyFailed'));
+      if (testerErrorWord(e) === 'invite_required') {
+        inviteRequiredRef.current = true;
+        setInviteRequired(true);
+        setError(t('auth.inviteNeededAfterVerify'));
+      } else {
+        // Not "that code didn't work": nothing here checks a text-message
+        // code, and on this screen it reads as the invite code being wrong.
+        setError(t('auth.finishFailed'));
+      }
     } finally {
       setLoading(false);
     }
@@ -570,10 +850,11 @@ export default function AuthScreen({ navigation, route }: Props) {
   const lockoutSecondsLeft = lockedUntil ? Math.max(0, Math.ceil((lockedUntil - Date.now()) / 1000)) : 0;
 
   const goBack = () => {
+    navEpochRef.current += 1;
     if (step === 'phone') {
       if (isEmailInput) { setIsEmailInput(false); setPassword(''); setError(null); }
-      else navigation.goBack();
-    } else if (step === 'signup' || step === 'signin') {
+      else leaveScreen();
+    } else if (step === 'invite' || step === 'signup' || step === 'signin') {
       setStep('phone');
       setError(null);
     } else if (step === 'otp') {
@@ -605,7 +886,7 @@ export default function AuthScreen({ navigation, route }: Props) {
             <Icon name="back" size={18} />
           </Pressy>
           <Text style={type.h3}>{t('auth.title')}</Text>
-          <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
+          <Pressy onPress={leaveScreen} style={styles.iconBtn}>
             <Icon name="close" size={18} />
           </Pressy>
         </View>
@@ -623,6 +904,11 @@ export default function AuthScreen({ navigation, route }: Props) {
         >
           {step === 'phone' && !isEmailInput && (
             <>
+              {/* Arrived through a tester's invite link: say so before anything
+                  else, so the phone field reads as the way in rather than a wall. */}
+              {!!route.params?.invite && (
+                <Text style={[styles.inviteBanner, isRTL && styles.rtl]}>{t('auth.invitedBanner')}</Text>
+              )}
               <Text style={styles.subtitle}>{t('auth.subtitle')}</Text>
               <Text style={styles.fieldLabel}>{t('auth.phoneLabel')}</Text>
               <TextInput
@@ -679,9 +965,93 @@ export default function AuthScreen({ navigation, route }: Props) {
             </>
           )}
 
+          {step === 'invite' && (
+            <>
+              <Text style={[styles.inviteTitle, isRTL && styles.rtl]}>{t('auth.inviteTitle')}</Text>
+              <Text style={[styles.subtitle, isRTL && styles.rtl]}>{t('auth.inviteSubtitle')}</Text>
+              <Text style={[styles.fieldLabel, isRTL && styles.rtl]}>{t('auth.inviteCodeLabel')}</Text>
+              <TextInput
+                value={inviteCode}
+                onChangeText={(v) => {
+                  setInviteCode(v);
+                  setInviteChecked('');
+                  setError(null);
+                }}
+                placeholder="ABC 123"
+                placeholderTextColor={colors.inkSoft}
+                autoCapitalize="characters"
+                autoCorrect={false}
+                editable={!loading}
+                style={[styles.input, styles.codeInput]}
+              />
+              {!!error && <Text style={[styles.error, isRTL && styles.rtl]}>{error}</Text>}
+              <Button
+                label={t('common.continue')}
+                onPress={checkInvite}
+                loading={loading}
+                disabled={!normalizeInviteCode(inviteCode)}
+                style={{ marginTop: 18 }}
+              />
+
+              {/* No invite: the waitlist. Their number is already in hand from
+                  the phone step, so joining is one tap and nothing is typed
+                  twice. Nothing is sent to it now -- see join_signup_waitlist. */}
+              <View style={styles.inviteDivider} />
+              <Text style={[styles.noInviteTitle, isRTL && styles.rtl]}>{t('auth.noInviteTitle')}</Text>
+              {waitlistJoined ? (
+                <Text style={[styles.waitlistDone, isRTL && styles.rtl]}>
+                  {t('auth.waitlistJoined', { phone: checkedPhone })}
+                </Text>
+              ) : (
+                <>
+                  <Text style={[styles.subtitle, isRTL && styles.rtl]}>{t('auth.noInviteBody', { phone: checkedPhone })}</Text>
+                  <Button label={t('auth.waitlistCta')} variant="secondary" onPress={joinWaitlist} loading={loading} />
+                </>
+              )}
+            </>
+          )}
+
           {step === 'signup' && (
             <>
               <Text style={[styles.subtitle, isRTL && styles.rtl]}>{t('auth.signupSubtitle')}</Text>
+              {!!inviteChecked && (
+                <Text style={[styles.inviteOk, isRTL && styles.rtl]}>
+                  {t('auth.inviteAccepted', { code: formatInviteCode(inviteChecked) })}
+                </Text>
+              )}
+              {/* Only reachable while sign-up is open (a shut sign-up comes
+                  here with a confirmed code), so it is optional and folded
+                  away -- see showInviteField. Opened by itself when a link
+                  or an earlier step left a code in it. */}
+              {!inviteChecked && (showInviteField || !!inviteCode ? (
+                <>
+                  <Text style={[styles.fieldLabel, isRTL && styles.rtl]}>{t('auth.inviteOptionalLabel')}</Text>
+                  <TextInput
+                    value={inviteCode}
+                    onChangeText={(v) => {
+                      setInviteCode(v);
+                      // Opened by a code already in it, it would otherwise
+                      // fold away -- keyboard and all -- the moment the last
+                      // character is deleted to type a new one.
+                      setShowInviteField(true);
+                      setInviteFieldBad(false);
+                      setError(null);
+                    }}
+                    placeholder="ABC 123"
+                    placeholderTextColor={colors.inkSoft}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    editable={!loading}
+                    style={[styles.input, styles.codeInput, inviteFieldBad && styles.inputInvalid]}
+                  />
+                  {inviteFieldBad && <Text style={[styles.error, isRTL && styles.rtl]}>{t('auth.inviteInvalid')}</Text>}
+                  <View style={styles.fieldLabelSpaced} />
+                </>
+              ) : (
+                <Pressy onPress={() => setShowInviteField(true)} disabled={loading} style={styles.inviteLinkBtn}>
+                  <Text style={[styles.linkText, isRTL && styles.rtl]}>{t('auth.haveInviteLink')}</Text>
+                </Pressy>
+              ))}
 
               <Text style={[styles.fieldLabel, isRTL && styles.rtl]}>{t('auth.fullNameLabel')}</Text>
               <TextInput
@@ -1023,6 +1393,24 @@ export default function AuthScreen({ navigation, route }: Props) {
                   <Text style={styles.termsLink} onPress={() => openLegalPage('privacy', language)}>{t('nav.privacyPolicy')}</Text>
                 </Text>
               </View>
+              {inviteRequired && (
+                <>
+                  <Text style={[styles.fieldLabel, styles.fieldLabelSpaced, isRTL && styles.rtl]}>{t('auth.inviteCodeLabel')}</Text>
+                  <TextInput
+                    value={inviteCode}
+                    onChangeText={(v) => {
+                      setInviteCode(v);
+                      setInviteChecked('');
+                      setError(null);
+                    }}
+                    placeholder="ABC 123"
+                    placeholderTextColor={colors.inkSoft}
+                    autoCapitalize="characters"
+                    autoCorrect={false}
+                    style={[styles.input, styles.codeInput]}
+                  />
+                </>
+              )}
               {!!error && <Text style={[styles.error, isRTL && styles.rtl]}>{error}</Text>}
               <Button
                 label={t('auth.finish')}
@@ -1081,6 +1469,19 @@ const styles = StyleSheet.create({
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   body: { paddingHorizontal: 22, paddingTop: 12, paddingBottom: 40 },
   subtitle: { ...type.soft, marginBottom: 18 },
+  // The tester round's invite step (see Step's 'invite').
+  inviteTitle: { ...type.h2, marginBottom: 8 },
+  inviteBanner: { fontSize: 14, fontWeight: '600', color: colors.success, marginBottom: 10 },
+  inviteOk: { fontSize: 13, fontWeight: '600', color: colors.success, marginTop: -8, marginBottom: 14 },
+  // Full width rather than a pill, so the text can take the reading side in
+  // Arabic through textAlign -- native has no ambient direction to do it.
+  inviteLinkBtn: { paddingVertical: 6, marginTop: -8, marginBottom: 10 },
+  // Six characters read off a message and typed by hand: large, spaced
+  // and centred, so a transposed pair is visible before Continue.
+  codeInput: { fontSize: 20, letterSpacing: 3, textAlign: 'center', fontWeight: '600' },
+  inviteDivider: { height: 1, backgroundColor: colors.line, marginTop: 28, marginBottom: 22 },
+  noInviteTitle: { ...type.h3, marginBottom: 6 },
+  waitlistDone: { ...type.body, color: colors.success },
   fieldLabel: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 6 },
   fieldLabelSpaced: { marginTop: 14 },
   input: {

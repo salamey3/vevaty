@@ -75,3 +75,35 @@ export async function shareLink({
     return 'error';
   }
 }
+
+// A whole message rather than a link -- an invite, say, where the text around
+// the link is the point. Same platform split as shareLink above: the native
+// share sheet in the app, the Web Share API where a browser has one, and the
+// clipboard everywhere else.
+export async function shareMessage({ title, message }: { title: string; message: string }): Promise<ShareOutcome> {
+  if (Platform.OS !== 'web') {
+    try {
+      const result = await Share.share({ title, message });
+      return result.action === Share.dismissedAction ? 'dismissed' : 'shared';
+    } catch {
+      return 'error';
+    }
+  }
+  if (typeof navigator !== 'undefined' && (navigator as any).share) {
+    try {
+      await (navigator as any).share({ title, text: message });
+      return 'shared';
+    } catch {
+      return 'dismissed';
+    }
+  }
+  try {
+    if (typeof navigator !== 'undefined' && navigator.clipboard) {
+      await navigator.clipboard.writeText(message);
+      return 'copied';
+    }
+    return 'error';
+  } catch {
+    return 'error';
+  }
+}

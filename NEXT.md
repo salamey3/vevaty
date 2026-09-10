@@ -4,6 +4,90 @@ Kept here rather than in anyone's head, so it survives closing a laptop.
 
 ## Next up
 
+**The tester round is built, and not switched on — see @TESTERS.md.** The
+database half is live (10 Sep 2026, every function test-fired in a
+rolled-back transaction); the app half is the invite step and waitlist at
+sign-up, the Report a problem tab, and Admin → Tester centre and Problem
+reports. Sign-up is still open to everyone, so nobody's experience changes
+until the switch in the Tester centre is flipped. The one rule already live
+for everybody: posting, starting a chat and seeing a seller's number need a
+verified member, which every real account already is. Before the first
+invite goes out, in this order:
+
+1. **Tap through it on the phone once it has shipped.** Admin → Tester
+   centre: create an invite for yourself, "Send invite" to your own
+   WhatsApp, then cancel it. The admin account gets the flag tab too (right
+   edge, a little below the middle): send one report with a screenshot and
+   find it under Admin → Problem reports. On the Android phone, type enough
+   to fill the box with the keyboard up and check Send can still be
+   reached — the sheet is its own window, and whether it moves for the
+   keyboard there has not been seen yet.
+2. **(DONE 10 Sep) The seven live listings are hidden for the round** —
+   four on the admin account, three on the account created 1 Sep, at
+   Yousif's request, so testers start on an empty site. Each went to
+   `status = 'draft'` with its moderation verdict kept, and each is logged
+   in `admin_actions` as `hide_listing_for_tester_round`. To bring them
+   back after the round (they get a fresh expiry window as they leave
+   draft):
+
+   ```sql
+   update myazar.listings set status = 'active'
+    where status = 'draft'
+      and id in (select (details->>'listing_id')::uuid
+                   from myazar.admin_actions
+                  where action = 'hide_listing_for_tester_round');
+   ```
+
+   What testers post goes live on the public website like any other
+   listing — flagged `is_test` in the database, with nothing on screen
+   saying so.
+3. **A fresh Android build for the testers' install link** — decided 10
+   Sep, made AFTER this patch has shipped and been checked on the phone, so
+   the app testers install already carries it. The last APK was built 31 Aug
+   and its link lives about thirty days. Nothing here moves the fingerprint,
+   so the new build and the installs already out there take the same
+   updates.
+4. **Only then** switch sign-up to invite-only and send the invites.
+
+Found on the way and deliberately not fixed here:
+
+- **The admin MFA requirement does less than its name says.** The
+  restrictive "admin identity requires mfa" policy counts rows in
+  `auth.mfa_factors`, whose rows a signed-in session cannot see, so the
+  count is always zero and a password-only (aal1) admin session passes
+  it. And no `admin_*` function checks the session's `aal` — they check
+  `myazar.admins` and nothing else. So an admin's password alone opens
+  everything the TOTP step is meant to guard. Worth doing properly before
+  a second person holds an admin row.
+- **A seller can switch `is_test` off their own listing** (added this
+  morning with the invites; table-level UPDATE on `listings`, nothing
+  guarding the column), which is what the end-of-round clean-up trusts. No
+  screen writes it. A guard trigger in the style of
+  `guard_posting_points_awarded` closes it.
+- **Check that phone sign-ups need the text message.** Membership now rests
+  on `auth.users.phone_confirmed_at`, which Supabase sets without an OTP if
+  phone confirmation is switched off in the Auth settings. One look in the
+  dashboard.
+- **`profiles.phone` is still directly writable by its owner** — the
+  number buyers are shown. Change phone number is the OTP-verified way to
+  move it; a console can skip that. Same shape as `profiles.points` below.
+
+**Card previews: three loose ends from the spin thumbnails change** (found
+10 Sep while checking it, put aside for the tester round):
+
+- **Editing a listing throws away its 360's small copies.** Every save from
+  Edit — a price change included — rewrites all of a listing's spin frames,
+  and `writeSpinSets` gives every frame it keeps its own full-size address
+  as its thumbnail, so one edit sends that card's preview back to
+  full-size frames. The edit form already carries the real thumbnails
+  (`previewFrames`); `writeSpinSets` never takes them. Contained fix.
+- **The seller's own card can preview stale photos.** Reorder or swap photos
+  in Edit while keeping the same count, and the seller's own device can
+  preview the old order, or a removed photo, until the app restarts. A
+  retaken 360 does the same while it uploads. Buyers are unaffected.
+- **Auction lots built from scratch in admin upload their 360 with no small
+  copies.** Auctions are switched off, so no rush.
+
 **Listing domains, step 4: Jobs & Services — see @DOMAINS.md.** Only when
 there is an actual intention to launch them, and with real thinking about
 salary ranges and hourly pricing rather than a guess made now. Steps 1
@@ -167,6 +251,14 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Card previews play on the card itself**, 8–10 Sep 2026: a preview button,
+then a PREVIEW pill with only one preview playing at a time, then spin
+frames with their own small copies — a 24-frame spin was ~7MB off the CDN
+for a picture drawn 350 points wide — and a spin set's row written only
+after its frames have landed, which narrows the moment a closed app can
+strand an empty 360 tab on a live listing to the gap between two adjacent
+inserts. The loose ends are under "Next up".
 
 **The conditions of sale are published where each side signs up**, 6 Sep
 2026. Conditions of consignment on the offer-an-item form, conditions of

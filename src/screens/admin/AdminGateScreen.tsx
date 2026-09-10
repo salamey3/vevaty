@@ -131,6 +131,24 @@ export default function AdminGateScreen() {
         <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={styles.dashboardTitle}>{t('admin.dashboardTitle')}</Text>
 
+          {/* The tester round first: while it runs, it is what this panel is
+              opened for most. See TESTERS.md. */}
+          <Pressy onPress={() => navigation.navigate('AdminTesters')} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>{t('admin.testerCentre')}</Text>
+              <Text style={styles.rowSub}>{t('admin.testerCentreSub')}</Text>
+            </View>
+            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+          </Pressy>
+
+          <Pressy onPress={() => navigation.navigate('AdminProblemReports')} style={styles.row}>
+            <View style={{ flex: 1 }}>
+              <Text style={styles.rowTitle}>{t('admin.problemReports')}</Text>
+              <Text style={styles.rowSub}>{t('admin.problemReportsSub')}</Text>
+            </View>
+            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+          </Pressy>
+
           <Pressy onPress={() => navigation.navigate('AdminCategories')} style={styles.row}>
             <View style={{ flex: 1 }}>
               <Text style={styles.rowTitle}>{t('admin.manageCategories')}</Text>

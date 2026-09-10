@@ -1,16 +1,18 @@
 import React, { createContext, useContext, useEffect, useMemo, useState, useCallback, useRef } from 'react';
+import { AppState } from 'react-native';
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { ContactOutcome, ContactPrompt, Listing, LISTING_STATUSES, ListingSaveErrorCode, ListingVideo, Profile, PointsEvent, SpinSet, Shop, ShopInput, Batch, AuctionAnnouncement } from '../types';
 import { SEED_LISTINGS } from '../data/seed';
 import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, BOOST_COSTS, tierForPoints } from '../data/points';
-import { supabase, ensureSession } from '../lib/supabase';
+import { supabase, ensureSession, upsertOwnProfile } from '../lib/supabase';
 import { Alert } from '../lib/alertShim';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
 import { PhotoWriteError, PhotoWriteStage, insertPhotoRows, writeSpinSets } from '../lib/listingMedia';
 import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
 import { uriToCompressedBase64 } from '../lib/imageToBase64';
 import { triggerListingModeration } from '../lib/moderateListing';
+import { fetchMyTesterStatus, NO_TESTER_STATUS, TesterStatus } from '../lib/testers';
 import { slugify } from '../lib/slugify';
 import { ALL_CONDITION_VALUES } from '../lib/conditionModes';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -340,6 +342,15 @@ interface AppStoreValue {
   // Throws with a user-facing message on failure -- ProfileScreen is
   // expected to catch it and show the error rather than navigate away.
   deleteAccount: () => Promise<void>;
+  // The signed-in account's tester roles, and whether it is an admin
+  // account -- together, whether the Report a problem tab shows (see
+  // ReportProblemHost). Read through the my_tester_status RPC because
+  // tester_roles has no SELECT grant, and never cached between launches, so
+  // a tag taken off in the Tester centre is gone by the next launch at the
+  // latest. refreshTesterStatus is for the moment a sign-up has just
+  // claimed an invite, which lands after the launch-time read.
+  testerStatus: TesterStatus;
+  refreshTesterStatus: () => Promise<void>;
 }
 
 const AppStoreContext = createContext<AppStoreValue | null>(null);
@@ -836,6 +847,7 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [pointsHistory, setPointsHistory] = useState<PointsEvent[]>([]);
   const [auctionAnnouncements, setAuctionAnnouncements] = useState<AuctionAnnouncement[]>([]);
   const [myShop, setMyShop] = useState<Shop | null>(null);
+  const [testerStatus, setTesterStatus] = useState<TesterStatus>(NO_TESTER_STATUS);
   const userIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile>(DEFAULT_PROFILE);
   const listingsRef = useRef<Listing[]>([]);
@@ -968,8 +980,81 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
   // 2) In the background, sign in (anonymously, silently, no login screen)
   // and pull the real data from Supabase. If this fails — offline, backend
   // hiccup, whatever — the app just keeps running on the local cache above.
+  // Guarded on the account it was asked for: a slow answer for the previous
+  // session, landing after a sign-out and a different sign-in, must not
+  // hand the new account the old one's tab.
+  //
+  // And numbered, because the account guard alone is not enough: the launch
+  // read and the one a sign-up fires after claiming its invite are for the
+  // SAME account, so whichever answered last won -- on a slow launch, the
+  // one asked before the invite was claimed, which took the tab away from
+  // a tester who had just been given it. An answer is applied only if no
+  // later-asked one has been applied already.
+  const testerStatusAskedRef = useRef(0);
+  const testerStatusAppliedRef = useRef(0);
+  const testerStatusReadAtRef = useRef(0);
+  const refreshTesterStatus = useCallback(async () => {
+    const seq = ++testerStatusAskedRef.current;
+    const askedFor = userIdRef.current;
+    // Three tries, a few seconds apart. A launch read that fails offline
+    // would otherwise leave a real tester without the tab until the app
+    // next comes to the foreground -- and the tab is how they tell us the
+    // connection keeps dropping.
+    for (let attempt = 0; attempt < 3; attempt++) {
+      if (attempt > 0) {
+        await new Promise((resolve) => setTimeout(resolve, attempt * 4000));
+        // A newer read has taken over, or the account changed: stop.
+        if (seq !== testerStatusAskedRef.current || userIdRef.current !== askedFor) return;
+      }
+      try {
+        const status = await fetchMyTesterStatus();
+        if (userIdRef.current === askedFor && seq > testerStatusAppliedRef.current) {
+          testerStatusAppliedRef.current = seq;
+          testerStatusReadAtRef.current = Date.now();
+          setTesterStatus(status);
+        }
+        return;
+      } catch (e: any) {
+        // Left as it was. A failed read is not "not a tester", and switching
+        // the tab off over a dropped connection would hide the one way a
+        // tester has to tell us the connection keeps dropping.
+        console.warn('[AppStore] tester status read refused:', e?.message || e);
+      }
+    }
+  }, []);
+
+  // A signed-in phone account whose profile never recorded the fact -- the
+  // sign-up's own write was cut off by a closed app or a dropped
+  // connection, or sign-up was shut at that moment and the invite came
+  // later. Everywhere in the app it looks like a member, and the database
+  // refuses it in exactly the three places that now check: posting a
+  // listing, starting a chat, seeing a seller's number. This puts it right
+  // on the next launch instead of leaving it failing there. The server
+  // decides, not this: it refuses an account with no confirmed phone, and
+  // one with no claimed invite while sign-up is shut, so this can only do
+  // what the sign-up itself would have been allowed to.
+  const repairMembership = useCallback(async (uid: string) => {
+    try {
+      const { data } = await supabase.auth.getSession();
+      const user = data.session?.user;
+      if (!user || user.id !== uid || user.is_anonymous || !user.phone || !user.phone_confirmed_at) return;
+      await upsertOwnProfile({ isPhoneVerified: true, phone: '+' + user.phone.replace(/^\+/, '') });
+      // Becoming a member copies a claimed invite's roles onto the profile.
+      if (userIdRef.current === uid) void refreshTesterStatus();
+    } catch (e: any) {
+      // VV002 is the expected answer for an account still waiting on an
+      // invite -- see TESTERS.md, "When someone gets stuck", for the ways out.
+      console.warn('[AppStore] membership repair refused:', e?.code || '', e?.message || e);
+    }
+  }, [refreshTesterStatus]);
+
   const syncFromSupabase = useCallback(async (uid: string) => {
     try {
+      // A different account from the one before -- signing into another
+      // account on the website without signing out first, say. The last
+      // account's tester status is not this one's, and if every read for
+      // the new one then fails it must not keep the old one's tab.
+      if (userIdRef.current !== uid) setTesterStatus(NO_TESTER_STATUS);
       userIdRef.current = uid;
       const cached = profileRef.current;
 
@@ -979,7 +1064,7 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       // visitor and silently breaks profile sync (see AGENTS.md/session notes).
       const { data: existingProfile, error: existingProfileError } = await supabase
         .from('profiles')
-        .select('id, full_name, district, points, tier, avatar_url')
+        .select('id, full_name, district, points, tier, avatar_url, is_phone_verified')
         .eq('id', uid)
         .maybeSingle();
       // A failed READ is not a missing row. Read as one, this fell into
@@ -999,6 +1084,9 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       // insert branch, which set it); checking the error properly is what
       // exposed it.
       setProfile((p) => ({ ...p, id: uid }));
+      // Not awaited: nothing else at launch waits on whether this account
+      // is a tester, and the launch path is the slowest thing in the app.
+      void refreshTesterStatus();
       if (existingProfileError) {
         console.warn('[AppStore] profile read refused, keeping the cached profile:', existingProfileError.message);
       } else if (!existingProfile) {
@@ -1031,6 +1119,12 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
           tier: dbTierToLocal(existingProfile.tier),
           avatarUrl: existingProfile.avatar_url ?? p.avatarUrl,
         }));
+      }
+
+      // Not awaited, like the tester read above. Only when the read worked:
+      // a refused read says nothing about membership.
+      if (!existingProfileError && !existingProfile?.is_phone_verified) {
+        void repairMembership(uid);
       }
 
       // The signed-in user's own shop, if any -- at most one row (no
@@ -1106,7 +1200,7 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     } catch (e) {
       // Offline or backend unreachable — silently keep using local data.
     }
-  }, [fetchPointsHistory, fetchAuctionAnnouncements]);
+  }, [fetchPointsHistory, fetchAuctionAnnouncements, refreshTesterStatus, repairMembership]);
 
   useEffect(() => {
     (async () => {
@@ -1146,6 +1240,20 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     });
     return () => sub.subscription.unsubscribe();
   }, [syncFromSupabase]);
+
+  // The tester status is otherwise read at launch and at sign-in only, so a
+  // tag added or taken off in the Tester centre would wait for a cold start
+  // a phone may not do for weeks. Re-read on the way back to the
+  // foreground -- at most every half minute, because on iOS 'active' also
+  // fires after every system sheet (the photo picker, a permission prompt).
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state !== 'active' || !userIdRef.current) return;
+      if (Date.now() - testerStatusReadAtRef.current < 30_000) return;
+      void refreshTesterStatus();
+    });
+    return () => sub.remove();
+  }, [refreshTesterStatus]);
 
   useEffect(() => {
     if (ready) AsyncStorage.setItem(KEYS.listings, JSON.stringify(listings)).catch(() => {});
@@ -3235,6 +3343,7 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
     setMyShop(null);
+    setTesterStatus(NO_TESTER_STATUS);
     // Cleared explicitly, not left to the isVerified effect: swapping one
     // signed-in account for another never flips isVerified, so the
     // previous account's questions would keep rendering -- and answering
@@ -3285,6 +3394,7 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
     setMyShop(null);
+    setTesterStatus(NO_TESTER_STATUS);
     // Cleared explicitly, not left to the isVerified effect: swapping one
     // signed-in account for another never flips isVerified, so the
     // previous account's questions would keep rendering -- and answering
@@ -3461,6 +3571,8 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       updateProfileDistrict,
       signOut,
       deleteAccount,
+      testerStatus,
+      refreshTesterStatus,
     }),
     [
       ready,
@@ -3495,6 +3607,8 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       updateProfileDistrict,
       signOut,
       deleteAccount,
+      testerStatus,
+      refreshTesterStatus,
     ]
   );
 

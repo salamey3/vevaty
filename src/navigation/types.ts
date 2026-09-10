@@ -56,7 +56,10 @@ export type RootStackParamList = {
   // logged out); when omitted, it just goes back to whatever screen
   // opened it (e.g. the seller-contact reveal on ListingDetail, which
   // re-renders on its own once AppStore's isVerified flips true).
-  Auth: { returnTo?: keyof RootStackParamList; returnToParams?: any } | undefined;
+  // `invite` arrives from a tester's invite link on the website
+  // (/login?invite=CODE -- see lib/testers.ts's inviteLink) and pre-fills
+  // the code on the invite step. Never set by in-app navigation.
+  Auth: { returnTo?: keyof RootStackParamList; returnToParams?: any; invite?: string } | undefined;
   // Swaps an already-verified account's phone number to a new,
   // freshly-OTP-verified one, keeping the same account (uid) and all its
   // history -- distinct from Auth above, which signs in/up. No params:
@@ -149,6 +152,12 @@ export type RootStackParamList = {
   // The screening queue. Accepting and converting both live here, and
   // they are deliberately two acts -- see the screen.
   AdminAuctionSubmissions: undefined;
+
+  // ---- The tester round (TESTERS.md) ----
+  // Invites, tagged testers, the sign-up switch and the waitlist.
+  AdminTesters: undefined;
+  // What testers sent from the Report a problem tab.
+  AdminProblemReports: undefined;
 
   // ---- Conditions of sale ----
   // Reading one of the stored legal documents in full. Keyed by SLUG, not

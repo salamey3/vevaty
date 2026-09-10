@@ -150,6 +150,50 @@ The `name` step is therefore no longer part of the normal path — the form
 covers it — but it remains as the repair screen for both failures above, and
 it still catches long-standing accounts that predate having a name at all.
 
+## A member is a confirmed phone, and only the server says so
+
+Added 10 Sep 2026 for the tester round (@TESTERS.md), which is what made
+the flag matter.
+
+`profiles.is_phone_verified` has always meant "a verified member", but
+until then the server barely consulted it: posting, starting a chat and
+seeing a seller's number needed only a non-anonymous session, which a
+script can get from the auth API without ever meeting a sign-up screen.
+They now need a member — restrictive policies on `listings` and
+`chat_threads` INSERT, and a check inside `get_seller_phone` /
+`get_seller_contact`.
+
+So membership has to be something a client cannot simply claim. An account
+can make itself a member in exactly one place: the `upsert_own_profile`
+call that flips the flag on. That call needs a non-anonymous session, a
+phone the OTP itself confirmed (`auth.users.phone_confirmed_at` — an
+email-and-password account used to be a "member" the moment it asked), and,
+while sign-up is invite-only, a claimed invite (`VV002 invite_required`
+otherwise; admins exempt). The only other writer is an admin letting a
+person in from the Tester centre, through a function that logs it. No
+client session — an admin's included — can write the flag, tester roles or
+suspension directly: `guard_profile_membership_columns_trg` refuses all
+three, because `authenticated` holds table-level INSERT/UPDATE there.
+
+Only the call that MAKES a member is checked. An existing member — a
+password recovery, the repair step, a phone change — is never asked for an
+invite, and never has invite roles copied over an admin's later decision.
+That holds only because the flag never comes down again: the function
+ignores a `false`, since a member able to lower it could raise it once
+more and be treated as joining for the first time.
+
+One bug came out of the rewrite, worth knowing because it was silent:
+the flag was written as `coalesce(excluded.is_phone_verified, …)`, and the
+VALUES row coalesces a missing argument to false — so any call that left
+the argument out would have un-verified a member. Every caller happened to
+pass it. It reads the argument now.
+
+When a sign-up is cut off between the OTP and that write, the account
+exists but is not a member. Two things put it right: the app retries the
+write on the next launch (`AppStore.repairMembership`, which the server
+refuses unless the sign-up itself would have been allowed), and an admin
+can let the person in by tagging their number in the Tester centre.
+
 ## The guest accounts, and the six of them per launch
 
 The admin Users list showed about a hundred members against two real

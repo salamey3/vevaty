@@ -66,6 +66,14 @@ grant select (new_col) on myazar.listings to anon, authenticated;
 grant insert (new_col), update (new_col) on myazar.listings to authenticated;
 ```
 
+Checked 10 Sep 2026, and that is no longer the whole picture: `authenticated`
+now holds table-level INSERT and UPDATE on all three tables, and table-level
+SELECT on `listings` and `shops`. So a new column there is writable by every
+signed-in session by default, and readable on those two. Only SELECT on
+`profiles` is still per column — the case that matters most, below. A new
+column a client must NOT be able to write needs a guard trigger, not a
+missing grant (see "Membership and tester tags are the server's to write").
+
 One more consequence of that same SECURITY DEFINER pattern, learned the
 awkward way: **a function whose argument list changes has to be dropped and
 recreated, not `CREATE OR REPLACE`d.** Replace cannot change the signature —
@@ -329,6 +337,56 @@ The fix was five SECURITY DEFINER functions that check `myazar.admins`
 themselves. The rule to carry forward: **before writing a screen against a
 table, check the GRANTS, not the policies.** A policy list that reads
 exactly right tells you nothing about whether the write can happen at all.
+
+# A policy's subquery sees only what the caller can see
+
+Found 10 Sep 2026, and it had been open for weeks: **any signed-in account
+could make itself an admin.** `myazar.admins` carried a policy "bootstrap
+first admin" that allowed an INSERT while the table was empty, tested with
+`NOT EXISTS (SELECT 1 FROM myazar.admins)`. But a subquery inside a policy
+runs under the CALLER's row security, and the only read policy on that
+table is "admins can read own row" — so to everyone who was not already an
+admin the table always looked empty, and the check always passed. Proven
+with a throwaway account in a rolled-back transaction, then closed
+(`close_admin_self_insert`): the policy dropped, INSERT/UPDATE/DELETE
+revoked. Every `admin_*` function, every admin policy and the tester
+round's invite rule trust that table.
+
+The rule: **"no row is visible" is not "no row exists".** A policy that
+decides anything from another table's CONTENTS answers from the caller's
+view of it. The restrictive "admin identity requires mfa" policy is the
+same trap the other way round — it counts the caller's rows in
+`auth.mfa_factors`, whose rows a signed-in session cannot see, so it always
+counts zero and always accepts aal1 (see @NEXT.md). A decision that must
+see the real table belongs in a SECURITY DEFINER function.
+
+# A new table in this schema is granted to everyone until you say otherwise
+
+The schema's default privileges hand every new table to `authenticated`
+wholesale — SELECT, INSERT, UPDATE, DELETE. A column-level grant written
+beneath that is decorative. Found by test-firing `problem_reports`: the
+intent was "admins may change a report's status", and an admin could
+rewrite the tester's own words. Every new table starts with
+
+```sql
+revoke all on myazar.new_table from anon, authenticated;
+```
+
+and then grants exactly what is meant.
+
+# Membership and tester tags are the server's to write
+
+`profiles.is_phone_verified` (membership), `tester_roles` and the
+suspension columns are written only by SECURITY DEFINER functions.
+`authenticated` holds table-level INSERT/UPDATE on `profiles`, so
+`guard_profile_membership_columns_trg` refuses any client session writing
+them directly — an admin's too, so that every admin change is one the
+`admin_*` functions logged. Posting a listing, starting a chat and reading a seller's
+number all require a member. `tester_roles` must never get a SELECT grant —
+`profiles` is readable by everyone on every row, so a grant would publish
+who is in the tester round; `my_tester_status()` is how an account reads its
+own. (`listings.is_test` does say it, for anyone with a live listing — see
+@TESTERS.md.) @ACCOUNTS.md and @TESTERS.md have the reasoning.
 
 # An inference standing in for a fact will eventually be wrong
 
