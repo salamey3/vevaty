@@ -11,8 +11,13 @@ A Vevaty account **is** a verified phone number. Not an email with a phone
 attached, not a username. Everything follows from that one sentence:
 
 - Members sign in with a phone number and a password. Nothing else works.
-  (The one exception is not a member account: the same screen carries a
-  "Sign in as admin instead" link, which is email + password + TOTP.)
+  (The admin panel is the one other sign-in, and it is not a member login:
+  email, password and an authenticator code, at `vevaty.com/admin`, which
+  nothing a member can see links to. An admin account also finds an Admin
+  row on Profile that opens the same sign-in, or the panel itself on a
+  device already signed in to it. Until 10 Sep 2026 the member
+  login screen carried a "Sign in as admin instead" link for every visitor
+  to see; see "The admin door is not on the member login".)
 - Losing access to the number is losing access to the account, and the
   recovery path is a fresh OTP to that same number.
 - Two accounts can never share a number, because Supabase's auth identity
@@ -278,6 +283,52 @@ client can write is not an audit trail. Points grants land in
 `points_transactions` as well, category `bonus` so they sit outside the
 300-a-month earning cap, and the seller reads the reason text on their own
 points activity screen -- write it as a sentence they should see.
+
+## The admin door is not on the member login
+
+Removed 10 Sep 2026, at Yousif's request: the login every buyer and seller
+sees carried a "Sign in as admin instead" link. It protected nothing — the
+panel's safety is the password and the authenticator code, not the link
+being hard to find — but it told every visitor there was a door, and put an
+email-and-password form one tap from a screen whose whole design says
+"your phone number is your account".
+
+What replaced it:
+
+- **`vevaty.com/admin`** is the admin panel's own sign-in (AdminGateScreen),
+  in any browser, desktop or phone. Typed or bookmarked; linked from
+  nothing public.
+- **Profile shows an Admin row to an admin account and to nobody else** —
+  `testerStatus.isAdmin` from `my_tester_status()`, so the row is there
+  before the admin has signed in to the panel, in the app and on the
+  website alike. It opens the same sign-in: email, password, code (or the
+  panel itself, on a device already signed in to it).
+- **Being signed in with the phone does not shorten that.** A first draft
+  let an admin already signed in with their phone through on the
+  authenticator code alone. It came out before it shipped: on a phone the
+  authenticator usually lives on the same device, so every unlocked phone
+  the admin is signed in on would have been the whole admin login — and
+  the privacy policy tells users a regular session never reaches
+  administrator functions. The same is still true of a device that HAS
+  been through the panel's sign-in: it stays signed in to the panel,
+  across relaunches, until "Sign out of admin", and the lock asks only for
+  the code. So a phone should sign out of admin when done — which, since
+  the same change, signs out that device only. On a phone that also leaves
+  no member signed in, since the panel's sign-in replaced the phone
+  session: sign back in with the number. To end every session at once — a
+  laptop left signed in to the panel, say — the member Log out still
+  signs out everywhere.
+- **The first-admin "set up" form is gone from that page.** Its database
+  half — the policy that let the first account claim the admins table —
+  was closed the same day (see @AGENTS.md, "A policy's subquery sees only
+  what the caller can see"), so all it could still do was create a stray
+  email account and then fail. An admin is added from the database now,
+  and the account needs an email and a password to sign in at all.
+
+Hiding the door is not the lock. The server still checks
+`myazar.admins` and not the session's authenticator level (see @NEXT.md),
+so the password alone is what an attacker would need, whichever screen
+they did or did not find.
 
 ## What is deliberately still missing
 

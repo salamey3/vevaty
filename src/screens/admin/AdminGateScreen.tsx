@@ -14,16 +14,38 @@ import { RootStackParamList } from '../../navigation/types';
 
 const LOCK_DURATION_OPTIONS = [10, 20, 30, 60, 120, 180];
 
+// The admin panel's front door, and since 10 Sep 2026 the ONLY one. The member
+// login screen used to carry a "Sign in as admin instead" link that every
+// visitor could see; it is gone, and nothing public links here. The ways in:
+//
+// - vevaty.com/admin, typed or bookmarked, in any browser.
+// - Profile shows an Admin row to an account that IS an admin
+//   (my_tester_status) -- nobody else ever sees it.
+//
+// Both land on the same sign-in: the admin email and password, then the
+// authenticator code. An admin already signed in with their phone is NOT let
+// through on the code alone -- that would make every unlocked phone they are
+// signed in on, which usually carries the authenticator too, the whole of
+// the admin login, and the privacy policy promises a member session never
+// reaches admin. What it cannot cover: a device that HAS been through this
+// sign-in stays signed in to the panel, across relaunches, until "Sign out
+// of admin", and the lock screen asks only for the code (see NEXT.md).
+//
+// The first-admin "set up" form that used to sit below it is gone: the
+// bootstrap it served was done long ago, its database half was closed on
+// 10 Sep (close_admin_self_insert), and what was left of it could only
+// create a stray email account and then fail. An admin is added from the
+// database, and needs an email and password to sign in here.
 export default function AdminGateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   const { t } = useLanguage();
   const {
-    isAdmin, adminChecked, adminSignIn, adminBootstrapSignUp, adminSignOut,
+    isAdmin, adminChecked, adminSignIn, adminSignOut,
     adminEnrollMfaStart, adminMfaVerify,
     lockDurationMinutes, setLockDuration, biometricSupported, hasBiometricCredential, registerBiometricCredential,
   } = useSettings();
 
-  const [mode, setMode] = useState<'signIn' | 'setup' | 'mfaEnroll' | 'mfaChallenge'>('signIn');
+  const [mode, setMode] = useState<'signIn' | 'mfaEnroll' | 'mfaChallenge'>('signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
@@ -46,8 +68,7 @@ export default function AdminGateScreen() {
     if (!email.trim() || !password) return;
     setBusy(true);
     setError(null);
-    const result =
-      mode === 'signIn' ? await adminSignIn(email.trim(), password) : await adminBootstrapSignUp(email.trim(), password);
+    const result = await adminSignIn(email.trim(), password);
     if (result.error) {
       setBusy(false);
       setError(result.error);
@@ -82,7 +103,20 @@ export default function AdminGateScreen() {
     // On success isAdmin flips true in SettingsStore and this component
     // re-renders straight into the dashboard branch below -- no extra
     // navigation needed here.
-    if (result.error) setError(result.error);
+    if (result.error) {
+      setError(result.error);
+      return;
+    }
+    // Back to a clean sign-in form underneath the dashboard. Left as it was,
+    // "Sign out of admin" on this same screen came back to the code step
+    // with the spent code still typed in, now on a guest session where
+    // Verify can only fail -- and the password and setup secret stayed in
+    // memory for as long as the screen did.
+    setMode('signIn');
+    setMfaCode('');
+    setPassword('');
+    setMfaQrCode(null);
+    setMfaSecret(null);
   };
 
   const enableFingerprint = async () => {
@@ -103,9 +137,16 @@ export default function AdminGateScreen() {
       .then(({ count }) => setOpenReportCount(count ?? 0));
   }, [isAdmin]);
 
+  // Opened straight from vevaty.com/admin this can be the only screen on the
+  // stack, where goBack() does nothing at all.
+  const leave = () => {
+    if (navigation.canGoBack()) navigation.goBack();
+    else navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });
+  };
+
   const topBar = (
     <View style={styles.topBar}>
-      <Pressy onPress={() => navigation.goBack()} style={styles.iconBtn}>
+      <Pressy onPress={leave} style={styles.iconBtn}>
         <Icon name="back" size={18} />
       </Pressy>
       <Text style={type.h3}>{t('admin.title')}</Text>
@@ -332,12 +373,8 @@ export default function AdminGateScreen() {
     <Screen maxWidth={480}>
       {topBar}
       <ScrollView contentContainerStyle={styles.scroll}>
-        <Text style={styles.dashboardTitle}>{mode === 'signIn' ? t('admin.signInTitle') : t('admin.setupTitle')}</Text>
-        {mode === 'signIn' ? (
-          <Text style={styles.note}>{t('admin.signInNote')}</Text>
-        ) : (
-          <Text style={styles.note}>{t('admin.setupNote')}</Text>
-        )}
+        <Text style={styles.dashboardTitle}>{t('admin.signInTitle')}</Text>
+        <Text style={styles.note}>{t('admin.signInNote')}</Text>
 
         <Text style={styles.fieldLabel}>{t('admin.emailLabel')}</Text>
         <TextInput
@@ -362,22 +399,12 @@ export default function AdminGateScreen() {
         {error && <Text style={styles.error}>{error}</Text>}
 
         <Button
-          label={mode === 'signIn' ? t('admin.signIn') : t('admin.setupCta')}
+          label={t('admin.signIn')}
           onPress={submit}
           loading={busy}
           disabled={!email.trim() || !password}
           style={{ marginTop: 18 }}
         />
-
-        {mode === 'signIn' ? (
-          <Pressy onPress={() => { setMode('setup'); setError(null); }} style={styles.switchLink}>
-            <Text style={styles.switchLinkText}>{t('admin.needSetup')} {t('admin.setupLink')}</Text>
-          </Pressy>
-        ) : (
-          <Pressy onPress={() => { setMode('signIn'); setError(null); }} style={styles.switchLink}>
-            <Text style={styles.switchLinkText}>{t('admin.backToSignIn')}</Text>
-          </Pressy>
-        )}
       </ScrollView>
     </Screen>
   );

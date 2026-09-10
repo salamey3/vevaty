@@ -42,8 +42,9 @@ invite goes out, in this order:
    listing — flagged `is_test` in the database, with nothing on screen
    saying so.
 3. **A fresh Android build for the testers' install link** — decided 10
-   Sep, made AFTER this patch has shipped and been checked on the phone, so
-   the app testers install already carries it. The last APK was built 31 Aug
+   Sep, made AFTER this patch and the admin sign-in move (see Recently
+   done) have shipped and been checked on the phone, so the app testers
+   install already carries both. The last APK was built 31 Aug
    and its link lives about thirty days. Nothing here moves the fingerprint,
    so the new build and the installs already out there take the same
    updates.
@@ -71,6 +72,46 @@ Found on the way and deliberately not fixed here:
 - **`profiles.phone` is still directly writable by its owner** — the
   number buyers are shown. Change phone number is the OTP-verified way to
   move it; a console can skip that. Same shape as `profiles.points` below.
+- **Collection link previews have not been built since the move to the new
+  database.** `build-og.mjs` still points at the old Supabase project
+  (`ueqfkxvvfrhppdsnsfpx`), so every ship prints "could not fetch
+  collections for OG snippets" and skips them. Pointing it at the project
+  in `src/lib/supabase.ts` is one line, but it switches back on a step
+  that has not run since 27 Aug and whose failure stops the ship — do it on
+  its own, with a ship somebody is watching.
+- **Leaving the admin panel is rougher than it looks.** All older than
+  the admin sign-in move of 10 Sep, but the Admin row on Profile now makes
+  the panel something a phone signs in to:
+  - A device signed in to the panel stays signed in to it, across
+    relaunches, until "Sign out of admin" — the lock starts unlocked on
+    every launch and then asks only for the code. So a phone, whose
+    authenticator is usually on the same phone, should sign out of admin
+    when done. (Since 10 Sep that signs out this device only; the member
+    Log out still signs out every device — worth one decision.)
+  - "Sign out of admin" skips the clean-up the member Log out does, so the
+    guest session that follows writes the admin's cached name, district,
+    points and tier into a fresh guest profile row (the insert in
+    `syncFromSupabase`). The lock screen's "Not you? Sign out" does the
+    same. A SIGNED_OUT branch in
+    AppStore's auth listener that forgets the local account would cover
+    every way of being signed out at once.
+  - In the phone app the auto-lock is a fixed timer: nothing records
+    activity there (the listener in `App.tsx` is web-only), so the lock
+    screen comes up 30 minutes (the default) after each launch or unlock,
+    however busy the admin is.
+  - A failed read in the background admin check (`checkIsAdmin`) still
+    counts as "not an admin", so a patchy connection can drop an admin on
+    the dashboard back to the sign-in form. Reopening the app or page puts
+    them back; keeping the last answer for the same signed-in account
+    would stop it.
+  - Offline with an expired session token, "Sign out of admin" and the
+    lock's "Not you? Sign out" act as though they worked and do not: the
+    client cannot sign out without reaching the server first, and
+    `adminSignOut` ignores the error it gets back. It should say so and
+    keep the lock up.
+  - Setting up an authenticator from the phone app shows the text key but
+    no QR code: the code arrives as an SVG, which React Native's `Image`
+    does not draw. Set one up on the website.
 
 **Card previews: three loose ends from the spin thumbnails change** (found
 10 Sep while checking it, put aside for the tester round):
@@ -251,6 +292,15 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**The admin sign-in is off the member login**, 10 Sep 2026. It lives at
+`vevaty.com/admin` in any browser, and Profile shows an Admin row to an
+admin account and to nobody else; on a device not already signed in to
+the panel, both ask for the admin email, password and authenticator code.
+The first-admin setup form is gone with it, a
+dropped connection mid-sign-in no longer reads as "not an admin", and
+"Sign out of admin" signs out that device only. See @ACCOUNTS.md, "The
+admin door is not on the member login".
 
 **Card previews play on the card itself**, 8–10 Sep 2026: a preview button,
 then a PREVIEW pill with only one preview playing at a time, then spin

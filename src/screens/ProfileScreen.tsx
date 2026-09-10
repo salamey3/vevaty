@@ -27,7 +27,7 @@ import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { profile, listings, pointsHistory, fetchPointsHistory, signOut, deleteAccount, isVerified, myShop, updateAvatar } = useAppStore();
+  const { profile, listings, pointsHistory, fetchPointsHistory, signOut, deleteAccount, isVerified, myShop, updateAvatar, testerStatus } = useAppStore();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   // The picked-but-not-yet-cropped avatar, queued for ImageCropModal -- see
   // confirmAvatarCrop below (shared component with MyStorefrontScreen's
@@ -74,11 +74,16 @@ export default function ProfileScreen() {
       setUploadingAvatar(false);
     }
   };
-  // isAdmin only ever becomes true by signing in with admin (email+password)
-  // credentials through the same Auth screen regular users see -- there is
-  // no separate admin-login entry point anywhere in the UI anymore, so the
-  // "Admin" row below stays invisible to every ordinary user.
+  // The Admin row is the only way to the admin panel from inside the app, and
+  // it shows for an account that IS an admin -- isAdmin once signed in to the
+  // panel, testerStatus.isAdmin (my_tester_status) before that, so the admin
+  // can find the sign-in without a browser. It opens the same email,
+  // password and authenticator-code sign-in as vevaty.com/admin (or the panel
+  // itself on a device already signed in to it); being signed in with the
+  // phone does not shorten it (see AdminGateScreen). Every other account sees
+  // nothing: no admin sign-in anywhere a member can see.
   const { isAdmin } = useSettings();
+  const showAdminEntry = isAdmin || (isVerified && testerStatus.isAdmin);
   const { t, language, isRTL, setLanguage } = useLanguage();
   // Icon swaps to a checkmark briefly after a successful clipboard copy
   // (web desktop, where there's no native share sheet to give its own
@@ -272,7 +277,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {isAdmin && (
+        {showAdminEntry && (
           <View style={[styles.section, { marginTop: isVerified ? 10 : 26 }]}>
             <Pressy onPress={() => navigation.navigate('Admin')} style={styles.adminBtn}>
               <Icon name="gear" size={15} color={colors.inkSoft} />

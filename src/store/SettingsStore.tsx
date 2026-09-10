@@ -234,13 +234,12 @@ interface SettingsValue {
   // still usable as a spec/create-form field as before).
   setFilterPriorities: (categoryId: string, orderedFacetKeys: string[]) => Promise<void>;
   updateSiteSettings: (patch: Partial<SiteSettings>) => Promise<void>;
-  // Password alone (aal1) is no longer enough -- both of these stop short
-  // of setting isAdmin true and instead report whether this account still
+  // Password alone (aal1) is no longer enough -- this stops short of
+  // setting isAdmin true and instead reports whether this account still
   // needs to enroll a TOTP factor for the first time, or just needs to
   // clear a challenge against its existing one. adminMfaVerify (below)
   // is the only thing that actually flips isAdmin on.
   adminSignIn: (email: string, password: string) => Promise<{ error?: string; status?: 'needsEnroll' | 'needsChallenge'; factorId?: string }>;
-  adminBootstrapSignUp: (email: string, password: string) => Promise<{ error?: string; status?: 'needsEnroll' }>;
   adminEnrollMfaStart: () => Promise<{ error?: string; factorId?: string; qrCode?: string; secret?: string }>;
   adminMfaVerify: (factorId: string, code: string) => Promise<{ error?: string }>;
   // Only needed by the lock screen's fallback path -- unlocking after the
@@ -379,7 +378,7 @@ function friendlyError(e: any, context: 'category' | 'attribute' = 'category'): 
       ? 'That attribute ID is already used on this category.'
       : 'That ID is already used by another category.';
   }
-  if (/row-level security|permission denied/i.test(msg)) return 'Not allowed -- an admin account already exists, or you are not signed in as admin.';
+  if (/row-level security|permission denied/i.test(msg)) return 'Not allowed -- you are not signed in as admin.';
   return msg;
 }
 
@@ -1100,56 +1099,41 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     [siteSettings, applySiteSettings]
   );
 
-  // Admin sign-in/up both swap the Supabase client's active session over
-  // to a real (non-anonymous) account -- AppStore listens for that auth
+  // Admin sign-in swaps the Supabase client's active session over to the
+  // admin's own (non-anonymous) account -- AppStore listens for that auth
   // change and re-syncs listings/profile under the new identity, so the
   // rest of the app keeps working correctly while acting as admin.
   //
-  // Neither of these sets isAdmin true anymore -- a password match is
-  // only aal1. Every admin login now has to also clear a TOTP challenge
-  // (adminMfaVerify) before isAdmin flips on; see AdminGateScreen and
-  // AuthScreen's admin branch for the enroll-vs-challenge step this
-  // return value drives.
+  // This does not set isAdmin true -- a password match is only aal1. Every
+  // admin login also has to clear a TOTP challenge (adminMfaVerify) before
+  // isAdmin flips on; see AdminGateScreen for the enroll-vs-challenge step
+  // this return value drives.
   const adminSignIn = useCallback(async (email: string, password: string): Promise<{ error?: string; status?: 'needsEnroll' | 'needsChallenge'; factorId?: string }> => {
     const { data, error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
     const uid = data.user?.id;
-    const { data: row } = await supabase.from('admins').select('user_id').eq('user_id', uid).maybeSingle();
+    const { data: row, error: rowError } = await supabase.from('admins').select('user_id').eq('user_id', uid).maybeSingle();
+    // A read that failed is not an answer. Taken as "not an admin", a
+    // dropped connection at this moment signed the real admin out.
+    if (rowError) return { error: 'Could not check this account just now. Please try again.' };
     if (!row) {
-      // Not an admin yet -- but this may be someone signing in with an
-      // account that already existed in this shared Supabase project (from
-      // another app) rather than one created via the "set up" form. Try to
-      // claim the one-time bootstrap slot the same way sign-up would; the
-      // RLS policy only allows this insert while myazar.admins is still
-      // empty, so it's safe to attempt here without weakening security --
-      // it just means "sign in" and "set up" both work as the bootstrap
-      // path for whichever account is used first.
-      const { error: insertErr } = await supabase.from('admins').insert({ user_id: uid });
-      if (insertErr) {
-        await supabase.auth.signOut();
-        return { error: 'This account is not an admin.' };
-      }
+      // Not an admin. This used to try claiming a "first admin" slot; that
+      // bootstrap is closed (close_admin_self_insert, 10 Sep 2026) and an
+      // admin is added from the database now. Signed back out rather than
+      // left signed in to an account this panel will not serve -- on this
+      // device only: typing a password into the wrong page is no reason to
+      // end that account's sessions everywhere else. The auth listener
+      // above puts the usual guest session back.
+      await supabase.auth.signOut({ scope: 'local' });
+      return { error: 'This account is not an admin.' };
     }
-    const { data: factors } = await supabase.auth.mfa.listFactors();
+    const { data: factors, error: factorsError } = await supabase.auth.mfa.listFactors();
+    // Same here: a failed read looks like "no authenticator yet", and the
+    // gate would start enrolling a second one.
+    if (factorsError) return { error: 'Could not check this account just now. Please try again.' };
     const verified = factors?.totp?.find((f) => f.status === 'verified');
     if (!verified) return { status: 'needsEnroll' };
     return { status: 'needsChallenge', factorId: verified.id };
-  }, []);
-
-  const adminBootstrapSignUp = useCallback(async (email: string, password: string): Promise<{ error?: string; status?: 'needsEnroll' }> => {
-    const { data, error } = await supabase.auth.signUp({ email, password });
-    if (error) return { error: error.message };
-    const uid = data.user?.id;
-    if (!uid || !data.session) {
-      return { error: 'Sign-up did not return an active session -- check the Supabase Auth email-confirmation setting.' };
-    }
-    const { error: insertErr } = await supabase.from('admins').insert({ user_id: uid });
-    if (insertErr) {
-      await supabase.auth.signOut();
-      return { error: 'Could not claim admin -- an admin account already exists. Sign in instead.' };
-    }
-    // A brand-new admin obviously has no TOTP factor yet.
-    return { status: 'needsEnroll' };
   }, []);
 
   // Starts TOTP enrollment -- returns an SVG QR code (as a data-URL-ready
@@ -1184,9 +1168,15 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     return data?.totp?.find((f) => f.status === 'verified')?.id ?? null;
   }, []);
 
+  // This device only ('local'). The default ends the account's sessions
+  // everywhere, so signing out of the panel on the laptop also signed the
+  // admin out of the app on their phone -- which is the surest way to make
+  // nobody press it, and a device left signed in to the panel stays an
+  // admin device (the session outlives a relaunch). Same for the lock
+  // screen's "Not you? Sign out": it is about this device.
   const adminSignOut = useCallback(async () => {
     try {
-      await supabase.auth.signOut();
+      await supabase.auth.signOut({ scope: 'local' });
     } catch (e) {
       // Ignore -- we still want to fall through to re-establishing a
       // fresh anonymous session below.
@@ -1296,7 +1286,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       setFilterPriorities,
       updateSiteSettings,
       adminSignIn,
-      adminBootstrapSignUp,
       adminEnrollMfaStart,
       adminMfaVerify,
       getVerifiedTotpFactorId,
@@ -1347,7 +1336,6 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       setFilterPriorities,
       updateSiteSettings,
       adminSignIn,
-      adminBootstrapSignUp,
       adminEnrollMfaStart,
       adminMfaVerify,
       getVerifiedTotpFactorId,

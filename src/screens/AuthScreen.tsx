@@ -1,5 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
-import { StyleSheet, Text, View, TextInput, Image, KeyboardAvoidingView, ScrollView } from 'react-native';
+import { StyleSheet, Text, View, TextInput, KeyboardAvoidingView, ScrollView } from 'react-native';
 import { NativeStackScreenProps } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
@@ -19,7 +19,6 @@ import {
 } from '../lib/supabase';
 import { emailFieldOk, normalizeEmail } from '../lib/contactDetails';
 import { mirrorRow } from '../lib/mirrorRow';
-import { useSettings } from '../store/SettingsStore';
 import { useAppStore } from '../store/AppStore';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
@@ -47,7 +46,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'Auth'>;
 // 'invite': the number is not registered and sign-up is invite-only right
 // now (the tester round, see TESTERS.md) -- enter a code, or leave the number
 // on the waitlist. Sits between 'phone' and 'signup'; nothing is sent from it.
-type Step = 'phone' | 'invite' | 'signup' | 'signin' | 'otp' | 'setNewPassword' | 'name' | 'adminMfaEnroll' | 'adminMfaChallenge';
+type Step = 'phone' | 'invite' | 'signup' | 'signin' | 'otp' | 'setNewPassword' | 'name';
 
 // A few failed password attempts pause further tries for a short cooldown
 // -- a plain client-side speed bump, not a real brute-force defense (that
@@ -67,13 +66,10 @@ const LOCKOUT_MS = 30_000;
 
 export default function AuthScreen({ navigation, route }: Props) {
   const { t, language, isRTL } = useLanguage();
-  const { adminSignIn, adminEnrollMfaStart, adminMfaVerify } = useSettings();
   const [step, setStep] = useState<Step>('phone');
   const [phone, setPhone] = useState(DEFAULT_DIAL_PREFIX);
-  const [email, setEmail] = useState('');
   const [otp, setOtp] = useState('');
   const [name, setName] = useState('');
-  const [password, setPassword] = useState('');
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   // The phone number the 'signup'/'signin'/'setNewPassword' steps act on --
@@ -146,22 +142,10 @@ export default function AuthScreen({ navigation, route }: Props) {
   // finishSignup() is allowed to run; see legalLinks.ts for why these are
   // absolute-URL static pages rather than in-app screens.
   const [agreedToTerms, setAgreedToTerms] = useState(false);
-  // Admin TOTP enroll/challenge step state -- see adminLogin()/submitAdminMfa() below.
-  const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
-  const [mfaQrCode, setMfaQrCode] = useState<string | null>(null);
-  const [mfaSecret, setMfaSecret] = useState<string | null>(null);
-  const [mfaCode, setMfaCode] = useState('');
-
-  // This screen is the ONLY sign-in surface in the whole app -- regular
-  // buyers/sellers never see a discoverable "admin" affordance anywhere.
-  // An explicit "Sign in as admin instead" link switches this same field
-  // into admin email+password sign-in. (Previously this was auto-detected
-  // by sniffing for "@" typed into the phone field -- but the phone field
-  // defaults to a numeric phone-pad keyboard, which has no letter keys on
-  // mobile, so an admin could never actually type an email address into it
-  // to trigger the switch. Explicit mode state, with its own text field and
-  // keyboard type, fixes that regardless of platform.)
-  const [isEmailInput, setIsEmailInput] = useState(false);
+  // Members only. The admin sign-in used to live here too, behind a "Sign
+  // in as admin instead" link every visitor could see; it is the admin
+  // panel's own page now (AdminGateScreen, vevaty.com/admin), and in the
+  // app an admin account reaches it from Profile -- see ACCOUNTS.md.
 
   // Set when the one profile write in verifyCode() fails. A ref, not state:
   // afterAuthenticated() is called in the same tick that sets it, and a
@@ -321,46 +305,6 @@ export default function AuthScreen({ navigation, route }: Props) {
     if (error) finishAndLeave();
     else if (existing?.full_name) finishAndLeave();
     else setStep('name');
-  };
-
-  const adminLogin = async () => {
-    if (!password) return;
-    setLoading(true);
-    setError(null);
-    const result = await adminSignIn(email.trim(), password);
-    if (result.error) {
-      setLoading(false);
-      setError(result.error);
-      return;
-    }
-    if (result.status === 'needsEnroll') {
-      const enroll = await adminEnrollMfaStart();
-      setLoading(false);
-      if (enroll.error || !enroll.factorId) {
-        setError(enroll.error || t('auth.mfaEnrollFailed'));
-        return;
-      }
-      setMfaFactorId(enroll.factorId);
-      setMfaQrCode(enroll.qrCode || null);
-      setMfaSecret(enroll.secret || null);
-      setStep('adminMfaEnroll');
-    } else if (result.status === 'needsChallenge' && result.factorId) {
-      setLoading(false);
-      setMfaFactorId(result.factorId);
-      setStep('adminMfaChallenge');
-    } else {
-      setLoading(false);
-    }
-  };
-
-  const submitAdminMfa = async () => {
-    if (!mfaFactorId || mfaCode.trim().length < 6) return;
-    setLoading(true);
-    setError(null);
-    const result = await adminMfaVerify(mfaFactorId, mfaCode.trim());
-    setLoading(false);
-    if (result.error) setError(result.error);
-    else finishAndLeave();
   };
 
   // 'phone' step's Continue -- looks up whether this number already has an
@@ -852,8 +796,7 @@ export default function AuthScreen({ navigation, route }: Props) {
   const goBack = () => {
     navEpochRef.current += 1;
     if (step === 'phone') {
-      if (isEmailInput) { setIsEmailInput(false); setPassword(''); setError(null); }
-      else leaveScreen();
+      leaveScreen();
     } else if (step === 'invite' || step === 'signup' || step === 'signin') {
       setStep('phone');
       setError(null);
@@ -866,9 +809,6 @@ export default function AuthScreen({ navigation, route }: Props) {
       setError(null);
     } else if (step === 'name') {
       setStep('otp');
-    } else if (step === 'adminMfaEnroll' || step === 'adminMfaChallenge') {
-      setStep('phone');
-      setMfaCode('');
     } else {
       setStep('phone');
     }
@@ -902,7 +842,7 @@ export default function AuthScreen({ navigation, route }: Props) {
           contentContainerStyle={styles.body}
           keyboardShouldPersistTaps="handled"
         >
-          {step === 'phone' && !isEmailInput && (
+          {step === 'phone' && (
             <>
               {/* Arrived through a tester's invite link: say so before anything
                   else, so the phone field reads as the way in rather than a wall. */}
@@ -922,46 +862,6 @@ export default function AuthScreen({ navigation, route }: Props) {
               />
               {!!error && <Text style={styles.error}>{error}</Text>}
               <Button label={t('common.continue')} onPress={checkPhone} loading={loading} style={{ marginTop: 18 }} />
-              <Pressy onPress={() => { setIsEmailInput(true); setError(null); }} style={styles.linkBtn}>
-                <Text style={styles.linkText}>{t('auth.adminSignInLink')}</Text>
-              </Pressy>
-            </>
-          )}
-
-          {step === 'phone' && isEmailInput && (
-            <>
-              <Text style={styles.subtitle}>{t('auth.adminSubtitle')}</Text>
-              <Text style={styles.fieldLabel}>{t('auth.emailLabel')}</Text>
-              <TextInput
-                value={email}
-                onChangeText={setEmail}
-                placeholder={t('auth.emailPlaceholder')}
-                placeholderTextColor={colors.inkSoft}
-                keyboardType="email-address"
-                autoCapitalize="none"
-                autoCorrect={false}
-                style={styles.input}
-              />
-              <Text style={[styles.fieldLabel, { marginTop: 14 }]}>{t('auth.passwordLabel')}</Text>
-              <TextInput
-                value={password}
-                onChangeText={setPassword}
-                placeholder="••••••••"
-                placeholderTextColor={colors.inkSoft}
-                secureTextEntry
-                style={styles.input}
-              />
-              {!!error && <Text style={styles.error}>{error}</Text>}
-              <Button
-                label={t('auth.signIn')}
-                onPress={adminLogin}
-                loading={loading}
-                disabled={!password || !email.trim()}
-                style={{ marginTop: 18 }}
-              />
-              <Pressy onPress={() => { setIsEmailInput(false); setPassword(''); setError(null); }} style={styles.linkBtn}>
-                <Text style={styles.linkText}>{t('auth.backToPhoneLink')}</Text>
-              </Pressy>
             </>
           )}
 
@@ -1422,42 +1322,6 @@ export default function AuthScreen({ navigation, route }: Props) {
             </>
           )}
 
-          {(step === 'adminMfaEnroll' || step === 'adminMfaChallenge') && (
-            <>
-              <Text style={styles.subtitle}>
-                {step === 'adminMfaEnroll' ? t('auth.mfaEnrollNote') : t('auth.mfaChallengeNote')}
-              </Text>
-
-              {step === 'adminMfaEnroll' && !!mfaQrCode && (
-                <View style={styles.qrWrap}>
-                  <Image
-                    source={{ uri: `data:image/svg+xml;utf8,${encodeURIComponent(mfaQrCode)}` }}
-                    style={styles.qrImage}
-                  />
-                  {!!mfaSecret && <Text style={styles.mfaSecret}>{mfaSecret}</Text>}
-                </View>
-              )}
-
-              <Text style={styles.fieldLabel}>{t('auth.mfaCodeLabel')}</Text>
-              <TextInput
-                value={mfaCode}
-                onChangeText={setMfaCode}
-                placeholder="123456"
-                placeholderTextColor={colors.inkSoft}
-                keyboardType="number-pad"
-                maxLength={6}
-                style={styles.input}
-              />
-              {!!error && <Text style={styles.error}>{error}</Text>}
-              <Button
-                label={step === 'adminMfaEnroll' ? t('auth.mfaEnrollCta') : t('auth.verify')}
-                onPress={submitAdminMfa}
-                loading={loading}
-                disabled={mfaCode.trim().length < 6}
-                style={{ marginTop: 18 }}
-              />
-            </>
-          )}
         </ScrollView>
       </KeyboardAvoidingView>
     </Screen>
@@ -1550,10 +1414,4 @@ const styles = StyleSheet.create({
   termsLink: { color: colors.primary, fontWeight: '700', textDecorationLine: 'underline' },
   linkBtn: { alignSelf: 'center', marginTop: 16, padding: 8 },
   linkText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
-  qrWrap: { alignItems: 'center', marginBottom: 16 },
-  qrImage: { width: 200, height: 200 },
-  mfaSecret: {
-    marginTop: 10, fontSize: 12.5, color: colors.inkSoft, letterSpacing: 1,
-    textAlign: 'center',
-  },
 });
