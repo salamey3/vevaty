@@ -388,6 +388,16 @@ who is in the tester round; `my_tester_status()` is how an account reads its
 own. (`listings.is_test` does say it, for anyone with a live listing — see
 @TESTERS.md.) @ACCOUNTS.md and @TESTERS.md have the reasoning.
 
+# An admin page is registered through adminOnly
+
+Every admin screen except the sign-in itself (`Admin`, AdminGateScreen) is
+registered in RootNavigator as `adminOnly(Screen)`, created once at module
+level, and its web path goes under `control-room/`, never `admin/`. A
+screen registered bare is a page anyone can open by typing its address —
+which is what every inner admin page was until 10 Sep 2026. The server
+refusing the page's reads and writes is the lock; `adminOnly` is what keeps
+members from seeing the room at all. @ACCOUNTS.md has the reasoning.
+
 # An inference standing in for a fact will eventually be wrong
 
 `delete_auction` decided whether a lot's listing had been created for the

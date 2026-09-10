@@ -196,7 +196,7 @@ console.log(`Overwrote ${htmlPath} with the self-contained bundle (${fs.statSync
 
 // Carry the SPA-fallback .htaccess into dist/ on every build, so uploading
 // dist/'s contents always includes it -- without it Apache 404s on any
-// client-side route (/profile, /admin/categories) on refresh.
+// client-side route (/profile, /control-room/categories) on refresh.
 if (fs.existsSync('.htaccess')) {
   fs.copyFileSync('.htaccess', path.join(DIST, '.htaccess'));
   console.log(`Copied .htaccess -> ${path.join(DIST, '.htaccess')}`);

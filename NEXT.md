@@ -99,11 +99,6 @@ Found on the way and deliberately not fixed here:
     activity there (the listener in `App.tsx` is web-only), so the lock
     screen comes up 30 minutes (the default) after each launch or unlock,
     however busy the admin is.
-  - A failed read in the background admin check (`checkIsAdmin`) still
-    counts as "not an admin", so a patchy connection can drop an admin on
-    the dashboard back to the sign-in form. Reopening the app or page puts
-    them back; keeping the last answer for the same signed-in account
-    would stop it.
   - Offline with an expired session token, "Sign out of admin" and the
     lock's "Not you? Sign out" act as though they worked and do not: the
     client cannot sign out without reaching the server first, and
@@ -112,6 +107,15 @@ Found on the way and deliberately not fixed here:
   - Setting up an authenticator from the phone app shows the text key but
     no QR code: the code arrives as an SVG, which React Native's `Image`
     does not draw. Set one up on the website.
+- **Every launch runs the settings refresh twice, side by side** — once
+  from SettingsStore's first-mount effect and once from the auth
+  listener's INITIAL_SESSION — so categories, attributes and site settings
+  are fetched twice and two admin checks overlap. Since 10 Sep only the
+  newer check may write (so a slow one from an earlier session cannot
+  undo a sign-in), which leaves one rare case: if the newer check's read
+  fails while the older one's succeeded, an admin reloading an admin page
+  gets the sign-in form. Letting a refresh that arrives mid-flight run
+  once more afterwards, instead of alongside, fixes both.
 
 **Card previews: three loose ends from the spin thumbnails change** (found
 10 Sep while checking it, put aside for the tester round):
@@ -294,13 +298,18 @@ the domains work, and both are `active = false` until then.
 ## Recently done
 
 **The admin sign-in is off the member login**, 10 Sep 2026. It lives at
-`vevaty.com/admin` in any browser, and Profile shows an Admin row to an
+`vevaty.com/control-room` in any browser (it was `/admin` for a few hours
+the same day — too obvious a guess), and Profile shows an Admin row to an
 admin account and to nobody else; on a device not already signed in to
 the panel, both ask for the admin email, password and authenticator code.
-The first-admin setup form is gone with it, a
-dropped connection mid-sign-in no longer reads as "not an admin", and
-"Sign out of admin" signs out that device only. See @ACCOUNTS.md, "The
-admin door is not on the member login".
+Every inner admin page now shows that sign-in, in its place, to anyone
+not signed in to the panel — until then `/admin/branding` showed anyone
+the branding editor. The first-admin setup form is gone, a dropped
+connection no longer reads as "not an admin" — neither mid-sign-in nor in
+the background check that runs on every return to the tab, which would
+otherwise swap an open admin page, unsaved edits and all, for the sign-in
+form — and "Sign out of admin" signs out that device only. See
+@ACCOUNTS.md, "The admin door is not on the member login".
 
 **Card previews play on the card itself**, 8–10 Sep 2026: a preview button,
 then a PREVIEW pill with only one preview playing at a time, then spin

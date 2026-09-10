@@ -144,8 +144,8 @@ export default function AuthScreen({ navigation, route }: Props) {
   const [agreedToTerms, setAgreedToTerms] = useState(false);
   // Members only. The admin sign-in used to live here too, behind a "Sign
   // in as admin instead" link every visitor could see; it is the admin
-  // panel's own page now (AdminGateScreen, vevaty.com/admin), and in the
-  // app an admin account reaches it from Profile -- see ACCOUNTS.md.
+  // panel's own page now (AdminGateScreen, vevaty.com/control-room), and in
+  // the app an admin account reaches it from Profile -- see ACCOUNTS.md.
 
   // Set when the one profile write in verifyCode() fails. A ref, not state:
   // afterAuthenticated() is called in the same tick that sets it, and a

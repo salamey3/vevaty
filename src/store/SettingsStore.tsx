@@ -404,21 +404,43 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     applyFavicon(s.faviconUrl);
   }, []);
 
+  // The account the last real answer found to be a signed-in admin. Only
+  // consulted when a check fails to get an answer at all -- see below.
+  const confirmedAdminUidRef = useRef<string | null>(null);
+  // Numbers the checks. One runs on every auth event and nothing orders
+  // them, so a slow read begun under an earlier session -- a guest's, before
+  // the admin signed in -- would land last and overwrite the right answer.
+  // Only the newest check started may write. A finished code check and a
+  // sign-out move the number on too: each is fresher than any check still
+  // in flight.
+  const adminCheckSeqRef = useRef(0);
+
   const checkIsAdmin = useCallback(async () => {
+    const seq = ++adminCheckSeqRef.current;
+    // `confirmedUid` undefined leaves the confirmed account as it is.
+    const answer = (admin: boolean, confirmedUid?: string | null) => {
+      if (seq !== adminCheckSeqRef.current) return admin;
+      if (confirmedUid !== undefined) confirmedAdminUidRef.current = confirmedUid;
+      setIsAdmin(admin);
+      setAdminChecked(true);
+      return admin;
+    };
     try {
       const { data } = await supabase.auth.getSession();
       const uid = data.session?.user?.id;
-      if (!uid) {
-        setIsAdmin(false);
-        setAdminChecked(true);
-        return false;
+      if (!uid) return answer(false, null);
+      const { data: row, error: rowError } = await supabase.from('admins').select('user_id').maybeSingle();
+      if (rowError) {
+        // A read that failed is not an answer. This runs on every auth
+        // event -- on the web, each time the tab comes back into view --
+        // and taking a dropped connection as "not an admin" swapped
+        // whichever admin page was open, unsaved edits and all, for the
+        // sign-in form (adminOnly). The same account, still past its code,
+        // keeps the answer it had; anyone else gets no.
+        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
+        return answer(aal?.currentLevel === 'aal2' && confirmedAdminUidRef.current === uid);
       }
-      const { data: row } = await supabase.from('admins').select('user_id').maybeSingle();
-      if (!row) {
-        setIsAdmin(false);
-        setAdminChecked(true);
-        return false;
-      }
+      if (!row) return answer(false, null);
       // Admins-table membership alone isn't enough -- the session must
       // also have actually cleared a TOTP challenge (aal2), not just
       // carry an aal1 password-only login. This is what makes MFA
@@ -428,11 +450,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       // feature shipped -- can't silently keep admin access on reload.
       const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
       const admin = aal?.currentLevel === 'aal2';
-      setIsAdmin(admin);
-      setAdminChecked(true);
-      return admin;
+      return answer(admin, admin ? uid : null);
     } catch (e) {
-      setAdminChecked(true);
+      if (seq === adminCheckSeqRef.current) setAdminChecked(true);
       return false;
     }
   }, []);
@@ -1156,6 +1176,13 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     if (challenge.error) return { error: challenge.error.message };
     const verify = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.data.id, code });
     if (verify.error) return { error: verify.error.message };
+    // Both callers have already established this is an admin account (the
+    // gate through adminSignIn's admins read, the lock screen by only
+    // showing to one), so a failed read in the check this sign-in sets off
+    // must not undo it -- see checkIsAdmin. And any check already in flight
+    // began before this answer, so it may no longer write.
+    adminCheckSeqRef.current += 1;
+    confirmedAdminUidRef.current = verify.data?.user?.id ?? null;
     setIsAdmin(true);
     setAdminChecked(true);
     setSessionLocked(false);
@@ -1181,6 +1208,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       // Ignore -- we still want to fall through to re-establishing a
       // fresh anonymous session below.
     }
+    adminCheckSeqRef.current += 1;
+    confirmedAdminUidRef.current = null;
     setIsAdmin(false);
     setSessionLocked(false);
     await ensureSession();

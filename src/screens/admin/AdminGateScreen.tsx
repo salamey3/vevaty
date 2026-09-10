@@ -18,7 +18,10 @@ const LOCK_DURATION_OPTIONS = [10, 20, 30, 60, 120, 180];
 // login screen used to carry a "Sign in as admin instead" link that every
 // visitor could see; it is gone, and nothing public links here. The ways in:
 //
-// - vevaty.com/admin, typed or bookmarked, in any browser.
+// - vevaty.com/control-room, typed or bookmarked, in any browser. (It was
+//   /admin until later on 10 Sep -- too obvious a guess.) Every inner admin
+//   page shows this same form in its place to anyone not signed in to the
+//   panel -- see adminOnly.
 // - Profile shows an Admin row to an account that IS an admin
 //   (my_tester_status) -- nobody else ever sees it.
 //
@@ -137,8 +140,9 @@ export default function AdminGateScreen() {
       .then(({ count }) => setOpenReportCount(count ?? 0));
   }, [isAdmin]);
 
-  // Opened straight from vevaty.com/admin this can be the only screen on the
-  // stack, where goBack() does nothing at all.
+  // Opened straight from vevaty.com/control-room -- or from an inner admin
+  // page, which shows this form in its place -- this can be the only screen
+  // on the stack, where goBack() does nothing at all.
   const leave = () => {
     if (navigation.canGoBack()) navigation.goBack();
     else navigation.reset({ index: 0, routes: [{ name: 'MainTabs' }] });

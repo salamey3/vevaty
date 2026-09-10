@@ -78,10 +78,10 @@ export default function ProfileScreen() {
   // it shows for an account that IS an admin -- isAdmin once signed in to the
   // panel, testerStatus.isAdmin (my_tester_status) before that, so the admin
   // can find the sign-in without a browser. It opens the same email,
-  // password and authenticator-code sign-in as vevaty.com/admin (or the panel
-  // itself on a device already signed in to it); being signed in with the
-  // phone does not shorten it (see AdminGateScreen). Every other account sees
-  // nothing: no admin sign-in anywhere a member can see.
+  // password and authenticator-code sign-in as vevaty.com/control-room (or the
+  // panel itself on a device already signed in to it); being signed in with
+  // the phone does not shorten it (see AdminGateScreen). Every other account
+  // sees nothing: no admin sign-in anywhere a member can see.
   const { isAdmin } = useSettings();
   const showAdminEntry = isAdmin || (isVerified && testerStatus.isAdmin);
   const { t, language, isRTL, setLanguage } = useLanguage();

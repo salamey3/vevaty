@@ -48,6 +48,7 @@ import AdminAuctionMonitorScreen from '../screens/admin/AdminAuctionMonitorScree
 import AdminAuctionSubmissionsScreen from '../screens/admin/AdminAuctionSubmissionsScreen';
 import AdminTestersScreen from '../screens/admin/AdminTestersScreen';
 import AdminProblemReportsScreen from '../screens/admin/AdminProblemReportsScreen';
+import { adminOnly } from '../screens/admin/adminOnly';
 import SellAtAuctionScreen from '../screens/SellAtAuctionScreen';
 import AuctionSubmissionFormScreen from '../screens/AuctionSubmissionFormScreen';
 import LegalDocumentScreen from '../screens/LegalDocumentScreen';
@@ -55,6 +56,26 @@ import { useAppStore } from '../store/AppStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { RootStackParamList } from './types';
 import { navigationRef } from './navigationRef';
+
+// Every inner admin page shows the admin sign-in to anyone not signed in to
+// the panel -- see adminOnly. Wrapped here, once, so each keeps one component
+// type for the life of the app. The sign-in itself (Admin) stays bare.
+const AdminShopsPage = adminOnly(AdminShopsScreen);
+const AdminCategoriesPage = adminOnly(AdminCategoriesScreen);
+const AdminCategoryAttributesPage = adminOnly(AdminCategoryAttributesScreen);
+const AdminBrandingPage = adminOnly(AdminBrandingScreen);
+const AdminModerationPage = adminOnly(AdminModerationScreen);
+const AdminUsersPage = adminOnly(AdminUsersScreen);
+const AdminUserDetailPage = adminOnly(AdminUserDetailScreen);
+const AdminReportsPage = adminOnly(AdminReportsScreen);
+const AdminCollectionsPage = adminOnly(AdminCollectionsScreen);
+const AdminBannersPage = adminOnly(AdminBannersScreen);
+const AdminAuctionsPage = adminOnly(AdminAuctionsScreen);
+const AdminAuctionLotsPage = adminOnly(AdminAuctionLotsScreen);
+const AdminAuctionMonitorPage = adminOnly(AdminAuctionMonitorScreen);
+const AdminAuctionSubmissionsPage = adminOnly(AdminAuctionSubmissionsScreen);
+const AdminTestersPage = adminOnly(AdminTestersScreen);
+const AdminProblemReportsPage = adminOnly(AdminProblemReportsScreen);
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -109,17 +130,26 @@ const linking: LinkingOptions<RootStackParamList> = {
       Storefront: 'shop/:shopSlug',
       Collection: 'collection/:slug',
       MyStorefront: 'storefront/manage',
-      AdminShops: 'admin/storefronts',
-      Admin: 'admin',
-      AdminCategories: 'admin/categories',
-      AdminCategoryAttributes: 'admin/categories/:categoryId/attributes',
-      AdminBranding: 'admin/branding',
-      AdminModeration: 'admin/moderation',
-      AdminUsers: 'admin/users',
-      AdminUserDetail: 'admin/users/:userId',
-      AdminReports: 'admin/reports',
-      AdminCollections: 'admin/collections',
-      AdminBanners: 'admin/banners',
+      // The admin area lives under 'control-room', not 'admin', since 10 Sep
+      // 2026: /admin is the first address anyone -- and every program that
+      // hunts for admin pages -- tries. That is obscurity, not the lock: the
+      // address is in the site's own code, which every visitor downloads.
+      // The lock is the server refusing anyone not in myazar.admins, and the
+      // password it takes to sign in (the code is checked by the app, not
+      // yet by the server -- see NEXT.md). adminOnly on every inner page
+      // (above) only keeps members from seeing the pages at all. Nothing
+      // public links here.
+      AdminShops: 'control-room/storefronts',
+      Admin: 'control-room',
+      AdminCategories: 'control-room/categories',
+      AdminCategoryAttributes: 'control-room/categories/:categoryId/attributes',
+      AdminBranding: 'control-room/branding',
+      AdminModeration: 'control-room/moderation',
+      AdminUsers: 'control-room/users',
+      AdminUserDetail: 'control-room/users/:userId',
+      AdminReports: 'control-room/reports',
+      AdminCollections: 'control-room/collections',
+      AdminBanners: 'control-room/banners',
       // Auctions. Without these the web build falls back to
       // '/Auction?auctionId=...' from the route name, which
       // getStateFromPath has no pattern for -- so reloading or sharing
@@ -129,14 +159,14 @@ const linking: LinkingOptions<RootStackParamList> = {
       Auction: 'auction/:auctionId',
       AuctionLot: 'auction/lot/:lotId',
       AuctionRegister: 'auction/:auctionId/register',
-      AdminAuctions: 'admin/auctions',
-      AdminAuctionLots: 'admin/auctions/:auctionId/lots',
-      AdminAuctionMonitor: 'admin/auctions/:auctionId/monitor',
+      AdminAuctions: 'control-room/auctions',
+      AdminAuctionLots: 'control-room/auctions/:auctionId/lots',
+      AdminAuctionMonitor: 'control-room/auctions/:auctionId/monitor',
       SellAtAuction: 'auctions/sell',
       AuctionSubmissionForm: 'auctions/sell/item',
-      AdminAuctionSubmissions: 'admin/auctions/consignments',
-      AdminTesters: 'admin/testers',
-      AdminProblemReports: 'admin/problem-reports',
+      AdminAuctionSubmissions: 'control-room/auctions/consignments',
+      AdminTesters: 'control-room/testers',
+      AdminProblemReports: 'control-room/problem-reports',
       LegalDocument: 'terms/:slug',
     },
   },
@@ -180,17 +210,17 @@ export default function RootNavigator() {
         <Stack.Screen name="Storefront" component={StorefrontScreen} />
         <Stack.Screen name="Collection" component={CollectionScreen} />
         <Stack.Screen name="MyStorefront" component={MyStorefrontScreen} />
-        <Stack.Screen name="AdminShops" component={AdminShopsScreen} />
+        <Stack.Screen name="AdminShops" component={AdminShopsPage} />
         <Stack.Screen name="Admin" component={AdminGateScreen} />
-        <Stack.Screen name="AdminCategories" component={AdminCategoriesScreen} />
-        <Stack.Screen name="AdminCategoryAttributes" component={AdminCategoryAttributesScreen} />
-        <Stack.Screen name="AdminBranding" component={AdminBrandingScreen} />
-        <Stack.Screen name="AdminModeration" component={AdminModerationScreen} />
-        <Stack.Screen name="AdminUsers" component={AdminUsersScreen} />
-        <Stack.Screen name="AdminUserDetail" component={AdminUserDetailScreen} />
-        <Stack.Screen name="AdminReports" component={AdminReportsScreen} />
-        <Stack.Screen name="AdminCollections" component={AdminCollectionsScreen} />
-        <Stack.Screen name="AdminBanners" component={AdminBannersScreen} />
+        <Stack.Screen name="AdminCategories" component={AdminCategoriesPage} />
+        <Stack.Screen name="AdminCategoryAttributes" component={AdminCategoryAttributesPage} />
+        <Stack.Screen name="AdminBranding" component={AdminBrandingPage} />
+        <Stack.Screen name="AdminModeration" component={AdminModerationPage} />
+        <Stack.Screen name="AdminUsers" component={AdminUsersPage} />
+        <Stack.Screen name="AdminUserDetail" component={AdminUserDetailPage} />
+        <Stack.Screen name="AdminReports" component={AdminReportsPage} />
+        <Stack.Screen name="AdminCollections" component={AdminCollectionsPage} />
+        <Stack.Screen name="AdminBanners" component={AdminBannersPage} />
         {/* Auctions. Registration is a modal because it interrupts an
             auction the bidder is already looking at and has to return
             them to it; everything else is a push, so back goes where
@@ -199,9 +229,9 @@ export default function RootNavigator() {
         <Stack.Screen name="Auction" component={AuctionScreen} />
         <Stack.Screen name="AuctionLot" component={AuctionLotScreen} />
         <Stack.Screen name="AuctionRegister" component={AuctionRegisterScreen} options={{ presentation: 'modal' }} />
-        <Stack.Screen name="AdminAuctions" component={AdminAuctionsScreen} />
-        <Stack.Screen name="AdminAuctionLots" component={AdminAuctionLotsScreen} />
-        <Stack.Screen name="AdminAuctionMonitor" component={AdminAuctionMonitorScreen} />
+        <Stack.Screen name="AdminAuctions" component={AdminAuctionsPage} />
+        <Stack.Screen name="AdminAuctionLots" component={AdminAuctionLotsPage} />
+        <Stack.Screen name="AdminAuctionMonitor" component={AdminAuctionMonitorPage} />
         {/* Consigning. The form is a modal because it is entered from the
             list it returns to, and from the auctions front door. */}
         <Stack.Screen name="SellAtAuction" component={SellAtAuctionScreen} />
@@ -210,9 +240,9 @@ export default function RootNavigator() {
           component={AuctionSubmissionFormScreen}
           options={{ presentation: 'modal' }}
         />
-        <Stack.Screen name="AdminAuctionSubmissions" component={AdminAuctionSubmissionsScreen} />
-        <Stack.Screen name="AdminTesters" component={AdminTestersScreen} />
-        <Stack.Screen name="AdminProblemReports" component={AdminProblemReportsScreen} />
+        <Stack.Screen name="AdminAuctionSubmissions" component={AdminAuctionSubmissionsPage} />
+        <Stack.Screen name="AdminTesters" component={AdminTestersPage} />
+        <Stack.Screen name="AdminProblemReports" component={AdminProblemReportsPage} />
         {/* Modal, because it is always opened from a screen that is asking
             for agreement and must return to it. */}
         <Stack.Screen

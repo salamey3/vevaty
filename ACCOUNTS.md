@@ -12,8 +12,8 @@ attached, not a username. Everything follows from that one sentence:
 
 - Members sign in with a phone number and a password. Nothing else works.
   (The admin panel is the one other sign-in, and it is not a member login:
-  email, password and an authenticator code, at `vevaty.com/admin`, which
-  nothing a member can see links to. An admin account also finds an Admin
+  email, password and an authenticator code, at `vevaty.com/control-room`,
+  which nothing a member can see links to. An admin account also finds an Admin
   row on Profile that opens the same sign-in, or the panel itself on a
   device already signed in to it. Until 10 Sep 2026 the member
   login screen carried a "Sign in as admin instead" link for every visitor
@@ -295,9 +295,23 @@ email-and-password form one tap from a screen whose whole design says
 
 What replaced it:
 
-- **`vevaty.com/admin`** is the admin panel's own sign-in (AdminGateScreen),
-  in any browser, desktop or phone. Typed or bookmarked; linked from
-  nothing public.
+- **`vevaty.com/control-room`** is the admin panel's own sign-in
+  (AdminGateScreen), in any browser, desktop or phone. Typed or
+  bookmarked; linked from nothing public. It was `/admin` for a few hours
+  on 10 Sep; Yousif moved it because `/admin` is the first address anyone
+  tries — people and the programs that sweep sites for admin pages alike.
+  `control-room` is not a standard admin address (as `/dashboard` and
+  `/management`, the other two he considered, both are), so those programs
+  are unlikely to try it. It is obscurity and not a lock: the address sits
+  in the site's own code, which every visitor downloads. The old address
+  now just opens the site's start.
+- **Every inner admin page shows that sign-in to anyone not signed in to
+  the panel** (`adminOnly`, wrapped around each one in RootNavigator).
+  Before this, the inner pages were plain routes: typing
+  `vevaty.com/admin/branding` gave anyone the whole branding editor, and
+  `/admin/users` the user search. Nothing would have saved — the server
+  checks `myazar.admins` on every write — but "invisible to members" has to
+  include the pages behind the front door.
 - **Profile shows an Admin row to an admin account and to nobody else** —
   `testerStatus.isAdmin` from `my_tester_status()`, so the row is there
   before the admin has signed in to the panel, in the app and on the
