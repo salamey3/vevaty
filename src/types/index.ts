@@ -330,6 +330,18 @@ export interface SpinSet {
   id: string;
   label: string;
   frames: string[]; // same local-uri-then-hosted-url lifecycle as photos, in capture order
+  // The SAME frames at card size (~640px), one per entry, in the same
+  // order -- what the spin preview on a listing card draws instead of the
+  // 1600px originals. A card-sized spin was mounting every full-size frame
+  // at once, which is ~7.7MB of Android bitmap heap per frame; the whole
+  // point of a second small file is that a preview costs a fraction of
+  // that. An entry falls back to the full url when a frame has no
+  // thumbnail (uploaded before this existed, or an already-hosted frame
+  // kept through an edit), so this is always the same length as `frames`
+  // when present at all. The 360 viewer on the listing page itself keeps
+  // using `frames`: that is the one place someone is deliberately looking
+  // at the photograph.
+  previewFrames?: string[];
 }
 
 // A listing's optional video, hosted on Bunny Stream (see
@@ -436,6 +448,13 @@ export interface Listing {
   // gets one: it's the only photo a card ever shows, so a thumbnail per
   // gallery photo would be uploaded and never read.
   coverThumbnailUrl?: string | null;
+  // Every gallery photo at card size (~640px), same order as `photos`, an
+  // entry falling back to the full url where no thumbnail exists. The
+  // cover's copy above is what a card shows at rest; this is what the
+  // card's PREVIEW slideshow draws, which used to be handed the 1600px
+  // originals -- so a card showed the small file and the preview on top of
+  // it loaded the big ones.
+  photoThumbnails?: string[];
   // One or more named 360° spins -- e.g. a car might have "Exterior" and
   // "Interior" spins, a property one spin per room. Empty array is the
   // common case (no spin at all). Replaces the old flat single-spin

@@ -372,6 +372,17 @@ function sortedByKind(rows: any[], kind: 'gallery' | 'spin'): string[] {
 // thing that ever needs this -- it's the only photo a card shows -- so this
 // stays one field on Listing rather than a thumbnail threaded through every
 // screen that reads .photos.
+// Every photo of one kind at card size, in the same order sortedByKind
+// returns them, each falling back to the full url when that row has no
+// thumbnail. Same sort as sortedByKind on purpose -- the two arrays are
+// read by index against each other.
+function thumbsByKind(rows: any[], kind: 'gallery' | 'spin'): string[] {
+  return rows
+    .filter((p: any) => (p.kind || 'gallery') === kind)
+    .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+    .map((p: any) => p.thumbnail_url || p.url);
+}
+
 function coverThumbnail(rows: any[]): string | null {
   const gallery = rows
     .filter((p: any) => (p.kind || 'gallery') === 'gallery')
@@ -396,6 +407,14 @@ function spinSetsFromRows(photoRows: any[], spinSetRows: any[]): SpinSet[] {
         .filter((p: any) => p.spin_set_id === s.id)
         .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
         .map((p: any) => p.url),
+      // Built from the same filtered+sorted rows, so entry i of one is
+      // entry i of the other. `|| p.url` rather than `??`: a row written
+      // before spin thumbnails existed has null here, and one written by
+      // an older client could have an empty string.
+      previewFrames: spinPhotoRows
+        .filter((p: any) => p.spin_set_id === s.id)
+        .sort((a: any, b: any) => (a.sort_order ?? 0) - (b.sort_order ?? 0))
+        .map((p: any) => p.thumbnail_url || p.url),
     }));
 }
 
@@ -509,12 +528,31 @@ function normalizeListing(l: any): Listing {
     // Same defensive story as photos above: a listing cached by a build
     // that predates thumbnail_url has no such field on it at all.
     coverThumbnailUrl: l?.coverThumbnailUrl ?? null,
+    // Same defensive story as photos above: a listing cached by a build
+    // that predates per-photo thumbnails has no such field, and a wrong
+    // length here would pair a photo with another photo's thumbnail. Kept
+    // only when it still lines up with the photos it describes.
+    photoThumbnails:
+      Array.isArray(l?.photoThumbnails) && l.photoThumbnails.length === (Array.isArray(l?.photos) ? l.photos.length : 0)
+        ? l.photoThumbnails
+        : undefined,
     // Same defensive story as photos above: a listing cached by an older
     // build (before spinSets replaced the flat spinPhotos field) won't
     // have this field, or will still have the old shape -- either way,
     // default to empty rather than let a stale/wrong shape reach a
     // component expecting SpinSet[].
-    spinSets: Array.isArray(l?.spinSets) ? l.spinSets : [],
+    spinSets: Array.isArray(l?.spinSets)
+      ? l.spinSets.map((set: any) => ({
+          ...set,
+          // Dropped rather than trusted when it does not line up, for the
+          // same reason as photoThumbnails above: SpinViewer and the card
+          // preview read the two arrays by index.
+          previewFrames:
+            Array.isArray(set?.previewFrames) && set.previewFrames.length === (Array.isArray(set?.frames) ? set.frames.length : 0)
+              ? set.previewFrames
+              : undefined,
+        }))
+      : [],
     // Exactly the same defensive story once more, for exactly the same
     // reason: a listing cached by a build that predates video has no such
     // field, and anything reading `listing.video.status` without a guard
@@ -638,6 +676,7 @@ export const LISTING_SELECT_HEAD =
 export function dbListingToLocal(row: any): Listing {
   const rows = Array.isArray(row.photos) ? row.photos : [];
   const photos = sortedByKind(rows, 'gallery');
+  const photoThumbnails = thumbsByKind(rows, 'gallery');
   const coverThumbnailUrl = coverThumbnail(rows);
   const spinSets = spinSetsFromRows(rows, Array.isArray(row.spinSets) ? row.spinSets : []);
   return {
@@ -676,6 +715,7 @@ export function dbListingToLocal(row: any): Listing {
     lng: row.lng != null ? Number(row.lng) : null,
     photos, // Bunny CDN URLs from upload-photo, not Supabase Storage
     coverThumbnailUrl,
+    photoThumbnails,
     spinSets,
     video: videoFromRows(row.video), // hosted on Bunny Stream, not either of those
 

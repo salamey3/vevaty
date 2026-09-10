@@ -467,7 +467,24 @@ export default function ListingCard({
         ) : (
           <Icon name={(cat?.icon as any) || 'bag'} size={30} color={colors.inkSoft} />
         )}
-        {previewing && <CardPreview photos={listing.photos} spinSets={listing.spinSets ?? []} photoWidth={drawnPhotoWidth} />}
+        {previewing && (
+          <CardPreview
+            // The card-sized copies, not the 1600px originals. The card
+            // itself has been showing a thumbnail since thumbnails existed;
+            // the preview drawn on top of it was still loading the full
+            // files, which is the heaviest thing a grid can be asked to do.
+            // Falls back to the originals for a listing posted before
+            // per-photo thumbnails, and the length check is because the two
+            // arrays are read by index.
+            photos={
+              listing.photoThumbnails?.length === listing.photos.length
+                ? listing.photoThumbnails
+                : listing.photos
+            }
+            spinSets={listing.spinSets ?? []}
+            photoWidth={drawnPhotoWidth}
+          />
+        )}
         {/* Only ever true for a 'multiple' stock-mode listing a seller has
             stocked down to zero -- every 'unique'-mode listing defaults to
             (and stays at) stockQty 1, so this never fires for the vast

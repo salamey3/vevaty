@@ -144,6 +144,18 @@ function spinFrameMs(frameCount: number): number {
   return Math.min(SPIN_FRAME_MAX_MS, Math.max(SPIN_FRAME_MIN_MS, Math.round(SPIN_ROTATION_MS / frameCount)));
 }
 
+// A spin's frames at the size a card actually draws them -- see
+// SpinSet.previewFrames. Falls back whole rather than per entry: a
+// previewFrames array of the wrong length means something upstream is
+// wrong about the pairing, and the full frames are always right.
+function previewFramesOf(set: SpinSet | undefined): string[] {
+  if (!set) return [];
+  if (Array.isArray(set.previewFrames) && set.previewFrames.length === set.frames.length) {
+    return set.previewFrames;
+  }
+  return set.frames;
+}
+
 function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth: number }) {
   const [setIndex, setSetIndex] = useState(0);
   const [frameIndex, setFrameIndex] = useState(0);
@@ -187,7 +199,10 @@ function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth
     return () => clearTimeout(timer);
   }, [spinSets]);
 
-  const frames = spinSets[setIndex]?.frames ?? [];
+  // The card-sized copies where they exist, the originals where they do
+  // not. Guarded on length rather than trusted: the two arrays are read by
+  // index, so a mismatched one would draw frame 3 of a spin at position 7.
+  const frames = previewFramesOf(spinSets[setIndex]);
   if (frames.length === 0) return null;
 
   return (

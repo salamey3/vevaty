@@ -1,5 +1,5 @@
 import { supabase } from './supabase';
-import { uploadPhotos } from './photoUpload';
+import { uploadPhotosWithThumbnails } from './photoUpload';
 import { SpinSet } from '../types';
 
 // Writing a listing's 360 spin sets.
@@ -213,6 +213,70 @@ export async function writeSpinSets(
 
   for (let i = 0; i < nonEmpty.length; i++) {
     const set = nonEmpty[i];
+
+    // THE FRAMES GO UP FIRST, AND THE SET ROW ONLY EXISTS ONCE THEY ARE ON
+    // THE CDN.
+    //
+    // Nothing about uploading a frame needs the set id, so the old order --
+    // row first, then an upload that takes twenty to sixty seconds --
+    // bought nothing and cost this: both discards below run INSIDE this
+    // function, so a seller who closed the app, backgrounded it, or
+    // reloaded the tab mid-upload left the row behind with no frames and
+    // no code still running to clean it up. A killed process defeats an
+    // in-process cleanup by definition.
+    //
+    // It happened on a live listing: the set row landed 0.26s after the
+    // listing, its fourteen frames never did, and the listing carried a
+    // 360 tab with nothing behind it until the row was deleted by hand.
+    // Uploading first shrinks that window from the whole upload to the gap
+    // between two adjacent inserts, which is the size the discard was
+    // written for.
+    const hostedKept = set.frames.filter((p) => /^https?:\/\//.test(p));
+    const localNew = set.frames.filter((p) => !/^https?:\/\//.test(p));
+    // `silent` where the caller owns the message: uploadPhotos' own alert
+    // tells the reader to open the listing and tap Edit, which is not a
+    // thing that can be done to an auction lot.
+    // WITH THUMBNAILS NOW, the same as a gallery photo. Spin frames were
+    // excluded from that when it was written, on the stated grounds that
+    // "a card never renders them" -- true then, false since the spin
+    // preview went onto the card. A 24-frame spin previewing at full size
+    // is roughly 180MB of Android bitmap heap and ten times the bytes off
+    // the CDN, for a picture drawn 350 points wide.
+    //
+    // 640px is the same size the gallery thumbnail uses, and for the same
+    // reason: the preview fills the same card box, which is ~354pt, so
+    // ~708 device pixels at this app's 2x cap. Smaller would be visibly
+    // soft on the surface this exists to serve.
+    const uploaded = localNew.length > 0 ? await uploadPhotosWithThumbnails(localNew, { silent: opts.silent }) : [];
+    const uploadedUrls = uploaded.map((u) => u.url);
+    const allUrls = [...hostedKept, ...uploadedUrls];
+    // Index-matched to allUrls. A kept frame has no thumbnail we know of
+    // -- it arrived as a bare url -- so it stands in for its own, which is
+    // exactly what the reader falls back to anyway.
+    const allThumbs = [...hostedKept, ...uploaded.map((u) => u.thumbnailUrl)];
+    // Reported only when the shortfall actually costs the seller
+    // something. A 24-frame spin that lost one frame still turns
+    // perfectly, and telling them "the 360 spin was not saved" about a
+    // spin that is on the listing and works is worse than saying nothing.
+    // The line is SPIN_MIN_FRAMES -- below it the thing stutters instead
+    // of turning, which is the whole reason that constant exists. Same
+    // standard persistNewPhotos draws for the gallery: zero is a failure,
+    // fewer than asked for is not.
+    if (uploadedUrls.length < localNew.length && allUrls.length < SPIN_MIN_FRAMES) {
+      opts.onFramesMissing?.(localNew.length - uploadedUrls.length);
+    }
+
+    // uploadPhotos never rejects -- it alerts and resolves with fewer, or
+    // with none. A set with no frames is worse than no set at all: it
+    // renders as an empty 360 tab, it takes a sort_order, and nothing in
+    // the product can tell it apart from a real one. Now that the row is
+    // written below this point there is nothing to discard -- it simply
+    // never exists.
+    if (allUrls.length === 0) {
+      if (opts.strict) throw new Error('None of the frames uploaded, so the 360 set was not created.');
+      continue;
+    }
+
     const { data: setRow, error: setError } = await supabase
       .from('listing_spin_sets')
       .insert({ listing_id: listingId, label: set.label, sort_order: start + i })
@@ -229,42 +293,13 @@ export async function writeSpinSets(
       continue;
     }
 
-    const hostedKept = set.frames.filter((p) => /^https?:\/\//.test(p));
-    const localNew = set.frames.filter((p) => !/^https?:\/\//.test(p));
-    // `silent` where the caller owns the message: uploadPhotos' own alert
-    // tells the reader to open the listing and tap Edit, which is not a
-    // thing that can be done to an auction lot.
-    const uploadedUrls = localNew.length > 0 ? await uploadPhotos(localNew, { silent: opts.silent }) : [];
-    const allUrls = [...hostedKept, ...uploadedUrls];
-    // Reported only when the shortfall actually costs the seller
-    // something. A 24-frame spin that lost one frame still turns
-    // perfectly, and telling them "the 360 spin was not saved" about a
-    // spin that is on the listing and works is worse than saying nothing.
-    // The line is SPIN_MIN_FRAMES -- below it the thing stutters instead
-    // of turning, which is the whole reason that constant exists. Same
-    // standard persistNewPhotos draws for the gallery: zero is a failure,
-    // fewer than asked for is not.
-    if (uploadedUrls.length < localNew.length && allUrls.length < SPIN_MIN_FRAMES) {
-      opts.onFramesMissing?.(localNew.length - uploadedUrls.length);
-    }
-
-    // uploadPhotos never rejects -- it alerts and resolves with fewer, or
-    // with none. A set row that ends up with no frames is worse than no
-    // set at all: it renders as an empty 360 tab, it takes a sort_order,
-    // and nothing in the product can tell it apart from a real one. So it
-    // goes back out rather than being left behind.
-    if (allUrls.length === 0) {
-      await discardEmptySpinSet(setRow.id);
-      if (opts.strict) throw new Error('None of the frames uploaded, so the 360 set was not created.');
-      continue;
-    }
-
     let framesError: unknown = null;
     try {
       await insertPhotoRows(
         allUrls.map((url, frameIdx) => ({
           listing_id: listingId,
           url,
+          thumbnail_url: allThumbs[frameIdx] ?? null,
           sort_order: frameIdx,
           kind: 'spin',
           spin_set_id: setRow.id,
@@ -274,14 +309,15 @@ export async function writeSpinSets(
       framesError = e;
     }
     if (framesError) {
-      // Same reasoning: a set whose frames did not land is an empty set.
-      // Discarding it is the only outcome that leaves the listing honest.
+      // The one orphan window left, now two adjacent inserts wide instead
+      // of a whole upload. Discarding is still the only outcome that
+      // leaves the listing honest.
       await discardEmptySpinSet(setRow.id);
       if (opts.strict) throw framesError as Error;
       continue;
     }
 
-    results.push({ id: setRow.id, label: set.label, frames: allUrls });
+    results.push({ id: setRow.id, label: set.label, frames: allUrls, previewFrames: allThumbs });
   }
   return results;
 }
