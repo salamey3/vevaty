@@ -27,6 +27,7 @@ import {
   adminPhoneDigits,
   fetchWaitlistExport,
 } from '../../lib/testers';
+import { FormsSummary, fetchFormsSummary } from '../../lib/testerForms';
 
 // The Tester centre: everything about who is in the closed round, on one
 // screen. The sign-up switch, invites issued by name, people who already had
@@ -86,6 +87,9 @@ export default function AdminTestersScreen() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState<string | null>(null);
   const [busy, setBusy] = useState<string | null>(null);
+  // The two forms' counts. Their own read, so a failure here never costs
+  // the rest of the centre -- the rows still open the forms' pages.
+  const [forms, setForms] = useState<FormsSummary | null>(null);
 
   const [inviteName, setInviteName] = useState('');
   const [inviteRoles, setInviteRoles] = useState<string[]>(['seller']);
@@ -101,6 +105,9 @@ export default function AdminTestersScreen() {
 
   const load = useCallback(async () => {
     setLoadError(null);
+    fetchFormsSummary()
+      .then(setForms)
+      .catch((e: any) => console.warn('[AdminTesters] form counts not loaded:', e?.message || e));
     try {
       setData(await fetchTesterCentre());
     } catch (e: any) {
@@ -352,6 +359,31 @@ export default function AdminTestersScreen() {
                 />
               </View>
 
+              {/* ---- The two forms (TESTERS.md, "The two forms") ---- */}
+              <View style={styles.card}>
+                <Text style={styles.sectionLabel}>Forms</Text>
+                <Pressy onPress={() => navigation.navigate('AdminTesterOnboarding')} style={styles.navRow}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={type.h3}>Vevaty Tester Onboarding</Text>
+                    <Text style={styles.soft}>
+                      {forms ? `${forms.onboarding} answer${forms.onboarding === 1 ? '' : 's'} · ` : ''}
+                      The link to send to new testers, their answers, Excel
+                    </Text>
+                  </View>
+                  <Text style={styles.chev}>›</Text>
+                </Pressy>
+                <Pressy onPress={() => navigation.navigate('AdminTesterReports')} style={[styles.navRow, styles.navRowLast]}>
+                  <View style={{ flex: 1 }}>
+                    <Text style={type.h3}>Testers Reports</Text>
+                    <Text style={styles.soft}>
+                      {forms ? `${forms.reports} report${forms.reports === 1 ? '' : 's'}, ${forms.reportsWeek} this week · ` : ''}
+                      One per mission, the missions list, Excel
+                    </Text>
+                  </View>
+                  <Text style={styles.chev}>›</Text>
+                </Pressy>
+              </View>
+
               {/* ---- A new invite ---- */}
               <View style={styles.card}>
                 <Text style={styles.sectionLabel}>Invite a tester</Text>
@@ -590,4 +622,14 @@ const styles = StyleSheet.create({
   smallBtnText: { fontSize: 12.5, fontWeight: '600', color: colors.ink },
   smallBtnDanger: { fontSize: 12.5, fontWeight: '600', color: colors.danger },
   waitlistHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginTop: 22 },
+  navRow: {
+    flexDirection: 'row',
+    alignItems: 'center',
+    gap: 10,
+    paddingVertical: 10,
+    borderBottomWidth: 1,
+    borderBottomColor: colors.line,
+  },
+  navRowLast: { borderBottomWidth: 0 },
+  chev: { fontSize: 22, color: colors.inkSoft, paddingHorizontal: 4 },
 });

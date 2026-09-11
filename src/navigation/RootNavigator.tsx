@@ -48,6 +48,10 @@ import AdminAuctionMonitorScreen from '../screens/admin/AdminAuctionMonitorScree
 import AdminAuctionSubmissionsScreen from '../screens/admin/AdminAuctionSubmissionsScreen';
 import AdminTestersScreen from '../screens/admin/AdminTestersScreen';
 import AdminProblemReportsScreen from '../screens/admin/AdminProblemReportsScreen';
+import AdminTesterOnboardingScreen from '../screens/admin/AdminTesterOnboardingScreen';
+import AdminTesterReportsScreen from '../screens/admin/AdminTesterReportsScreen';
+import TesterOnboardingScreen from '../screens/TesterOnboardingScreen';
+import TesterReportScreen from '../screens/TesterReportScreen';
 import { adminOnly } from '../screens/admin/adminOnly';
 import SellAtAuctionScreen from '../screens/SellAtAuctionScreen';
 import AuctionSubmissionFormScreen from '../screens/AuctionSubmissionFormScreen';
@@ -76,6 +80,8 @@ const AdminAuctionMonitorPage = adminOnly(AdminAuctionMonitorScreen);
 const AdminAuctionSubmissionsPage = adminOnly(AdminAuctionSubmissionsScreen);
 const AdminTestersPage = adminOnly(AdminTestersScreen);
 const AdminProblemReportsPage = adminOnly(AdminProblemReportsScreen);
+const AdminTesterOnboardingPage = adminOnly(AdminTesterOnboardingScreen);
+const AdminTesterReportsPage = adminOnly(AdminTesterReportsScreen);
 
 const Stack = createNativeStackNavigator<RootStackParamList>();
 
@@ -167,6 +173,13 @@ const linking: LinkingOptions<RootStackParamList> = {
       AdminAuctionSubmissions: 'control-room/auctions/consignments',
       AdminTesters: 'control-room/testers',
       AdminProblemReports: 'control-room/problem-reports',
+      AdminTesterOnboarding: 'control-room/testers/onboarding',
+      AdminTesterReports: 'control-room/testers/reports',
+      // The tester round's two forms (TESTERS.md, "The two forms"). The
+      // onboarding link carries its key as ?k=, which arrives as the `k`
+      // param; the report form is for members and says so to anyone else.
+      TesterOnboarding: 'testers/join',
+      TesterReport: 'testers/report',
       LegalDocument: 'terms/:slug',
     },
   },
@@ -243,6 +256,16 @@ export default function RootNavigator() {
         <Stack.Screen name="AdminAuctionSubmissions" component={AdminAuctionSubmissionsPage} />
         <Stack.Screen name="AdminTesters" component={AdminTestersPage} />
         <Stack.Screen name="AdminProblemReports" component={AdminProblemReportsPage} />
+        <Stack.Screen name="AdminTesterOnboarding" component={AdminTesterOnboardingPage} />
+        <Stack.Screen name="AdminTesterReports" component={AdminTesterReportsPage} />
+        {/* A title of their own: on the website it is the browser tab's
+            name, and both are opened from a link in a message. */}
+        <Stack.Screen
+          name="TesterOnboarding"
+          component={TesterOnboardingScreen}
+          options={{ title: 'Vevaty Tester Onboarding' }}
+        />
+        <Stack.Screen name="TesterReport" component={TesterReportScreen} options={{ title: 'Testers Reports' }} />
         {/* Modal, because it is always opened from a screen that is asking
             for agreement and must return to it. */}
         <Stack.Screen

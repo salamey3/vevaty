@@ -16,7 +16,11 @@ invite goes out, in this order:
 
 1. **Tap through it on the phone once it has shipped.** Admin → Tester
    centre: create an invite for yourself, "Send invite" to your own
-   WhatsApp, then cancel it. The admin account gets the flag tab too (right
+   WhatsApp, then cancel it. Then the two forms (Tester centre → Forms):
+   "Send link" for Vevaty Tester Onboarding to your own WhatsApp, open it
+   on the phone, fill it in once in Arabic, and Remove your answer; send
+   one Testers Report from Profile and Delete it; download both Excel
+   files on the computer and open them. The admin account gets the flag tab too (right
    edge, a little below the middle): send one report with a screenshot and
    find it under Admin → Problem reports. On the Android phone, type enough
    to fill the box with the keyboard up and check Send can still be
@@ -301,6 +305,16 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**The tester forms are on the site**, 11 Sep 2026, in place of Google
+Forms: Vevaty Tester Onboarding (`vevaty.com/testers/join?k=KEY`, the link
+to send before the invite, with the follow-up questions a Google Form
+cannot ask) and Testers Reports (`vevaty.com/testers/report`, members only,
+one per mission, recording the phone and the build by itself). Both land in
+tables under Tester centre → Forms, each downloadable as an Excel file; the
+missions list is edited there too. The database half went in as one
+migration, test-fired in a rolled-back transaction first. See @TESTERS.md,
+"The two forms".
 
 **The admin lock is the server's**, 11 Sep 2026. Yousif found the idle
 lock skipped by a page reload; underneath, the database had never checked

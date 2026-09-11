@@ -27,6 +27,7 @@ import { captureProblemContext, ProblemContext } from '../lib/problemContext';
 import { PROBLEM_SEVERITIES, ProblemSeverity, submitProblemReport } from '../lib/testers';
 import { uploadPhoto } from '../lib/photoUpload';
 import { mirrorRow } from '../lib/mirrorRow';
+import { navigationRef } from '../navigation/navigationRef';
 
 // The tester round's "Report a problem" button: a slim tab on the edge of
 // every screen, shown only to tagged testers and to admin accounts. Mounted
@@ -130,6 +131,11 @@ export default function ReportProblemHost() {
       setUntaggedOnClose(false);
       void refreshTesterStatus();
     }
+  };
+
+  const openMissionForm = () => {
+    close();
+    if (navigationRef.isReady()) navigationRef.navigate('TesterReport');
   };
 
   const pickScreenshot = async () => {
@@ -323,6 +329,15 @@ export default function ReportProblemHost() {
                 ) : (
                   <Button label={t('report.send')} onPress={send} style={{ marginTop: 16 }} />
                 )}
+
+                {/* The considered half of the feedback lives in its own form
+                    (TESTERS.md, "The two forms"). Closing first keeps this
+                    sheet's words, as closing it always does. */}
+                {phase !== 'sending' && (
+                  <Pressy onPress={openMissionForm} style={[styles.formLink, startSelf]}>
+                    <Text style={[styles.formLinkText, textDir]}>{t('report.missionFormLink')}</Text>
+                  </Pressy>
+                )}
               </ScrollView>
             )}
           </View>
@@ -423,4 +438,6 @@ const styles = StyleSheet.create({
   },
   centerText: { textAlign: 'center' },
   rtl: { textAlign: 'right' },
+  formLink: { marginTop: 14, paddingVertical: 6 },
+  formLinkText: { fontSize: 13.5, fontWeight: '600', color: colors.primary },
 });

@@ -158,6 +158,15 @@ export type RootStackParamList = {
   AdminTesters: undefined;
   // What testers sent from the Report a problem tab.
   AdminProblemReports: undefined;
+  // The two forms (TESTERS.md, "The two forms"). Vevaty Tester Onboarding
+  // is the public page behind the link the admin sends on WhatsApp; `k` is
+  // that link's key, read from ?k= in the address.
+  TesterOnboarding: { k?: string } | undefined;
+  // Testers Reports, one per mission -- members only.
+  TesterReport: undefined;
+  // Their answers in the Tester centre, with the link and the Excel files.
+  AdminTesterOnboarding: undefined;
+  AdminTesterReports: undefined;
 
   // ---- Conditions of sale ----
   // Reading one of the stored legal documents in full. Keyed by SLUG, not

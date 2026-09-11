@@ -84,6 +84,9 @@ export default function ProfileScreen() {
   // sees nothing: no admin sign-in anywhere a member can see.
   const { isAdmin } = useSettings();
   const showAdminEntry = isAdmin || (isVerified && testerStatus.isAdmin);
+  // Testers Reports, for the same accounts the Report a problem tab shows
+  // to (TESTERS.md). The form itself takes any member who has the link.
+  const showTesterReport = isVerified && (testerStatus.roles.length > 0 || testerStatus.isAdmin || isAdmin);
   const { t, language, isRTL, setLanguage } = useLanguage();
   // Icon swaps to a checkmark briefly after a successful clipboard copy
   // (web desktop, where there's no native share sheet to give its own
@@ -273,6 +276,15 @@ export default function ProfileScreen() {
               {myShop && !myShop.verifiedAt && (
                 <View style={styles.pendingDot} />
               )}
+            </Pressy>
+          </View>
+        )}
+
+        {showTesterReport && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('TesterReport')} style={styles.adminBtn}>
+              <Icon name="flag" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('profile.testerReport')}</Text>
             </Pressy>
           </View>
         )}

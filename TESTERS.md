@@ -1,9 +1,10 @@
 # The tester round
 
 Written 10 Sep 2026, when sign-up became something an admin can shut. The
-mechanics live in the database (the `tester_*` migrations of 10 Sep) and in
-`AuthScreen`, `ReportProblemHost` and the two admin screens; this is the
-record of why they are shaped the way they are.
+mechanics live in the database (the `tester_*` migrations of 10 Sep, and the
+two forms' of 11 Sep) and in `AuthScreen`, `ReportProblemHost`, the two
+forms' screens and the admin screens; this is the record of why they are
+shaped the way they are.
 
 ## What the round is
 
@@ -144,6 +145,102 @@ never be seen.
 The server refuses anyone untagged, and more than 30 reports an hour. The
 admin inbox (Admin → Problem reports) marks each one new, seen, fixed or
 won't fix.
+
+## The two forms
+
+Added 11 Sep 2026, at Yousif's request, in place of the Google Forms the
+Tester Field Kit suggested: Google Forms cannot ask a question only when an
+earlier answer calls for it, and a form outside Vevaty cannot tell which
+build a report came from. Both are pages of the website and screens of the
+app, both are in English and Arabic, and both land in tables the Tester
+centre shows and downloads as Excel.
+
+**Vevaty Tester Onboarding** — `vevaty.com/testers/join?k=KEY`. For someone
+who has agreed to test and has no account yet: it is sent on WhatsApp
+before the invite, and it asks for nothing but a browser. Every question
+must be answered, and which ones are asked depends on "Do you sell things
+regularly?": a shopper is asked what they mostly buy; a seller whether it
+is a shop or personal selling, and what they mostly sell. The two answer
+lists are kept apart on the page, so changing that answer and changing it
+back never carries one list into the other question.
+
+- **The phone number must be a Lebanese mobile** — 3 and six digits, or 70,
+  71, 76, 78, 79 or 81 and six, however it is typed (with or without +961,
+  with a trunk 0, in Arabic digits). `myazar.lebanese_mobile` is the rule and
+  the page mirrors it. A landline is refused because it cannot receive the
+  text message sign-up sends.
+- **One answer per number.** The same number again is told it has already
+  filled the form in; an admin can remove an answer so it can be sent again.
+- **The key in the link is what keeps the page to the people it was sent
+  to.** The page is on the public website and its address is in the site's
+  code, so without the key any visitor or program could fill the table.
+  One key at a time (`tester_onboarding_link`); "Make a new link" in the
+  Tester centre replaces it and shuts the old one. The page checks the key
+  as it opens, so a replaced link says so before anyone types into it.
+  The limits — five sends a day from one browser session, a hundred an
+  hour from everyone together — slow a person down, not a determined
+  script, since a new session costs nothing; and a flood would use up the
+  hundred and turn real testers away for the hour. What stops that is
+  replacing the link, and removing what it brought in.
+- **These are the personal details of people who are not members** — a
+  phone number and an email. No client can read the table at all; the
+  Tester centre reads it through `admin_tester_onboarding()`, which needs an
+  unlocked admin session like every admin power.
+- **The Tester centre suggests a role from the answers**, as the Field Kit
+  reads them: a shop or business is a Storefront, personal selling a
+  Seller, a shopper a Buyer. Only a suggestion — the invite sets the roles.
+
+**Testers Reports** — `vevaty.com/testers/report`, Profile → Testers
+Reports, and a link at the foot of the Report a problem sheet. One report
+per mission, straight after it: the considered half of the feedback, where
+the flag tab is the thing that just broke. **Members only** — a
+phone-verified account that is not suspended. Anyone else is asked to sign
+in, and the server refuses them whatever the page shows. The Profile row
+and the sheet's link are shown to the accounts the flag tab is shown to;
+the page itself takes any member who has the address.
+
+- **The missions live in the database** (`tester_missions`), seeded from
+  the Field Kit's three role sheets as written there — five for Seller,
+  four for Storefront, five for Buyer. (The Field Kit's own form table said
+  "the six mission names", which matched none of the sheets.) They are
+  renamed, added and hidden from the Tester centre, with no ship. A tester
+  sees their own role sheet, numbered as on the sheet, plus any mission
+  marked Everyone; someone with no role, or with a role that has no
+  missions yet (Consignor today), sees all of them. "Something else — not
+  one of my missions" is always offered, because the form takes any member.
+- **A report keeps its own copy of the mission** it was sent against —
+  role, number and name — so renaming or renumbering a mission never
+  rewrites an answer already given. Missions are hidden, never deleted.
+- **"Where did you get stuck?" is required unless the answer was "Yes"**,
+  and "How bad was it?" is asked whenever there is something there to
+  rate. The database holds the same rule. A mission finished without
+  trouble is therefore a row with no severity, rather than a made-up "just
+  an idea" dragging the scoring.
+- **The report records the phone or browser and the build by itself**, as
+  the flag tab does — which the Field Kit said a form could never tell you.
+  The device type the tester is asked for starts filled in with the app's
+  guess, which they can change.
+- **The screenshot is optional** and is uploaded as the flag tab's is: to
+  the app's image CDN at a public, unguessable address, and kept only if it
+  is there. One that will not upload is dropped rather than allowed to cost
+  the report, and the tester is told.
+- Thirty an hour per account.
+
+**Excel.** Tester centre → the form → Download Excel gives an .xlsx with a
+frozen, filterable header row. It is written by `src/lib/xlsx.ts`, by hand,
+rather than by a spreadsheet library: a new library is a `package.json`
+change, which moves the update fingerprint and needs a new native build
+(@AGENTS.md). Downloading needs the website — the app cannot hand the phone a
+file without a native module, so its button says to use the website. The
+reports file carries empty "Score" and "Fixed in build" columns for triage,
+as the Field Kit had them, and a "Severity points" column (5, 3, 1): the
+severity factor of the Tester Programme's scoring formula, severity × where
+it sits × testers affected.
+
+Two things left as they are: a tester's typed name stays on their reports
+if they later delete their account (the link to the account empties); and
+the onboarding answers, like the waitlist's numbers, are personal details
+of people with no account — remove them when the round is over.
 
 ## When someone gets stuck
 
