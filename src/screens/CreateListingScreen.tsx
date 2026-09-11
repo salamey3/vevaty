@@ -13,7 +13,7 @@ import PhotoGallery from '../components/PhotoGallery';
 import DraggableList from '../components/DraggableList';
 import CameraCapture from '../components/CameraCapture';
 import SpinPreviewModal from '../components/SpinPreviewModal';
-import { colors, type, radius } from '../theme/theme';
+import { colors, type, radius, shadow } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { RootStackParamList } from '../navigation/types';
@@ -2208,18 +2208,38 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               testID="classify-category-search"
             />
 
-            {/* Confirm pill moved below the (now merged) field itself,
-                small and right-aligned -- it's a lightweight acknowledgement
-                of what the gold field above already shows, not a separate
-                piece of information competing with it for attention. */}
-            {showConfirmPill && (
+            {/* Confirm is a full-width, filled, gold-ringed BUTTON, not the
+                small right-aligned chip it used to be. The chip was wrong
+                about its own importance: Continue stays disabled until this
+                is tapped (categoryResolved above needs manuallyChosen OR
+                pillConfirmed), so this is a mandatory step wearing the
+                styling of an optional one -- exactly the mistake the Verify
+                step already had to undo (see verifyShotBtn's comment). The
+                gold ring is the highlight: it pairs the button to the gold
+                AI-guess field directly above it, so the block reads as one
+                unit that is still waiting on the seller.
+
+                Static styling and no Animated pulse on purpose -- see the
+                standing note about Animated's web fallback (percentage
+                widths and multi-item style arrays) in the video-progress
+                comment below.
+
+                Gated on `cat`, not on showConfirmPill alone, so it matches
+                the gold field above exactly. aiCategoryId is only ever set
+                alongside setCategory, but categoryById can still come back
+                undefined for an id this client's tree doesn't hold -- and
+                a full-width "Confirm classification" over nothing visible
+                is a much worse thing to render than the old chip was. No
+                button there means the seller browses instead, which is the
+                honest ask when there is no guess to look at. */}
+            {showConfirmPill && !!cat && (
               <Pressy
                 onPress={() => setPillConfirmed(true)}
-                style={[styles.draftBtn, styles.confirmPillSmall, pillConfirmed && styles.draftBtnDone]}
+                style={[styles.confirmBtn, pillConfirmed && styles.confirmBtnDone]}
               >
-                <Icon name="checkCircle" size={13} color={pillConfirmed ? colors.white : colors.ink} />
-                <Text style={[styles.draftBtnText, pillConfirmed && styles.draftBtnTextDone]}>
-                  {t('createListing.classifyConfirmPill')}
+                <Icon name="checkCircle" size={18} color={pillConfirmed ? colors.primary : colors.white} />
+                <Text style={[styles.confirmBtnText, pillConfirmed && styles.confirmBtnTextDone]}>
+                  {t(pillConfirmed ? 'createListing.classifyConfirmedPill' : 'createListing.classifyConfirmPill')}
                 </Text>
               </Pressy>
             )}
@@ -3305,17 +3325,29 @@ const styles = StyleSheet.create({
   },
   verifyGalleryBtnText: { fontSize: 14, fontWeight: '600', color: colors.inkSoft },
   verifyBlockedHint: { ...type.tiny, color: colors.danger, marginTop: 4 },
-  // The Classify step's confirm pill reuses draftBtn's shape but flips to
-  // the primary/filled treatment once tapped, matching the checkCircle
-  // icon it shows alongside -- a plain warn-tint pill read as "still
-  // needs attention" even after confirming, which is backwards.
-  draftBtnDone: { backgroundColor: colors.primary },
-  draftBtnTextDone: { color: colors.white },
-  // Classify step's confirm pill specifically -- overrides draftBtn's
-  // default flex-start/full size to sit small and right-aligned just
-  // under the (now gold, merged) category field it's confirming. See the
-  // Classify-screen highlight redesign's own comment above its JSX.
-  confirmPillSmall: { alignSelf: 'flex-end', height: 30, paddingHorizontal: 12, marginTop: 8, marginBottom: 12 },
+  // The Classify step's confirm button. Full width and filled, sized to
+  // verifyShotBtn (the other mandatory-action button in this wizard)
+  // rather than to draftBtn's quiet pill, plus a gold ring that ties it
+  // to the gold AI-guess field it confirms. See its JSX comment for why
+  // the old small chip was the wrong weight for a step that gates
+  // Continue.
+  confirmBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 10,
+    alignSelf: 'stretch', backgroundColor: colors.primary,
+    borderWidth: 2, borderColor: colors.accent,
+    borderRadius: radius.pill, paddingHorizontal: 18, height: 52,
+    marginTop: 12, marginBottom: 12,
+    ...shadow.card,
+  },
+  confirmBtnText: { fontSize: 16, fontWeight: '700', color: colors.white },
+  // Confirmed: white/outlined and flat, the same "done" language
+  // verifyShotBtnDone uses. The shadow and the gold ring are both dropped
+  // -- they are the call for attention, and the attention has been paid.
+  confirmBtnDone: {
+    backgroundColor: colors.white, borderWidth: 1.5, borderColor: colors.line,
+    shadowOpacity: 0, elevation: 0,
+  },
+  confirmBtnTextDone: { color: colors.ink },
   retryLink: {
     fontSize: 12.5, fontWeight: '600', color: colors.ink,
     textDecorationLine: 'underline', marginTop: -10, marginBottom: 16,
