@@ -176,12 +176,13 @@ posting, chatting and seeing numbers.
   calling the API could — but the end-of-round clean-up trusts it. A guard
   trigger in the style of `guard_posting_points_awarded` closes it; it was
   left out of this change because it sits on every listing update.
-- **The admin MFA policies do less than their name says.** The restrictive
-  "admin identity requires mfa" policy counts rows in `auth.mfa_factors`,
-  whose rows a signed-in session cannot see — so the count is always zero
-  and aal1 is accepted. And the `admin_*` functions check `myazar.admins`,
-  never the session's `aal`. Both predate this round; both are in
-  @NEXT.md.
+- **(Closed 11 Sep) The admin functions never checked the code.** The
+  `admin_*` functions checked `myazar.admins` and never the session's
+  `aal`, so the password alone opened the Tester centre. They now ask for
+  an unlocked, code-verified admin session — see @ACCOUNTS.md, "The admin
+  lock is the server's". The restrictive "admin identity requires mfa"
+  policies are still no-ops (they count rows a session cannot see), now
+  superseded; see @NEXT.md.
 - **Codes can be guessed, slowly.** `check_tester_invite` answers anyone,
   with no rate limit, over 31⁶ (about 887 million) codes. A guessed code
   still needs a real phone to claim, and the prize is a tester account.

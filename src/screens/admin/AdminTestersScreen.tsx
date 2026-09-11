@@ -31,9 +31,10 @@ import {
 // The Tester centre: everything about who is in the closed round, on one
 // screen. The sign-up switch, invites issued by name, people who already had
 // an account and were tagged, and the waitlist of people turned away. Every
-// write goes through an admin_* function that checks myazar.admins itself and
-// writes the admin log (see TESTERS.md) -- nothing here is a direct table
-// write, because RLS filters rows and never confers a privilege.
+// write goes through an admin_* function that checks for an unlocked admin
+// session itself (admin_session_active) and writes the admin log (see
+// TESTERS.md) -- nothing here is a direct table write, because RLS filters
+// rows and never confers a privilege.
 
 const ROLE_LABELS: Record<string, string> = {
   seller: 'Seller',

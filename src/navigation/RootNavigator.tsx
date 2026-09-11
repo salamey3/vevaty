@@ -134,9 +134,9 @@ const linking: LinkingOptions<RootStackParamList> = {
       // 2026: /admin is the first address anyone -- and every program that
       // hunts for admin pages -- tries. That is obscurity, not the lock: the
       // address is in the site's own code, which every visitor downloads.
-      // The lock is the server refusing anyone not in myazar.admins, and the
-      // password it takes to sign in (the code is checked by the app, not
-      // yet by the server -- see NEXT.md). adminOnly on every inner page
+      // The lock is the server: every admin power needs an unlocked,
+      // code-verified admin session (admin_session_active -- ACCOUNTS.md,
+      // "The admin lock is the server's"). adminOnly on every inner page
       // (above) only keeps members from seeing the pages at all. Nothing
       // public links here.
       AdminShops: 'control-room/storefronts',

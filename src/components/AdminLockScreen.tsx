@@ -9,31 +9,25 @@ import { useSettings } from '../store/SettingsStore';
 import { useLanguage } from '../i18n/LanguageContext';
 
 // Renders at the app root (see App.tsx), alongside AlertHost -- a
-// non-dismissible full-screen gate that appears whenever the admin's
-// auto-lock idle timer fires (see SettingsStore's sessionLocked/
-// lockDurationMinutes). Unlike ConfirmDialog/AlertHost this never lets a
-// backdrop tap close it: the whole point is that the underlying app stays
-// hidden until the person in front of the screen re-proves they're the
-// admin.
+// non-dismissible full-screen gate over an admin session the server says is
+// locked (SettingsStore's sessionLocked, from admin_session_status). Unlike
+// ConfirmDialog/AlertHost this never lets a backdrop tap close it.
 //
-// The underlying Supabase session is never touched by locking -- it's
-// still fully aal2-verified the whole time (see SettingsStore's comment on
-// why locking never calls signOut). So unlocking only needs a fresh TOTP
-// code, not the account password again; a registered platform biometric
-// credential can substitute for typing that code (see
-// tryBiometricUnlock's local-only-gate comment in SettingsStore).
+// It is not the lock, only its face. Until 11 Sep 2026 it was both: a flag
+// in the app's memory that a reload forgot, over a session that stayed fully
+// code-verified. Now the database refuses a locked session every admin
+// power, and a reload asks the server and gets this screen straight back.
+// Only a fresh authenticator code reopens the session -- the fingerprint
+// shortcut that was here went with the old design, because the server
+// cannot check a fingerprint (see ACCOUNTS.md).
 export default function AdminLockScreen() {
   const { t } = useLanguage();
-  const {
-    isAdmin, sessionLocked, biometricSupported, hasBiometricCredential,
-    tryBiometricUnlock, getVerifiedTotpFactorId, adminMfaVerify, adminSignOut,
-  } = useSettings();
+  const { isAdmin, sessionLocked, adminLockReason, getVerifiedTotpFactorId, adminMfaVerify, adminSignOut } = useSettings();
 
   const [factorId, setFactorId] = useState<string | null>(null);
   const [code, setCode] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [bioBusy, setBioBusy] = useState(false);
 
   const visible = isAdmin && sessionLocked;
 
@@ -43,26 +37,41 @@ export default function AdminLockScreen() {
       setError(null);
       return;
     }
-    getVerifiedTotpFactorId().then(setFactorId);
+    // A failed lookup is retried on Verify (below); nothing to say yet.
+    getVerifiedTotpFactorId().then(setFactorId, () => {});
   }, [visible, getVerifiedTotpFactorId]);
 
   if (!visible) return null;
 
   const submitCode = async () => {
-    if (!factorId || code.trim().length < 6) return;
+    if (code.trim().length < 6) return;
     setBusy(true);
     setError(null);
-    const result = await adminMfaVerify(factorId, code.trim());
+    // The code is now the only way back in, so a factor lookup that failed
+    // when the screen opened (a dropped connection) is retried here rather
+    // than leaving Verify silently doing nothing -- and "no authenticator"
+    // is told apart from "no connection".
+    let id = factorId;
+    if (!id) {
+      try {
+        id = await getVerifiedTotpFactorId();
+      } catch (e) {
+        setBusy(false);
+        setError(t('admin.lock.tryAgain'));
+        return;
+      }
+    }
+    if (!id) {
+      setBusy(false);
+      setError(t('admin.lock.noFactor'));
+      return;
+    }
+    setFactorId(id);
+    const result = await adminMfaVerify(id, code.trim());
     setBusy(false);
-    if (result.error) setError(result.error);
-  };
-
-  const useFingerprint = async () => {
-    setBioBusy(true);
-    setError(null);
-    const result = await tryBiometricUnlock();
-    setBioBusy(false);
-    if (result.error) setError(result.error);
+    if (result.code === 'unpinned') setError(t('admin.lock.unpinnedCode'));
+    else if (result.code === 'session_ended') setError(t('admin.lock.sessionEnded'));
+    else if (result.error) setError(result.error);
   };
 
   return (
@@ -73,16 +82,9 @@ export default function AdminLockScreen() {
             <Icon name="lock" size={22} color={colors.white} />
           </View>
           <Text style={styles.title}>{t('admin.lock.title')}</Text>
-          <Text style={styles.note}>{t('admin.lock.note')}</Text>
-
-          {biometricSupported && hasBiometricCredential && (
-            <Button
-              label={t('admin.lock.useFingerprint')}
-              onPress={useFingerprint}
-              loading={bioBusy}
-              style={{ marginTop: 10, marginBottom: 6 }}
-            />
-          )}
+          <Text style={styles.note}>
+            {adminLockReason === 'unpinned' ? t('admin.lock.unpinnedNote') : t('admin.lock.note')}
+          </Text>
 
           <Text style={styles.fieldLabel}>{t('admin.mfaCodeLabel')}</Text>
           <TextInput
@@ -101,7 +103,6 @@ export default function AdminLockScreen() {
             onPress={submitCode}
             loading={busy}
             disabled={code.trim().length < 6}
-            variant={biometricSupported && hasBiometricCredential ? 'secondary' : 'primary'}
             style={{ marginTop: 14 }}
           />
 

@@ -388,6 +388,38 @@ who is in the tester round; `my_tester_status()` is how an account reads its
 own. (`listings.is_test` does say it, for anyone with a live listing — see
 @TESTERS.md.) @ACCOUNTS.md and @TESTERS.md have the reasoning.
 
+# An admin power asks admin_session_active(), not the admins table
+
+Since 11 Sep 2026 the admin lock is the server's (@ACCOUNTS.md, "The admin
+lock is the server's"): admin powers need an unlocked, code-verified admin
+session. These rules keep it that way:
+
+- **A new SECURITY DEFINER function that grants an admin power checks
+  `myazar.admin_session_active()`.** Never `exists (select 1 from
+  myazar.admins where user_id = auth.uid())` — as the function's owner it
+  bypasses the admins table's policy and answers "an admin account", locked
+  or not, code or no code, which is the hole this closed in 32 functions.
+  Use membership only where the question genuinely is "is this an admin
+  account?" (the four listed in @ACCOUNTS.md).
+- **A new RLS policy may keep the usual `exists (select 1 from
+  myazar.admins ...)`.** It runs as the caller, under the admins table's own
+  policy, which already requires `admin_session_active()`. Do not loosen
+  that policy: every admin policy in the schema leans on it — and keep it
+  `TO authenticated`, because `anon` has no EXECUTE on the function.
+- **`admin_session_status()` must never raise.** It now runs inside the
+  row-level security of every signed-in query, so an error in it is an
+  outage for every member. Anyone who is not an admin returns before
+  anything that can fail, and the admin path is wrapped to answer "locked"
+  instead of raising. Keep both when changing it.
+- **An admin's authenticators are pinned** (`admins.totp_factor_ids`). A
+  new admin, or a new authenticator, needs its factor id added there — the
+  literal id, never one found by a lookup in the same statement — or its
+  codes open nothing. Never pin "whatever factors the account has": a
+  locked session can add one of its own (@ACCOUNTS.md). And in SQL about
+  the pin, test membership with `(x = any (list)) is not true`, never
+  `not (x = any (list))`: the second is NULL, and skipped by an IF, when
+  the list holds a NULL.
+
 # An admin page is registered through adminOnly
 
 Every admin screen except the sign-in itself (`Admin`, AdminGateScreen) is

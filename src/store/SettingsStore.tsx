@@ -1,5 +1,6 @@
 import React, { createContext, useCallback, useContext, useEffect, useMemo, useRef, useState } from 'react';
 import AsyncStorage from '@react-native-async-storage/async-storage';
+import { AppState } from 'react-native';
 import { supabase, ensureSession } from '../lib/supabase';
 import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
@@ -15,18 +16,33 @@ const KEYS = {
   listingDomains: 'vevaty:listingDomains',
   categoryAttributes: 'vevaty:categoryAttributes',
   siteSettings: 'vevaty:siteSettings',
-  adminLockDuration: 'vevaty:admin:lockDurationMinutes',
-  adminBiometricCredId: 'vevaty:admin:biometricCredentialId',
 };
 
+// What a device used to keep for the admin lock before the lock moved to
+// the server (11 Sep 2026): its own lock time and a fingerprint credential
+// id. Cleared once on launch; nothing reads them any more.
+const STALE_ADMIN_KEYS = ['vevaty:admin:lockDurationMinutes', 'vevaty:admin:biometricCredentialId'];
+
+// Shown until the server's answer arrives; the server holds the real value.
 const DEFAULT_ADMIN_LOCK_MINUTES = 30;
 
-// Local-only WebAuthn helpers -- this app never sends the credential to a
-// server for verification (see AdminGateScreen/SettingsStore comments on
-// adminSignIn): the platform biometric prompt is purely a device-level
-// gate that re-opens an already fully-verified (password+TOTP), still-live
-// session after the auto-lock timer fires. That means we only ever need
-// the credential ID locally, never its public key -- these two functions
+// admin_session_status(), admin_heartbeat() and admin_set_lock_minutes()
+// all answer in this shape.
+type AdminSessionStatus = {
+  is_admin?: boolean;
+  aal2?: boolean;
+  active?: boolean;
+  // Why a locked session is locked: left idle; gone at the auth server
+  // (signed out elsewhere -- no code can bring it back); its last code came
+  // from an authenticator that is not pinned; or the check itself failed.
+  reason?: 'idle' | 'no_session' | 'unpinned' | 'error' | null;
+  seconds_left?: number;
+  lock_minutes?: number;
+  // The admin's own pinned authenticators -- the ones worth asking for a
+  // code from (see getVerifiedTotpFactorId).
+  pinned_factor_ids?: string[];
+};
+
 // A category list read back from the device cache, which was written by
 // whatever build was installed at the time. Every other cached entity in
 // this app goes through a normalizer for this reason (see AppStore's
@@ -46,20 +62,6 @@ function normalizeCachedCategories(raw: any): Category[] {
       (c?.conditionMode as ConditionMode) ?? (c?.usesOfferType ? 'offer_type' : null),
     listingLifetimeDays: typeof c?.listingLifetimeDays === 'number' ? c.listingLifetimeDays : null,
   })) as Category[];
-}
-
-// just convert it to/from a string AsyncStorage can hold.
-function bufferToBase64Url(buf: ArrayBuffer): string {
-  let str = '';
-  new Uint8Array(buf).forEach((b) => { str += String.fromCharCode(b); });
-  return btoa(str).replace(/\+/g, '-').replace(/\//g, '_').replace(/=+$/, '');
-}
-function base64UrlToBuffer(b64url: string): ArrayBuffer {
-  const b64 = b64url.replace(/-/g, '+').replace(/_/g, '/').padEnd(b64url.length + (4 - (b64url.length % 4)) % 4, '=');
-  const str = atob(b64);
-  const buf = new Uint8Array(str.length);
-  for (let i = 0; i < str.length; i++) buf[i] = str.charCodeAt(i);
-  return buf.buffer;
 }
 
 interface CreateCategoryInput {
@@ -241,26 +243,30 @@ interface SettingsValue {
   // is the only thing that actually flips isAdmin on.
   adminSignIn: (email: string, password: string) => Promise<{ error?: string; status?: 'needsEnroll' | 'needsChallenge'; factorId?: string }>;
   adminEnrollMfaStart: () => Promise<{ error?: string; factorId?: string; qrCode?: string; secret?: string }>;
-  adminMfaVerify: (factorId: string, code: string) => Promise<{ error?: string }>;
-  // Only needed by the lock screen's fallback path -- unlocking after the
-  // auto-lock timer fires happens without a fresh adminSignIn call, so
-  // there's no factorId already in hand.
+  // `code` names the two failures a screen should put in its own words:
+  // a code from an authenticator that is not pinned, and a session the auth
+  // server no longer has.
+  adminMfaVerify: (factorId: string, code: string) => Promise<{ error?: string; code?: 'unpinned' | 'session_ended' }>;
+  // The authenticator the lock screen asks for a code from: a verified one
+  // that is pinned, else any verified one; null when there is none. Throws
+  // when the lookup itself fails, so "no authenticator" and "no connection"
+  // stay different messages.
   getVerifiedTotpFactorId: () => Promise<string | null>;
   adminSignOut: () => Promise<void>;
-  // Auto-lock: a purely client-side UI gate on top of an already-live
-  // Supabase session -- locking never signs out or touches aal. Resets on
-  // any recordActivity() call; the idle timer only runs while isAdmin.
+  // The idle lock, as the server tells it (admin_session_status): a session
+  // left idle past the admin's lock time is locked, and the database refuses
+  // it every admin power until a fresh authenticator code. Not a flag in
+  // this app's memory any more -- that version forgot itself on a reload.
   sessionLocked: boolean;
+  // Why, while sessionLocked -- 'unpinned' gets its own words on the lock
+  // screen, because the usual code will not help if it came from the wrong
+  // authenticator.
+  adminLockReason: 'idle' | 'unpinned' | null;
   lockDurationMinutes: number;
-  setLockDuration: (minutes: number) => void;
+  setLockDuration: (minutes: number) => Promise<{ error?: string }>;
+  // Called on taps, clicks and keys; at most once a minute it tells the
+  // server the admin is still here (admin_heartbeat).
   recordActivity: () => void;
-  // Local-only biometric unlock (see bufferToBase64Url's comment above) --
-  // never a substitute for TOTP on a fresh login, only for re-entering an
-  // already-verified session after it auto-locks.
-  biometricSupported: boolean;
-  hasBiometricCredential: boolean;
-  registerBiometricCredential: () => Promise<{ error?: string }>;
-  tryBiometricUnlock: () => Promise<{ error?: string }>;
 }
 
 const SettingsContext = createContext<SettingsValue | null>(null);
@@ -391,11 +397,16 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   const [isAdmin, setIsAdmin] = useState(false);
   const [adminChecked, setAdminChecked] = useState(false);
   const [sessionLocked, setSessionLocked] = useState(false);
-  const [lockDurationMinutes, setLockDurationMinutesState] = useState(DEFAULT_ADMIN_LOCK_MINUTES);
-  const [hasBiometricCredential, setHasBiometricCredential] = useState(false);
-  const lastActivityRef = useRef(Date.now());
-  const biometricSupported =
-    typeof window !== 'undefined' && typeof (window as any).PublicKeyCredential !== 'undefined' && typeof navigator !== 'undefined' && !!navigator.credentials;
+  const [adminLockReason, setAdminLockReason] = useState<'idle' | 'unpinned' | null>(null);
+  const [lockDurationMinutes, setLockDurationMinutes] = useState(DEFAULT_ADMIN_LOCK_MINUTES);
+  // Mirrors of the two flags for callbacks that must not re-create on
+  // every change (recordActivity runs on every tap).
+  const isAdminRef = useRef(false);
+  const sessionLockedRef = useRef(false);
+  const lockTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const lastBeatRef = useRef(0);
+  const beatInFlightRef = useRef(false);
+  const pinnedFactorIdsRef = useRef<string[]>([]);
   const loadedOnce = useRef(false);
 
   const applySiteSettings = useCallback((s: SiteSettings) => {
@@ -404,58 +415,154 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     applyFavicon(s.faviconUrl);
   }, []);
 
-  // The account the last real answer found to be a signed-in admin. Only
+  // The account the last real answer found signed in to the panel. Only
   // consulted when a check fails to get an answer at all -- see below.
   const confirmedAdminUidRef = useRef<string | null>(null);
   // Numbers the checks. One runs on every auth event and nothing orders
   // them, so a slow read begun under an earlier session -- a guest's, before
   // the admin signed in -- would land last and overwrite the right answer.
-  // Only the newest check started may write. A finished code check and a
-  // sign-out move the number on too: each is fresher than any check still
-  // in flight.
+  // Only the newest check started may write. A finished code check, a
+  // heartbeat, a lock-time change and a sign-out move the number on too:
+  // each is fresher than any check still in flight.
   const adminCheckSeqRef = useRef(0);
+  // Set just below; lets the lock timer re-ask without a dependency cycle.
+  const refreshAdminSessionRef = useRef<() => Promise<AdminSessionStatus | null>>(async () => null);
 
-  const checkIsAdmin = useCallback(async () => {
+  // The one timer: when to ask the server again (null: never).
+  const scheduleAdminRecheck = useCallback((ms: number | null) => {
+    if (lockTimerRef.current) {
+      clearTimeout(lockTimerRef.current);
+      lockTimerRef.current = null;
+    }
+    if (ms !== null) {
+      lockTimerRef.current = setTimeout(() => { void refreshAdminSessionRef.current(); }, ms);
+    }
+  }, []);
+
+  // Puts one answer from the server on screen: whether this is an admin
+  // session at all (isAdmin -- the admin account, past its code), whether
+  // it is locked, and when it will lock if nothing happens. The lock screen
+  // shows from the server's word alone, so a reload asks again and gets the
+  // same answer instead of starting unlocked.
+  const applyAdminStatus = useCallback((s: AdminSessionStatus) => {
+    const admin = !!(s.is_admin && s.aal2);
+    const locked = admin && !s.active;
+    isAdminRef.current = admin;
+    sessionLockedRef.current = locked;
+    setIsAdmin(admin);
+    setSessionLocked(locked);
+    setAdminLockReason(locked ? (s.reason === 'unpinned' ? 'unpinned' : 'idle') : null);
+    if (typeof s.lock_minutes === 'number') setLockDurationMinutes(s.lock_minutes);
+    if (Array.isArray(s.pinned_factor_ids)) {
+      pinnedFactorIdsRef.current = s.pinned_factor_ids.filter((id): id is string => typeof id === 'string');
+    }
+    setAdminChecked(true);
+    // Unlocked: ask again a second after the server's deadline rather than
+    // locking on this device's own clock -- activity in another tab on the
+    // same session may have moved it. Locked: ask again every minute, so a
+    // session that ended meanwhile (signed out from another device) or was
+    // unlocked in another tab is noticed without a reload.
+    scheduleAdminRecheck(
+      admin ? (locked ? 60_000 : (Math.max(0, s.seconds_left ?? 0) + 1) * 1000) : null,
+    );
+    return admin;
+  }, [scheduleAdminRecheck]);
+
+  useEffect(() => () => {
+    if (lockTimerRef.current) clearTimeout(lockTimerRef.current);
+  }, []);
+
+  // The auth server no longer has this session -- signed out everywhere
+  // from another device, or past a time-box. Its token lingers here for up
+  // to an hour and no code can revive it, so it is signed out on this device
+  // and the sign-in form shows instead of a code prompt that cannot succeed.
+  // Only if the session is still the one that was asked about, though: a
+  // slow answer must not sign out a guest, or a fresh sign-in, that
+  // replaced it meanwhile.
+  const dropVanishedSession = useCallback(async (askedWith: string | null) => {
+    const { data } = await supabase.auth.getSession();
+    if (!askedWith || data.session?.access_token !== askedWith) return;
+    confirmedAdminUidRef.current = null;
+    applyAdminStatus({ is_admin: false });
+    await supabase.auth.signOut({ scope: 'local' }).catch(() => {});
+  }, [applyAdminStatus]);
+
+  // Every answer from the server comes through here, whichever call
+  // fetched it -- the check, a heartbeat, a lock-time change.
+  const takeAdminStatus = useCallback((s: AdminSessionStatus, askedWith: string | null) => {
+    if (s.reason === 'no_session') {
+      void dropVanishedSession(askedWith);
+      return;
+    }
+    applyAdminStatus(s);
+  }, [applyAdminStatus, dropVanishedSession]);
+
+  // Asks the server (admin_session_status) and shows its answer. Returns
+  // the answer it got -- null when it could not get one -- even when a
+  // newer check has started and this one may no longer write.
+  const refreshAdminSession = useCallback(async (): Promise<AdminSessionStatus | null> => {
     const seq = ++adminCheckSeqRef.current;
-    // `confirmedUid` undefined leaves the confirmed account as it is.
-    const answer = (admin: boolean, confirmedUid?: string | null) => {
-      if (seq !== adminCheckSeqRef.current) return admin;
-      if (confirmedUid !== undefined) confirmedAdminUidRef.current = confirmedUid;
-      setIsAdmin(admin);
-      setAdminChecked(true);
-      return admin;
-    };
+    const current = () => seq === adminCheckSeqRef.current;
     try {
       const { data } = await supabase.auth.getSession();
       const uid = data.session?.user?.id;
-      if (!uid) return answer(false, null);
-      const { data: row, error: rowError } = await supabase.from('admins').select('user_id').maybeSingle();
-      if (rowError) {
+      const askedWith = data.session?.access_token ?? null;
+      if (!uid) {
+        if (current()) {
+          confirmedAdminUidRef.current = null;
+          applyAdminStatus({ is_admin: false });
+        }
+        return { is_admin: false };
+      }
+      const { data: status, error } = await supabase.rpc('admin_session_status');
+      if (error || !status || typeof status !== 'object') {
         // A read that failed is not an answer. This runs on every auth
         // event -- on the web, each time the tab comes back into view --
         // and taking a dropped connection as "not an admin" swapped
         // whichever admin page was open, unsaved edits and all, for the
-        // sign-in form (adminOnly). The same account, still past its code,
-        // keeps the answer it had; anyone else gets no.
-        const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-        return answer(aal?.currentLevel === 'aal2' && confirmedAdminUidRef.current === uid);
+        // sign-in form (adminOnly). The same account keeps the state it
+        // had, lock and all; anyone else gets no.
+        if (current()) {
+          if (confirmedAdminUidRef.current === uid) {
+            setAdminChecked(true);
+            // And ask again soon: an unlocked screen whose deadline passed
+            // during the outage would otherwise never hear of it.
+            if (isAdminRef.current && !sessionLockedRef.current) scheduleAdminRecheck(30_000);
+          } else {
+            applyAdminStatus({ is_admin: false });
+          }
+        }
+        return null;
       }
-      if (!row) return answer(false, null);
-      // Admins-table membership alone isn't enough -- the session must
-      // also have actually cleared a TOTP challenge (aal2), not just
-      // carry an aal1 password-only login. This is what makes MFA
-      // required on every fresh login rather than just at enrollment
-      // time, and it's re-checked here (not just in adminSignIn) so a
-      // stale pre-MFA session -- e.g. one persisted from before this
-      // feature shipped -- can't silently keep admin access on reload.
-      const { data: aal } = await supabase.auth.mfa.getAuthenticatorAssuranceLevel();
-      const admin = aal?.currentLevel === 'aal2';
-      return answer(admin, admin ? uid : null);
+      const s = status as AdminSessionStatus;
+      if (current()) {
+        if (s.reason !== 'no_session') confirmedAdminUidRef.current = s.is_admin && s.aal2 ? uid : null;
+        takeAdminStatus(s, askedWith);
+      }
+      return s;
     } catch (e) {
-      if (seq === adminCheckSeqRef.current) setAdminChecked(true);
-      return false;
+      if (current()) setAdminChecked(true);
+      return null;
     }
+  }, [applyAdminStatus, scheduleAdminRecheck, takeAdminStatus]);
+  useEffect(() => {
+    refreshAdminSessionRef.current = refreshAdminSession;
+  }, [refreshAdminSession]);
+
+  // Timers stop while the app is in the background (and a laptop that
+  // slept kept none running), so coming back asks the server again rather
+  // than trusting a deadline that may already have passed.
+  useEffect(() => {
+    const sub = AppState.addEventListener('change', (state) => {
+      if (state === 'active' && isAdminRef.current) void refreshAdminSessionRef.current();
+    });
+    return () => sub.remove();
   }, []);
+
+  const checkIsAdmin = useCallback(async () => {
+    await refreshAdminSession();
+    return isAdminRef.current;
+  }, [refreshAdminSession]);
 
   // 1) Load cached categories/attributes/settings from device storage
   // immediately.
@@ -482,48 +589,50 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
-  // Device-local admin security preferences -- the chosen auto-lock
-  // duration and whether a biometric credential was registered on this
-  // device. Neither of these lives in Supabase; they're per-browser, not
-  // per-account (see the bufferToBase64Url comment above for why).
   useEffect(() => {
-    (async () => {
-      try {
-        const [rawDuration, credId] = await Promise.all([
-          AsyncStorage.getItem(KEYS.adminLockDuration),
-          AsyncStorage.getItem(KEYS.adminBiometricCredId),
-        ]);
-        if (rawDuration) setLockDurationMinutesState(Number(rawDuration) || DEFAULT_ADMIN_LOCK_MINUTES);
-        setHasBiometricCredential(!!credId);
-      } catch (e) {
-        // Fall back to the defaults already in state.
-      }
-    })();
+    Promise.all(STALE_ADMIN_KEYS.map((k) => AsyncStorage.removeItem(k))).catch(() => {});
   }, []);
 
+  // Tells the server the admin is still here, at most once a minute and
+  // only while unlocked -- a locked session is refused by admin_heartbeat
+  // anyway, and only the code reopens it. The answer carries the new
+  // deadline, which reschedules the lock.
   const recordActivity = useCallback(() => {
-    lastActivityRef.current = Date.now();
-  }, []);
+    if (!isAdminRef.current || sessionLockedRef.current) return;
+    const now = Date.now();
+    if (beatInFlightRef.current || now - lastBeatRef.current < 60_000) return;
+    lastBeatRef.current = now;
+    beatInFlightRef.current = true;
+    const seq = ++adminCheckSeqRef.current;
+    (async () => {
+      const { data: sess } = await supabase.auth.getSession();
+      const askedWith = sess.session?.access_token ?? null;
+      const { data, error } = await supabase.rpc('admin_heartbeat');
+      // A heartbeat that did not arrive changes nothing here: the lock
+      // timer asks the server again at the deadline it already knows.
+      if (error || !data || typeof data !== 'object') return;
+      if (seq === adminCheckSeqRef.current) takeAdminStatus(data as AdminSessionStatus, askedWith);
+    })()
+      .catch(() => {})
+      .finally(() => {
+        beatInFlightRef.current = false;
+      });
+  }, [takeAdminStatus]);
 
-  const setLockDuration = useCallback((minutes: number) => {
-    setLockDurationMinutesState(minutes);
-    recordActivity();
-    AsyncStorage.setItem(KEYS.adminLockDuration, String(minutes)).catch(() => {});
-  }, [recordActivity]);
-
-  // Idle-reset auto-lock: only ticks while signed in as admin, checks
-  // every 15s whether it's been `lockDurationMinutes` since the last
-  // recordActivity() call, and if so just flips `sessionLocked` -- it
-  // never signs out or touches the underlying (still aal2) session. See
-  // AdminLockScreen for what renders while this is true.
-  useEffect(() => {
-    if (!isAdmin) return;
-    const id = setInterval(() => {
-      const idleMs = Date.now() - lastActivityRef.current;
-      if (idleMs >= lockDurationMinutes * 60 * 1000) setSessionLocked(true);
-    }, 15000);
-    return () => clearInterval(id);
-  }, [isAdmin, lockDurationMinutes]);
+  // The lock time is the admin's, kept on the server (admins.lock_minutes),
+  // because a value only this device knew is a value the server cannot
+  // enforce.
+  const setLockDuration = useCallback(async (minutes: number): Promise<{ error?: string }> => {
+    const seq = ++adminCheckSeqRef.current;
+    const { data: sess } = await supabase.auth.getSession();
+    const askedWith = sess.session?.access_token ?? null;
+    const { data, error } = await supabase.rpc('admin_set_lock_minutes', { p_minutes: minutes });
+    if (error || !data || typeof data !== 'object') {
+      return { error: error?.message || 'Not saved. Please try again.' };
+    }
+    if (seq === adminCheckSeqRef.current) takeAdminStatus(data as AdminSessionStatus, askedWith);
+    return {};
+  }, [takeAdminStatus]);
 
   // 2) In the background, fetch the live categories + attribute schemas +
   // branding from Supabase and check whether the current session belongs
@@ -1102,8 +1211,8 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       applySiteSettings(next);
 
       // .select('id') and a row check, not just an error check. The
-      // policies on this table FILTER rows -- a caller who is not a
-      // current-aal2 admin gets a 204 with no error and nothing written,
+      // policies on this table FILTER rows -- a caller who is not an
+      // unlocked admin session gets a 204 with no error and nothing written,
       // which is @AGENTS.md's "it matched no row" verbatim, on the switch
       // that decides whether a whole section of the app exists.
       const { data, error } = await supabase
@@ -1129,14 +1238,20 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
   // isAdmin flips on; see AdminGateScreen for the enroll-vs-challenge step
   // this return value drives.
   const adminSignIn = useCallback(async (email: string, password: string): Promise<{ error?: string; status?: 'needsEnroll' | 'needsChallenge'; factorId?: string }> => {
-    const { data, error } = await supabase.auth.signInWithPassword({ email, password });
+    const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) return { error: error.message };
-    const uid = data.user?.id;
-    const { data: row, error: rowError } = await supabase.from('admins').select('user_id').eq('user_id', uid).maybeSingle();
+    // Asked of the server rather than read from the admins table: that row
+    // is visible only to a session already past its code (the admin lock,
+    // part 2), which this one cannot be yet.
+    const { data: status, error: statusError } = await supabase.rpc('admin_session_status');
     // A read that failed is not an answer. Taken as "not an admin", a
     // dropped connection at this moment signed the real admin out.
-    if (rowError) return { error: 'Could not check this account just now. Please try again.' };
-    if (!row) {
+    if (statusError || !status || typeof status !== 'object') {
+      return { error: 'Could not check this account just now. Please try again.' };
+    }
+    const pinned = (status as AdminSessionStatus).pinned_factor_ids;
+    if (Array.isArray(pinned)) pinnedFactorIdsRef.current = pinned.filter((id): id is string => typeof id === 'string');
+    if (!(status as AdminSessionStatus).is_admin) {
       // Not an admin. This used to try claiming a "first admin" slot; that
       // bootstrap is closed (close_admin_self_insert, 10 Sep 2026) and an
       // admin is added from the database now. Signed back out rather than
@@ -1151,7 +1266,11 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     // Same here: a failed read looks like "no authenticator yet", and the
     // gate would start enrolling a second one.
     if (factorsError) return { error: 'Could not check this account just now. Please try again.' };
-    const verified = factors?.totp?.find((f) => f.status === 'verified');
+    // A pinned authenticator first: after an intruder added one of their
+    // own, "the first verified factor" could be theirs, and the owner's
+    // correct code would be checked against it.
+    const verifiedFactors = (factors?.totp ?? []).filter((f) => f.status === 'verified');
+    const verified = verifiedFactors.find((f) => pinnedFactorIdsRef.current.includes(f.id)) ?? verifiedFactors[0];
     if (!verified) return { status: 'needsEnroll' };
     return { status: 'needsChallenge', factorId: verified.id };
   }, []);
@@ -1165,34 +1284,60 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     return { factorId: data.id, qrCode: data.totp.qr_code, secret: data.totp.secret };
   }, []);
 
-  // Clears a TOTP challenge against `factorId` -- the one function that
-  // actually flips isAdmin on, whether it's confirming a brand-new
-  // enrollment or a returning admin's existing factor. Also clears
-  // sessionLocked, so this doubles as the lock screen's full fallback
-  // unlock path (see getVerifiedTotpFactorId for how that path gets a
-  // factorId without a fresh adminSignIn call).
-  const adminMfaVerify = useCallback(async (factorId: string, code: string): Promise<{ error?: string }> => {
+  // Clears a TOTP challenge against `factorId` -- confirming a brand-new
+  // enrollment, a returning admin's sign-in, or the lock screen's unlock.
+  // A verified code is what the server counts as fresh (the session's
+  // "totp" timestamp), so the lock is lifted by asking the server
+  // afterwards, not by this device deciding it.
+  const adminMfaVerify = useCallback(async (
+    factorId: string,
+    code: string,
+  ): Promise<{ error?: string; code?: 'unpinned' | 'session_ended' }> => {
+    // A failed challenge or verify may be a session that no longer exists
+    // (signed out from another device): ask the server, which signs such a
+    // session out here, and say so rather than showing the auth server's
+    // own wording.
+    const explain = async (message: string) => {
+      const s = await refreshAdminSession();
+      if (s && (s.reason === 'no_session' || !s.is_admin)) {
+        return { error: 'This session has ended. Please sign in again.', code: 'session_ended' as const };
+      }
+      return { error: message };
+    };
     const challenge = await supabase.auth.mfa.challenge({ factorId });
-    if (challenge.error) return { error: challenge.error.message };
+    if (challenge.error) return explain(challenge.error.message);
     const verify = await supabase.auth.mfa.verify({ factorId, challengeId: challenge.data.id, code });
-    if (verify.error) return { error: verify.error.message };
-    // Both callers have already established this is an admin account (the
-    // gate through adminSignIn's admins read, the lock screen by only
-    // showing to one), so a failed read in the check this sign-in sets off
-    // must not undo it -- see checkIsAdmin. And any check already in flight
-    // began before this answer, so it may no longer write.
-    adminCheckSeqRef.current += 1;
-    confirmedAdminUidRef.current = verify.data?.user?.id ?? null;
-    setIsAdmin(true);
-    setAdminChecked(true);
-    setSessionLocked(false);
-    recordActivity();
+    if (verify.error) return explain(verify.error.message);
+    const status = await refreshAdminSession();
+    if (!status) {
+      // The code was accepted but the server could not be asked. Both
+      // callers have already established this is an admin account (the gate
+      // through adminSignIn, the lock screen by only showing to one), so the
+      // screen opens on the code's word and asks again in a minute -- the
+      // database still decides every admin action meanwhile.
+      adminCheckSeqRef.current += 1;
+      confirmedAdminUidRef.current = verify.data?.user?.id ?? null;
+      applyAdminStatus({ is_admin: true, aal2: true, active: true, seconds_left: 60 });
+      return {};
+    }
+    if (!(status.is_admin && status.aal2 && status.active)) {
+      if (status.reason === 'unpinned') {
+        return { error: 'That code is from an authenticator that isn’t set up for the admin panel. Use the one that is.', code: 'unpinned' };
+      }
+      if (status.reason === 'no_session' || !status.is_admin) {
+        return { error: 'This session has ended. Please sign in again.', code: 'session_ended' };
+      }
+      return { error: 'The code was accepted, but the server did not unlock this session. Please try again.' };
+    }
     return {};
-  }, [recordActivity]);
+  }, [refreshAdminSession, applyAdminStatus]);
 
   const getVerifiedTotpFactorId = useCallback(async (): Promise<string | null> => {
-    const { data } = await supabase.auth.mfa.listFactors();
-    return data?.totp?.find((f) => f.status === 'verified')?.id ?? null;
+    const { data, error } = await supabase.auth.mfa.listFactors();
+    if (error) throw error;
+    const verified = (data?.totp ?? []).filter((f) => f.status === 'verified');
+    const pinned = pinnedFactorIdsRef.current;
+    return (verified.find((f) => pinned.includes(f.id)) ?? verified[0])?.id ?? null;
   }, []);
 
   // This device only ('local'). The default ends the account's sessions
@@ -1210,72 +1355,9 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     }
     adminCheckSeqRef.current += 1;
     confirmedAdminUidRef.current = null;
-    setIsAdmin(false);
-    setSessionLocked(false);
+    applyAdminStatus({ is_admin: false });
     await ensureSession();
-  }, []);
-
-  // Registers this device's platform authenticator (Face ID/fingerprint)
-  // as a fast unlock path. Purely local -- see bufferToBase64Url's
-  // comment above for why the credential is never sent anywhere for
-  // verification; it only ever gates re-entry into an already-verified,
-  // still-live session after the auto-lock timer fires.
-  const registerBiometricCredential = useCallback(async (): Promise<{ error?: string }> => {
-    if (!biometricSupported) return { error: 'Not supported on this device/browser.' };
-    try {
-      const { data } = await supabase.auth.getSession();
-      const uid = data.session?.user?.id;
-      if (!uid) return { error: 'Not signed in.' };
-      const challenge = new Uint8Array(32);
-      crypto.getRandomValues(challenge);
-      const cred: any = await navigator.credentials.create({
-        publicKey: {
-          challenge,
-          rp: { name: 'Vevaty Admin' },
-          user: { id: new TextEncoder().encode(uid), name: 'admin', displayName: 'Vevaty Admin' },
-          pubKeyCredParams: [{ type: 'public-key', alg: -7 }, { type: 'public-key', alg: -257 }],
-          authenticatorSelection: { authenticatorAttachment: 'platform', userVerification: 'required' },
-          timeout: 60000,
-        } as any,
-      });
-      if (!cred) return { error: 'Could not register.' };
-      const credId = bufferToBase64Url((cred as any).rawId);
-      await AsyncStorage.setItem(KEYS.adminBiometricCredId, credId);
-      setHasBiometricCredential(true);
-      return {};
-    } catch (e: any) {
-      return { error: e?.message || 'Could not enable fingerprint unlock.' };
-    }
-  }, [biometricSupported]);
-
-  // The lock screen's fast path -- a successful local biometric prompt
-  // clears sessionLocked directly, with no server round-trip (the
-  // underlying session/aal2 status never changed; this only re-opens the
-  // app's own UI). Falls through to an error the caller can use to show
-  // the full password+TOTP fallback form instead.
-  const tryBiometricUnlock = useCallback(async (): Promise<{ error?: string }> => {
-    if (!biometricSupported) return { error: 'Not supported on this device/browser.' };
-    try {
-      const credId = await AsyncStorage.getItem(KEYS.adminBiometricCredId);
-      if (!credId) return { error: 'No fingerprint unlock registered on this device.' };
-      const challenge = new Uint8Array(32);
-      crypto.getRandomValues(challenge);
-      const assertion = await navigator.credentials.get({
-        publicKey: {
-          challenge,
-          allowCredentials: [{ id: base64UrlToBuffer(credId), type: 'public-key' }],
-          userVerification: 'required',
-          timeout: 60000,
-        } as any,
-      });
-      if (!assertion) return { error: 'Unlock cancelled.' };
-      setSessionLocked(false);
-      recordActivity();
-      return {};
-    } catch (e: any) {
-      return { error: e?.message || 'Could not unlock with fingerprint.' };
-    }
-  }, [biometricSupported, recordActivity]);
+  }, [applyAdminStatus]);
 
   const value = useMemo(
     () => ({
@@ -1320,13 +1402,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       getVerifiedTotpFactorId,
       adminSignOut,
       sessionLocked,
+      adminLockReason,
       lockDurationMinutes,
       setLockDuration,
       recordActivity,
-      biometricSupported,
-      hasBiometricCredential,
-      registerBiometricCredential,
-      tryBiometricUnlock,
     }),
     [
       ready,
@@ -1370,13 +1449,10 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       getVerifiedTotpFactorId,
       adminSignOut,
       sessionLocked,
+      adminLockReason,
       lockDurationMinutes,
       setLockDuration,
       recordActivity,
-      biometricSupported,
-      hasBiometricCredential,
-      registerBiometricCredential,
-      tryBiometricUnlock,
     ]
   );
 

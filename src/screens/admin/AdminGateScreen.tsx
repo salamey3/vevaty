@@ -11,6 +11,7 @@ import { useSettings } from '../../store/SettingsStore';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { supabase } from '../../lib/supabase';
 import { RootStackParamList } from '../../navigation/types';
+import AdminLockedBackdrop from './AdminLockedBackdrop';
 
 const LOCK_DURATION_OPTIONS = [10, 20, 30, 60, 120, 180];
 
@@ -30,9 +31,10 @@ const LOCK_DURATION_OPTIONS = [10, 20, 30, 60, 120, 180];
 // through on the code alone -- that would make every unlocked phone they are
 // signed in on, which usually carries the authenticator too, the whole of
 // the admin login, and the privacy policy promises a member session never
-// reaches admin. What it cannot cover: a device that HAS been through this
-// sign-in stays signed in to the panel, across relaunches, until "Sign out
-// of admin", and the lock screen asks only for the code (see NEXT.md).
+// reaches admin. A device that HAS been through this sign-in stays signed
+// in to the panel until "Sign out of admin", but after the lock time idle
+// the server locks it and only the code reopens it (ACCOUNTS.md, "The admin
+// lock is the server's").
 //
 // The first-admin "set up" form that used to sit below it is gone: the
 // bootstrap it served was done long ago, its database half was closed on
@@ -45,7 +47,7 @@ export default function AdminGateScreen() {
   const {
     isAdmin, adminChecked, adminSignIn, adminSignOut,
     adminEnrollMfaStart, adminMfaVerify,
-    lockDurationMinutes, setLockDuration, biometricSupported, hasBiometricCredential, registerBiometricCredential,
+    lockDurationMinutes, setLockDuration, sessionLocked,
   } = useSettings();
 
   const [mode, setMode] = useState<'signIn' | 'mfaEnroll' | 'mfaChallenge'>('signIn');
@@ -59,9 +61,9 @@ export default function AdminGateScreen() {
   const [mfaQrCode, setMfaQrCode] = useState<string | null>(null);
   const [mfaSecret, setMfaSecret] = useState<string | null>(null);
   const [mfaCode, setMfaCode] = useState('');
-  const [bioBusy, setBioBusy] = useState(false);
-  const [bioError, setBioError] = useState<string | null>(null);
-  const [bioEnabled, setBioEnabled] = useState(false);
+  // The lock time is saved on the server now, so saving it can fail.
+  const [lockSaving, setLockSaving] = useState<number | null>(null);
+  const [lockError, setLockError] = useState<string | null>(null);
 
   // Defined up here (rather than below, next to the sign-in JSX that uses
   // them) so they're already available if the isAdmin branch below ever
@@ -107,7 +109,11 @@ export default function AdminGateScreen() {
     // re-renders straight into the dashboard branch below -- no extra
     // navigation needed here.
     if (result.error) {
-      setError(result.error);
+      setError(
+        result.code === 'unpinned' ? t('admin.lock.unpinnedCode')
+          : result.code === 'session_ended' ? t('admin.lock.sessionEnded')
+          : result.error,
+      );
       return;
     }
     // Back to a clean sign-in form underneath the dashboard. Left as it was,
@@ -122,23 +128,25 @@ export default function AdminGateScreen() {
     setMfaSecret(null);
   };
 
-  const enableFingerprint = async () => {
-    setBioBusy(true);
-    setBioError(null);
-    const result = await registerBiometricCredential();
-    setBioBusy(false);
-    if (result.error) setBioError(result.error);
-    else setBioEnabled(true);
+  const chooseLockTime = async (mins: number) => {
+    if (lockSaving !== null || mins === lockDurationMinutes) return;
+    setLockSaving(mins);
+    setLockError(null);
+    const result = await setLockDuration(mins);
+    setLockSaving(null);
+    if (result.error) setLockError(t('admin.security.saveFailed'));
   };
 
+  // Keyed on the lock too: counted while locked, the server refuses it (0)
+  // and the badge would stay hidden after the code.
   useEffect(() => {
-    if (!isAdmin) return;
+    if (!isAdmin || sessionLocked) return;
     supabase
       .from('reports')
       .select('id', { count: 'exact', head: true })
       .eq('status', 'open')
       .then(({ count }) => setOpenReportCount(count ?? 0));
-  }, [isAdmin]);
+  }, [isAdmin, sessionLocked]);
 
   // Opened straight from vevaty.com/control-room -- or from an inner admin
   // page, which shows this form in its place -- this can be the only screen
@@ -168,6 +176,10 @@ export default function AdminGateScreen() {
       </Screen>
     );
   }
+
+  // Locked: the dashboard is taken down under the lock screen, like every
+  // other admin page (see AdminLockedBackdrop).
+  if (isAdmin && sessionLocked) return <AdminLockedBackdrop />;
 
   if (isAdmin) {
     return (
@@ -286,32 +298,17 @@ export default function AdminGateScreen() {
             {LOCK_DURATION_OPTIONS.map((mins) => (
               <Pressy
                 key={mins}
-                onPress={() => setLockDuration(mins)}
-                style={[styles.durationChip, lockDurationMinutes === mins && styles.durationChipActive]}
+                onPress={() => chooseLockTime(mins)}
+                style={[styles.durationChip, (lockSaving ?? lockDurationMinutes) === mins && styles.durationChipActive]}
               >
-                <Text style={[styles.durationChipText, lockDurationMinutes === mins && styles.durationChipTextActive]}>
+                <Text style={[styles.durationChipText, (lockSaving ?? lockDurationMinutes) === mins && styles.durationChipTextActive]}>
                   {mins < 60 ? t('admin.security.minutes', { n: mins }) : t('admin.security.hours', { n: mins / 60 })}
                 </Text>
               </Pressy>
             ))}
           </View>
+          {!!lockError && <Text style={styles.error}>{lockError}</Text>}
           <Text style={styles.note}>{t('admin.security.autoLockNote')}</Text>
-
-          {biometricSupported && !hasBiometricCredential && !bioEnabled && (
-            <>
-              <Pressy onPress={enableFingerprint} style={styles.row}>
-                <View style={{ flex: 1 }}>
-                  <Text style={styles.rowTitle}>{t('admin.security.enableFingerprint')}</Text>
-                  <Text style={styles.rowSub}>{t('admin.security.enableFingerprintSub')}</Text>
-                </View>
-                {bioBusy ? <ActivityIndicator color={colors.ink} /> : <Icon name="fingerprint" size={18} color={colors.inkSoft} />}
-              </Pressy>
-              {!!bioError && <Text style={styles.error}>{bioError}</Text>}
-            </>
-          )}
-          {(hasBiometricCredential || bioEnabled) && (
-            <Text style={styles.note}>{t('admin.security.fingerprintEnabled')}</Text>
-          )}
 
           <Pressy onPress={() => adminSignOut()} style={styles.signOutBtn}>
             <Icon name="close" size={15} color={colors.danger} />

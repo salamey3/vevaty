@@ -254,8 +254,9 @@ is `true`, so a grant there publishes every user's number to every
 signed-in account. An admin screen therefore cannot read those columns at
 all, whatever the policies say, and searching by phone number is impossible
 from a client. `admin_search_users`, `admin_get_user`, `admin_update_profile`
-and `admin_grant_points` are the way in; each checks `myazar.admins` itself
-and raises `not_admin` otherwise.
+and `admin_grant_points` are the way in; each asks
+`myazar.admin_session_active()` -- an unlocked, code-verified admin session,
+see "The admin lock is the server's" -- and raises `not_admin` otherwise.
 
 **The phone is not editable, and that is the point.** `profiles.phone` is a
 copy of the login identity in `auth.users`. Writing one without the other
@@ -310,8 +311,8 @@ What replaced it:
   Before this, the inner pages were plain routes: typing
   `vevaty.com/admin/branding` gave anyone the whole branding editor, and
   `/admin/users` the user search. Nothing would have saved — the server
-  checks `myazar.admins` on every write — but "invisible to members" has to
-  include the pages behind the front door.
+  refuses every admin write to anyone but an unlocked admin session — but
+  "invisible to members" has to include the pages behind the front door.
 - **Profile shows an Admin row to an admin account and to nobody else** —
   `testerStatus.isAdmin` from `my_tester_status()`, so the row is there
   before the admin has signed in to the panel, in the app and on the
@@ -323,11 +324,12 @@ What replaced it:
   authenticator usually lives on the same device, so every unlocked phone
   the admin is signed in on would have been the whole admin login — and
   the privacy policy tells users a regular session never reaches
-  administrator functions. The same is still true of a device that HAS
-  been through the panel's sign-in: it stays signed in to the panel,
-  across relaunches, until "Sign out of admin", and the lock asks only for
-  the code. So a phone should sign out of admin when done — which, since
-  the same change, signs out that device only. On a phone that also leaves
+  administrator functions. A device that HAS been through the panel's
+  sign-in stays signed in to it until "Sign out of admin", but not open:
+  after the lock time without activity the server locks it, and only the
+  code reopens it (see "The admin lock is the server's"). Still, a phone
+  should sign out of admin when done — which, since the same change, signs
+  out that device only. On a phone that also leaves
   no member signed in, since the panel's sign-in replaced the phone
   session: sign back in with the number. To end every session at once — a
   laptop left signed in to the panel, say — the member Log out still
@@ -339,10 +341,116 @@ What replaced it:
   email account and then fail. An admin is added from the database now,
   and the account needs an email and a password to sign in at all.
 
-Hiding the door is not the lock. The server still checks
-`myazar.admins` and not the session's authenticator level (see @NEXT.md),
-so the password alone is what an attacker would need, whichever screen
-they did or did not find.
+Hiding the door is not the lock. The lock is the next section.
+
+## The admin lock is the server's
+
+Rebuilt 11 Sep 2026, after Yousif found that the idle lock was a picture
+of a lock. It came up after the chosen time without activity and asked for
+the authenticator code — and a reload of the page skipped it, straight back
+into the panel with everything working. The lock was a flag in the app's
+memory, over a session that stayed fully code-verified behind it. Worse,
+the database never asked about the code at all: every admin function and
+every admin permission checked only that the account was in
+`myazar.admins`, so the password alone opened admin powers to anyone who
+went round the app's screens.
+
+Now the database decides, and the screen only shows its answer. A session
+may use admin powers while all four hold (`myazar.admin_session_status()`,
+and `admin_session_active()` for the same answer as a yes or no):
+
+1. the account is in `myazar.admins`;
+2. the session passed the authenticator code (`aal2`);
+3. that code came from one of the admin's **pinned** authenticators
+   (`admins.totp_factor_ids`), by the auth server's own record of the
+   session (`auth.sessions.factor_id`) — and the session still exists
+   there, so a signed-out session's leftover token counts for nothing;
+4. it has not been idle longer than the admin's lock time since the later
+   of its last code entry — the `totp` timestamp in the session's token,
+   which the auth server moves on every verification — and its last
+   heartbeat.
+
+Why the pin, found in review before the database half went live: to the
+auth server a locked session is still fully code-verified, and it lets such
+a session add an authenticator of its own and verify it — which moves the
+`totp` timestamp exactly as the owner's code would. Anyone at an unattended
+browser with the developer tools open could have reopened the panel with an
+authenticator on their own phone. With the pin, the only code that counts
+is one from a device the admin set up. **Adding an admin, or an
+authenticator for one, therefore includes pinning its factor id** in
+`admins.totp_factor_ids` from the database — an unpinned authenticator
+verifies at the auth server and still opens nothing here (the app says
+the code is from an authenticator that isn't set up for the panel).
+
+When the authenticator changes — a new phone, a lost one, or one removed
+from a locked session — the admin is outside the panel until the new one is
+pinned, from the Supabase SQL editor. Pin exactly the one the owner just
+set up, by its literal id — "every verified factor" would also pin any an
+intruder added, and a lookup that finds nothing would try to pin a NULL
+(the column refuses NULLs since the review found one would have unpinned
+everything):
+
+```sql
+select id, friendly_name, status, created_at from auth.mfa_factors
+ where user_id = '<admin user id>' order by created_at;   -- find the owner's new one
+update myazar.admins set totp_factor_ids = array['<that factor id>']::uuid[]
+ where user_id = '<admin user id>';                       -- pin exactly that one
+```
+
+Then remove any factor the owner does not recognise (Supabase dashboard →
+Authentication → the user → MFA).
+
+- **Activity is recorded on the server.** The app sends `admin_heartbeat()`
+  at most once a minute while the admin clicks, types or scrolls on the
+  website, or touches the screen in the app (typing on a phone keyboard
+  alone does not count).
+  A heartbeat keeps an unlocked session unlocked and cannot revive a locked
+  one: walking away is undone by the code and nothing else.
+- **The lock time lives on the server** (`admins.lock_minutes`, one of 10,
+  20, 30, 60, 120, 180 minutes, set from the dashboard and logged). A value
+  only the device knew was a value the server could not enforce.
+- **The app asks instead of remembering.** A reload, a relaunch or a return
+  to the tab asks `admin_session_status()` and gets the lock screen straight
+  back. The screen locks a second after the server's deadline, not on its
+  own clock, because another tab on the same session may have kept it
+  alive; while locked it asks again every minute, so a session unlocked
+  in another tab opens here too. The answer says why a session is locked —
+  `idle`, `unpinned`, or `no_session` for one the auth server no longer
+  has (signed out everywhere from another device), which the app signs out
+  on the spot rather than asking for a code that cannot help.
+- **Every admin power asks.** Row-level security: about sixty policies test
+  `exists (select 1 from myazar.admins where user_id = auth.uid())`, and
+  that subquery runs as the caller, under the admins table's own policy —
+  which now also requires `admin_session_active()`. Gating the admin's own
+  row gated all sixty at once. Functions: SECURITY DEFINER bypasses that
+  policy, so each of the 28 admin functions and the admin bypass in 4
+  triggers was rewritten to ask `admin_session_active()`.
+- **Four functions still ask only "is this an admin account?"**, because
+  the question is not about admin power: `delete_my_account` (an admin
+  cannot self-delete, locked or not), `my_tester_status` (the Admin row on
+  Profile), `submit_problem_report` and `upsert_own_profile` (admins are
+  exempt from the tester rules). So does one edge function,
+  `bunny-video-token`, whose admin case is only a pass on the daily video
+  quota.
+- **The page under the lock is taken down.** On the website a page kept
+  under the lock screen is still in the page, and deleting the overlay in
+  the browser's tools would have shown whatever it held — user details,
+  phone numbers, reports. Every admin page, the dashboard included, renders
+  nothing while locked and loads fresh after the code. Edits not saved when
+  the lock comes down are lost; lock times go up to three hours.
+- **The fingerprint unlock is gone.** It only ever unlocked the screen: the
+  browser checked a fingerprint and the app believed it, with nothing the
+  server could verify. A real one would be a passkey registered with the
+  auth server — its own piece of work, if it is ever wanted.
+
+What this does not cover: someone with the unlocked device inside the lock
+time is the admin, as with any lock; an admin who never signs out of the
+panel on a phone keeps a session that the code reopens (sign out when done);
+and a locked session is still the admin's ACCOUNT to the auth server —
+someone at the unattended browser with its tools open could still change
+that account's password or remove its authenticator, locking the owner out
+without getting in. Supabase's "secure password change" setting narrows
+the first (see @NEXT.md).
 
 ## What is deliberately still missing
 

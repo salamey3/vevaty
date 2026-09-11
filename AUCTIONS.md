@@ -345,8 +345,9 @@ admin action failed with `42501`, including reading the lot list, which
 named `reserve_price` — a column granted to `service_role` alone, and
 naming one ungranted column fails the whole statement (@AGENTS.md).
 
-So every admin write is a `SECURITY DEFINER` function that checks
-`myazar.admins` first: `create_auction`, `update_auction`,
+So every admin write is a `SECURITY DEFINER` function that checks for an
+unlocked admin session first (`admin_session_active()` since 11 Sep 2026 —
+see @ACCOUNTS.md, "The admin lock is the server's"): `create_auction`, `update_auction`,
 `delete_auction`, `publish_auction`, `add_auction_lot`,
 `create_auction_lot`, `remove_auction_lot`, `cancel_auction_lot`, and
 `admin_auction_lots` for the read that needs `reserve_price`. Several of
@@ -853,7 +854,7 @@ absent from an auction where nothing has closed yet.
 
 Everything comes from `myazar.admin_auction_monitor(auction_id)` in one
 call -- two calls per tick would be two chances to paint half an update. It
-is SECURITY DEFINER and checks `myazar.admins` itself, because it reads
+is SECURITY DEFINER and checks for an unlocked admin session itself, because it reads
 every bidder's name and every hidden maximum: RLS filters rows, it never
 confers a privilege, and this is exactly the data that must not leak to a
 bidder who could use it to snipe.

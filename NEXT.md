@@ -52,14 +52,13 @@ invite goes out, in this order:
 
 Found on the way and deliberately not fixed here:
 
-- **The admin MFA requirement does less than its name says.** The
-  restrictive "admin identity requires mfa" policy counts rows in
-  `auth.mfa_factors`, whose rows a signed-in session cannot see, so the
-  count is always zero and a password-only (aal1) admin session passes
-  it. And no `admin_*` function checks the session's `aal` — they check
-  `myazar.admins` and nothing else. So an admin's password alone opens
-  everything the TOTP step is meant to guard. Worth doing properly before
-  a second person holds an admin row.
+- **The "admin identity requires mfa" policies are dead weight.** They
+  count rows in `auth.mfa_factors`, which a signed-in session cannot see, so
+  they never required anything; what they were for is done properly now by
+  the admin lock (@ACCOUNTS.md, "The admin lock is the server's"). Dropping
+  them is a tidy-up, not a fix — but mind @MEDIA.md: their subquery is also
+  why `anon` cannot read `listings` at all, so dropping them changes what a
+  signed-out visitor can read.
 - **A seller can switch `is_test` off their own listing** (added this
   morning with the invites; table-level UPDATE on `listings`, nothing
   guarding the column), which is what the end-of-round clean-up trusts. No
@@ -82,12 +81,12 @@ Found on the way and deliberately not fixed here:
 - **Leaving the admin panel is rougher than it looks.** All older than
   the admin sign-in move of 10 Sep, but the Admin row on Profile now makes
   the panel something a phone signs in to:
-  - A device signed in to the panel stays signed in to it, across
-    relaunches, until "Sign out of admin" — the lock starts unlocked on
-    every launch and then asks only for the code. So a phone, whose
-    authenticator is usually on the same phone, should sign out of admin
-    when done. (Since 10 Sep that signs out this device only; the member
-    Log out still signs out every device — worth one decision.)
+  - A device signed in to the panel stays signed in to it until "Sign out
+    of admin". Since 11 Sep it cannot be used past the lock time without
+    the code, but a phone, whose authenticator is usually on the same
+    phone, should still sign out of admin when done. (Since 10 Sep that
+    signs out this device only; the member Log out still signs out every
+    device — worth one decision.)
   - "Sign out of admin" skips the clean-up the member Log out does, so the
     guest session that follows writes the admin's cached name, district,
     points and tier into a fresh guest profile row (the insert in
@@ -95,10 +94,6 @@ Found on the way and deliberately not fixed here:
     same. A SIGNED_OUT branch in
     AppStore's auth listener that forgets the local account would cover
     every way of being signed out at once.
-  - In the phone app the auto-lock is a fixed timer: nothing records
-    activity there (the listener in `App.tsx` is web-only), so the lock
-    screen comes up 30 minutes (the default) after each launch or unlock,
-    however busy the admin is.
   - Offline with an expired session token, "Sign out of admin" and the
     lock's "Not you? Sign out" act as though they worked and do not: the
     client cannot sign out without reaching the server first, and
@@ -107,6 +102,16 @@ Found on the way and deliberately not fixed here:
   - Setting up an authenticator from the phone app shows the text key but
     no QR code: the code arrives as an SVG, which React Native's `Image`
     does not draw. Set one up on the website.
+- **`moderate-listing` judges what the caller sends, not what is stored.**
+  It asks the AI about the photos, title and description in the request
+  body, then approves the listing by id — so a seller could send harmless
+  photos and text and publish something else. It should load the listing's
+  own stored photos and text (it already reads the row) and judge those.
+  Found while checking the edge functions for admin checks, 11 Sep.
+- **Switch on "secure password change" in Supabase Auth.** A signed-in
+  session — an admin's locked one included — can change the account's
+  password through the auth server without the old one. The setting asks
+  for recent sign-in first. A dashboard switch, no code.
 - **Every launch runs the settings refresh twice, side by side** — once
   from SettingsStore's first-mount effect and once from the auth
   listener's INITIAL_SESSION — so categories, attributes and site settings
@@ -296,6 +301,20 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**The admin lock is the server's**, 11 Sep 2026. Yousif found the idle
+lock skipped by a page reload; underneath, the database had never checked
+the authenticator code at all. Now every admin power — about sixty
+permission rules, 28 admin functions, 4 triggers — needs an unlocked,
+code-verified admin session whose code came from a pinned authenticator;
+activity is recorded on the server by a heartbeat, the lock time lives
+there, only the code unlocks, and admin pages are taken down while locked.
+The fingerprint unlock went with it. The database work went in as five
+migrations: four that changed nothing on their own (the server's answer,
+the pin, the reasons a session is locked, a NULL-proof pin), then the
+enforcement, switched on after the app half had shipped — an app that has
+not yet downloaded the update cannot open the panel until it does. See @ACCOUNTS.md, "The admin lock is the server's",
+and @AGENTS.md for the rules new admin code follows.
 
 **The admin sign-in is off the member login**, 10 Sep 2026. It lives at
 `vevaty.com/control-room` in any browser (it was `/admin` for a few hours

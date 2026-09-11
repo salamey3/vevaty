@@ -19,26 +19,43 @@ import ReportProblemHost from './src/components/ReportProblemHost';
 import AdminLockScreen from './src/components/AdminLockScreen';
 import SystemBottomStrip from './src/components/SystemBottomStrip';
 
-// Feeds SettingsStore's auto-lock idle timer -- any pointer/keyboard
-// activity anywhere in the app resets the clock. Web-only (matches the
-// Platform.OS === 'web' conditionals already used in theme.ts/favicon.ts;
-// this whole app ships web-only), and only meaningfully does anything
-// while signed in as admin, so it's a no-op for every regular user.
+// Tells the admin idle lock the admin is still here -- recordActivity sends
+// at most one heartbeat a minute to the server, which is what keeps an admin
+// session unlocked (see SettingsStore). Only does anything while signed in
+// to the panel; for everyone else recordActivity returns at once.
+//
+// On the web, window events: clicks, keys, the wheel and the pointer moving
+// (reading a long list without clicking is still being here). The phone app
+// has no window to listen on, so AdminActivityRoot below catches touches at
+// the root view instead -- until 11 Sep 2026 the native app recorded no
+// activity at all and simply locked on a timer.
 function AdminActivityListener() {
   const { isAdmin, recordActivity } = useSettings();
 
   useEffect(() => {
     if (Platform.OS !== 'web' || typeof window === 'undefined' || !isAdmin) return;
     const handler = () => recordActivity();
-    window.addEventListener('pointerdown', handler);
-    window.addEventListener('keydown', handler);
+    const events = ['pointerdown', 'pointermove', 'keydown', 'wheel'] as const;
+    events.forEach((e) => window.addEventListener(e, handler, { passive: true }));
     return () => {
-      window.removeEventListener('pointerdown', handler);
-      window.removeEventListener('keydown', handler);
+      events.forEach((e) => window.removeEventListener(e, handler));
     };
   }, [isAdmin, recordActivity]);
 
   return null;
+}
+
+// The root view, reporting every touch that starts anywhere under it. A
+// touch still reaches whatever it landed on: onTouchStart only watches.
+// Modals are their own windows and do not pass through here -- no admin
+// screen is one.
+function AdminActivityRoot({ style, children }: { style: any; children: React.ReactNode }) {
+  const { recordActivity } = useSettings();
+  return (
+    <View style={style} onTouchStart={Platform.OS === 'web' ? undefined : recordActivity}>
+      {children}
+    </View>
+  );
 }
 
 // Kills the focus ring the browser draws inside text fields on the web.
@@ -236,7 +253,7 @@ export default function App() {
                           the window -- an absolutely positioned view needs
                           one, and relying on whatever React Native happens to
                           mount as the root would be an assumption. */}
-                      <View style={styles.root}>
+                      <AdminActivityRoot style={styles.root}>
                         <StatusBar style="dark" />
                         <RootNavigator />
                         {/* The tester round's Report a problem tab. Beside the
@@ -258,7 +275,7 @@ export default function App() {
                             native windows and this cannot reach them -- each
                             one renders its own copy. */}
                         <SystemBottomStrip />
-                      </View>
+                      </AdminActivityRoot>
                     </ScrollChromeProvider>
                   </SavedSearchesStoreProvider>
                 </FavoritesStoreProvider>

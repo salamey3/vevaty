@@ -494,8 +494,8 @@ export type AdminLotRow = {
   startPrice: number;
   // Readable HERE and nowhere else in the app. The column is granted to
   // service_role only, so this comes back through a SECURITY DEFINER
-  // function that checks myazar.admins -- there is no client role that can
-  // select it.
+  // function that checks for an unlocked admin session (admin_session_active)
+  // -- there is no client role that can select it.
   reservePrice: number | null;
   status: string;
   currentPrice: number | null;
