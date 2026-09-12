@@ -183,7 +183,14 @@ export interface Category {
 // decides which values survive a round trip through the database), which
 // is how 'free' shipped invisible: two of those lists were never updated
 // and quietly dropped it on the way back out.
-export type ConditionMode = 'new_used' | 'offer_type' | 'rehome' | 'graded' | 'made_to_order';
+//   antique_grade -- excellent/good/fair/restored/as-found, for the
+//                 Antiques & Collectibles leaves. 'graded' cannot serve
+//                 them: "New" is meaningless on an 1890 lamp, and there
+//                 was nowhere at all to declare a RESTORATION, which is
+//                 the most price-relevant fact an antique carries and the
+//                 likeliest cause of a dispute after collection.
+export type ConditionMode =
+  | 'new_used' | 'offer_type' | 'rehome' | 'graded' | 'made_to_order' | 'antique_grade';
 
 // Why a listing could not be saved, in a form a screen can translate.
 // 'refused' is the database declining the row -- an ungranted column, a
@@ -429,12 +436,19 @@ export interface Listing {
   // with 'new': a finished handmade piece is not the same claim as a
   // factory-new one, and a buyer filtering Arts & Crafts for "I can have
   // it today" must not be shown every brand-new item in the catalogue.
+  //
+  // antique_grade's 'good'/'fair' ARE shared with graded, and that is the
+  // opposite call on purpose: those two words mean the same thing about
+  // wear whichever mode asks, so a piece re-filed across that boundary
+  // keeps its answer instead of being silently cleared. Only 'excellent',
+  // 'restored' and 'as_found' are new.
   condition:
     | 'new' | 'used'
     | 'sale' | 'rent' | 'both'
     | 'free'
     | 'like_new' | 'good' | 'fair'
     | 'ready' | 'to_order'
+    | 'excellent' | 'restored' | 'as_found'
     | null;
   district: string;
   // Lebanese governorate/caza (district), resolved via the map picker or

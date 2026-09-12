@@ -32,6 +32,7 @@ const CONDITION_MODE_LABELS: Record<ConditionMode, string> = {
   rehome: 'For sale / free',
   graded: 'New / like new / good / fair',
   made_to_order: 'Ready now / made to order',
+  antique_grade: 'Excellent / good / fair / restored / as-found',
 };
 
 const CONDITION_MODES: { value: ConditionMode | null; label: string }[] = [

@@ -28,6 +28,12 @@ export const CONDITION_VALUES_BY_MODE: Record<ConditionMode, ConditionValue[]> =
   rehome: ['sale', 'free'],
   graded: ['new', 'like_new', 'good', 'fair'],
   made_to_order: ['ready', 'to_order'],
+  // The trade's own vocabulary, not a relabelling of `graded`. "Restored"
+  // is the value that does not exist anywhere else and is the reason this
+  // mode had to be added rather than reusing graded: a restored piece is
+  // worth a different number, and a buyer who finds out after collection
+  // has a dispute the Conditions of Sale cannot settle.
+  antique_grade: ['excellent', 'good', 'fair', 'restored', 'as_found'],
 };
 
 // Every value any mode can produce -- what AppStore checks a database row
@@ -52,6 +58,9 @@ const PICKER_LABEL_KEY: Record<ConditionValue, string> = {
   fair: 'createListing.condition.fair',
   ready: 'createListing.condition.ready',
   to_order: 'createListing.condition.toOrder',
+  excellent: 'createListing.condition.excellent',
+  restored: 'createListing.condition.restored',
+  as_found: 'createListing.condition.asFound',
 };
 
 // The badge on a listing card. A separate set from the picker labels
@@ -69,6 +78,9 @@ const CARD_LABEL_KEY: Record<ConditionValue, string> = {
   fair: 'listingCard.conditionFair',
   ready: 'listingCard.conditionReady',
   to_order: 'listingCard.conditionToOrder',
+  excellent: 'listingCard.conditionExcellent',
+  restored: 'listingCard.conditionRestored',
+  as_found: 'listingCard.conditionAsFound',
 };
 
 // The browse filter's own labels, which are phrased for a checkbox list
@@ -85,6 +97,9 @@ const FILTER_LABEL_KEY: Record<ConditionValue, string> = {
   fair: 'home.filters.conditionFair',
   ready: 'home.filters.conditionReady',
   to_order: 'home.filters.conditionToOrder',
+  excellent: 'home.filters.conditionExcellent',
+  restored: 'home.filters.conditionRestored',
+  as_found: 'home.filters.conditionAsFound',
 };
 
 // What the field itself is called. "Item condition" is wrong for a
@@ -97,6 +112,12 @@ const FIELD_LABEL_KEY: Record<ConditionMode, string> = {
   rehome: 'createListing.rehomeLabel',
   graded: 'createListing.gradedLabel',
   made_to_order: 'createListing.madeToOrderLabel',
+  // Shares graded's key rather than owning a duplicate that reads
+  // identically in both languages -- STEP_LABEL_KEY below already pairs
+  // new_used and graded on one key for exactly this reason. The question
+  // an antique's seller answers really is just "Condition"; if that ever
+  // needs its own wording, this is the one line to change.
+  antique_grade: 'createListing.gradedLabel',
 };
 
 // The wizard step's own name, shown when the category is already settled
@@ -107,6 +128,7 @@ const STEP_LABEL_KEY: Record<ConditionMode, string> = {
   rehome: 'createListing.stepRehome',
   graded: 'createListing.stepCondition',
   made_to_order: 'createListing.stepMadeToOrder',
+  antique_grade: 'createListing.stepCondition',
 };
 
 // The browse filter's section heading. Separate from FIELD_LABEL_KEY
@@ -120,6 +142,7 @@ export const CONDITION_FILTER_TITLE_KEY: Record<ConditionMode, string> = {
   rehome: 'home.filters.rehomeTitle',
   graded: 'home.filters.condition',
   made_to_order: 'home.filters.madeToOrderTitle',
+  antique_grade: 'home.filters.condition',
 };
 
 type T = (key: string) => string;
