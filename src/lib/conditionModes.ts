@@ -19,11 +19,15 @@ export type ConditionValue = NonNullable<Listing['condition']>;
 // mode would have had six more chances to do the same thing. Everything
 // below derives from ONE table, so adding a mode is a single edit and the
 // whitelist can no longer disagree with the pickers.
+//
+// 'made_to_order' is that fifth mode, and it arrived as one row here plus
+// its labels -- which is the whole point of the file.
 export const CONDITION_VALUES_BY_MODE: Record<ConditionMode, ConditionValue[]> = {
   new_used: ['new', 'used'],
   offer_type: ['sale', 'rent', 'both'],
   rehome: ['sale', 'free'],
   graded: ['new', 'like_new', 'good', 'fair'],
+  made_to_order: ['ready', 'to_order'],
 };
 
 // Every value any mode can produce -- what AppStore checks a database row
@@ -46,6 +50,8 @@ const PICKER_LABEL_KEY: Record<ConditionValue, string> = {
   like_new: 'createListing.condition.likeNew',
   good: 'createListing.condition.good',
   fair: 'createListing.condition.fair',
+  ready: 'createListing.condition.ready',
+  to_order: 'createListing.condition.toOrder',
 };
 
 // The badge on a listing card. A separate set from the picker labels
@@ -61,6 +67,8 @@ const CARD_LABEL_KEY: Record<ConditionValue, string> = {
   like_new: 'listingCard.conditionLikeNew',
   good: 'listingCard.conditionGood',
   fair: 'listingCard.conditionFair',
+  ready: 'listingCard.conditionReady',
+  to_order: 'listingCard.conditionToOrder',
 };
 
 // The browse filter's own labels, which are phrased for a checkbox list
@@ -75,6 +83,8 @@ const FILTER_LABEL_KEY: Record<ConditionValue, string> = {
   like_new: 'home.filters.conditionLikeNew',
   good: 'home.filters.conditionGood',
   fair: 'home.filters.conditionFair',
+  ready: 'home.filters.conditionReady',
+  to_order: 'home.filters.conditionToOrder',
 };
 
 // What the field itself is called. "Item condition" is wrong for a
@@ -86,6 +96,7 @@ const FIELD_LABEL_KEY: Record<ConditionMode, string> = {
   offer_type: 'createListing.saleRentLabel',
   rehome: 'createListing.rehomeLabel',
   graded: 'createListing.gradedLabel',
+  made_to_order: 'createListing.madeToOrderLabel',
 };
 
 // The wizard step's own name, shown when the category is already settled
@@ -95,6 +106,7 @@ const STEP_LABEL_KEY: Record<ConditionMode, string> = {
   offer_type: 'createListing.stepSaleOrRent',
   rehome: 'createListing.stepRehome',
   graded: 'createListing.stepCondition',
+  made_to_order: 'createListing.stepMadeToOrder',
 };
 
 // The browse filter's section heading. Separate from FIELD_LABEL_KEY
@@ -107,6 +119,7 @@ export const CONDITION_FILTER_TITLE_KEY: Record<ConditionMode, string> = {
   offer_type: 'home.filters.saleRentTitle',
   rehome: 'home.filters.rehomeTitle',
   graded: 'home.filters.condition',
+  made_to_order: 'home.filters.madeToOrderTitle',
 };
 
 type T = (key: string) => string;

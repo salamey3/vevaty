@@ -380,6 +380,13 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     // reading "Free" above a button reading "Contact to buy" is the kind
     // of mismatch a buyer reads as a catch.
     if (listing.condition === 'free') return t('listingDetail.contactToAdopt');
+    // Nothing is being bought yet either: a made-to-order piece does not
+    // exist until this conversation happens, and the hero above the button
+    // says "From $45" rather than a price. "Contact to buy" over a thing
+    // that has to be commissioned first sets the buyer up to ask the wrong
+    // question. 'ready' keeps the buy wording -- that one is finished and
+    // on a shelf.
+    if (listing.condition === 'to_order') return t('listingDetail.contactToOrder');
     return t('listingDetail.contactToBuy');
   }, [listing, isServiceCategory, t]);
 

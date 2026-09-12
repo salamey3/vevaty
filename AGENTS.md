@@ -189,7 +189,7 @@ logs as a ~99% discount. Rentals are therefore excluded from price-drop
 collections — see `CollectionsStore`. Any future feature that reads a price
 delta needs the same guard.
 
-`listings.condition` carries four meanings in one column and one UI slot,
+`listings.condition` carries five meanings in one column and one UI slot,
 and which one applies is `categories.condition_mode`:
 
 | mode | values | where |
@@ -198,6 +198,7 @@ and which one applies is `categories.condition_mode`:
 | `offer_type` | `sale` / `rent` / `both` | Properties, Vehicles |
 | `rehome` | `sale` / `free` | live animals |
 | `graded` | `new` / `like_new` / `good` / `fair` | Fashion & Beauty |
+| `made_to_order` | `ready` / `to_order` | Arts & Crafts |
 
 The mode is resolved by walking UP from the category, nearest first
 (`conditionModeForCategory`) — so Pets can hold live animals on `rehome`
@@ -225,6 +226,51 @@ and the honest note is that the enum is still the right shape but the
 *consumers* were the problem — hence the single table above. A fifth
 should extend the enum, never add a flag beside it: two booleans able to
 disagree about the same field is the thing this replaced.
+
+A fifth then did appear — `made_to_order`, for Arts & Crafts — and it went
+in that way: one row in `CONDITION_VALUES_BY_MODE` and its labels in the
+three value maps and three mode maps beside it. `ready` and `to_order` are
+NOT aliases of `new`: a buyer filtering crafts for "I can have it today"
+must not be handed every brand-new item in the catalogue.
+
+Four other places still had to change, and they are the checklist for a
+sixth:
+
+- **`ConditionMode` in `src/types/index.ts`** — the union itself.
+- **`CONDITION_MODE_LABELS` in `AdminCategoriesScreen`** — the one list of
+  modes outside `conditionModes.ts`, because an admin-only English label
+  cannot live in the translation table. It is a `Record<ConditionMode,…>`
+  so leaving a mode out is a compile error; it used to be an array, and an
+  array silently gives a category on the missing mode no lit chip at all,
+  which reads as "Inherit" and invites an admin to overwrite it.
+- **`DEFAULT_CATEGORIES` in `src/data/categories.ts`** — the first-paint
+  fallback. Its `active` flag has to agree with the database's or a tile
+  flashes in or out on every cold start.
+- **Wherever the answer genuinely changes something.** For this mode, two:
+  a "From $45" price line, because the figure on a made-to-order piece is
+  where the price starts, and a "Contact to order" button.
+
+`conditionModeForCategory` returns a mode only if this build has an answer
+list for it, and otherwise stops and answers `new_used` — it does NOT keep
+walking up, because a category that names its own mode has overridden its
+ancestors deliberately and inheriting the parent's answer would put
+Sale/Rent pills on a leaf whose owner said otherwise. The database runs
+ahead of the app for as long as an update takes to reach a device, and an
+unknown mode is not a wrong label: it is `undefined.map()` in the create
+form's picker and in the browse filter, i.e. a white screen. That guard is
+the belt; the brace is seeding a new mode's categories `active = false`
+and flipping them on once the update has landed.
+
+**Both CHECK constraints are drop-and-recreate, so build the new list from
+the LIVE definition, never from memory or from a snapshot.**
+`categories_condition_mode_check` and `listings_condition_check` each
+enumerate every allowed value, so widening one means dropping it and
+adding it back with the full list. On 12 Sep two sessions added a mode the
+same afternoon; the second one's list was written against a definition
+that was already stale, and re-adding the constraint failed against the
+first one's rows — the good outcome, but only because a row happened to
+use the dropped value. Read `pg_get_constraintdef` immediately before
+writing the migration.
 
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.

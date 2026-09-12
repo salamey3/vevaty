@@ -168,6 +168,13 @@ export interface Category {
 //                 where "Used" collapses a mint designer bag and a worn
 //                 one into the same word and buyers filter on the
 //                 difference before anything else.
+//   made_to_order -- Ready now / Made to order. Handmade work, where the
+//                 question is not what state the thing is in but whether
+//                 it exists yet. A crocheted basket has no meaningful
+//                 New/Used answer and no stock count either -- the maker
+//                 has as many as she has hours -- so the fact a buyer
+//                 needs is how long they wait, which hangs off this
+//                 answer as the craft_lead_time attribute.
 //
 // The values each mode offers, and the labels for them, live in ONE place
 // -- src/lib/conditionModes.ts. They used to be re-typed as a nested
@@ -176,7 +183,7 @@ export interface Category {
 // decides which values survive a round trip through the database), which
 // is how 'free' shipped invisible: two of those lists were never updated
 // and quietly dropped it on the way back out.
-export type ConditionMode = 'new_used' | 'offer_type' | 'rehome' | 'graded';
+export type ConditionMode = 'new_used' | 'offer_type' | 'rehome' | 'graded' | 'made_to_order';
 
 // Why a listing could not be saved, in a form a screen can translate.
 // 'refused' is the database declining the row -- an ungranted column, a
@@ -417,7 +424,18 @@ export interface Listing {
   // 'new' is deliberately shared between new_used and graded rather than
   // given a graded twin: brand new is the same fact under either scale,
   // and two values meaning it would split every filter spanning both.
-  condition: 'new' | 'used' | 'sale' | 'rent' | 'both' | 'free' | 'like_new' | 'good' | 'fair' | null;
+  //
+  // 'ready'/'to_order' are made_to_order's pair, and they are NOT shared
+  // with 'new': a finished handmade piece is not the same claim as a
+  // factory-new one, and a buyer filtering Arts & Crafts for "I can have
+  // it today" must not be shown every brand-new item in the catalogue.
+  condition:
+    | 'new' | 'used'
+    | 'sale' | 'rent' | 'both'
+    | 'free'
+    | 'like_new' | 'good' | 'fair'
+    | 'ready' | 'to_order'
+    | null;
   district: string;
   // Lebanese governorate/caza (district), resolved via the map picker or
   // town-name autocomplete against the lebanonPlaces dataset (see

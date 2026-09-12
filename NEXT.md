@@ -54,6 +54,40 @@ invite goes out, in this order:
    updates.
 4. **Only then** switch sign-up to invite-only and send the invites.
 
+**Arts & Crafts is half built and switched off**, 12 Sep 2026. This patch
+is the category half: the fifth condition mode (`made_to_order` — Ready
+now / Made to order), the nine leaves, six shared specs, a "From $45"
+price line and a "Contact to order" button. The choices half — the seller
+building Size / Base / Add-ons groups with prices, the buyer's running
+total, the order card in chat and the shop's saved sets — is the patch
+after this one. Three steps, in this order and not out of it:
+
+1. **Ship this patch and let the update reach the phone.** The category
+   cannot go live before the app knows the fifth mode. An older build
+   resolves `made_to_order` to an answer list it does not have and calls
+   `.map` on `undefined`: not a wrong label, a thrown error that unmounts
+   the screen — the create form and the browse filter both. The guard
+   added here (`conditionModeForCategory` answers New/Used for a mode it
+   does not know) protects builds that CARRY it, which by definition is
+   not the build already on someone's phone. So the seeding order is the
+   real protection, and it is worth being honest that on a native install
+   "the update has landed" is never true of every device at once.
+2. **Apply the migration** (`arts_crafts_category`, test-fired in a
+   rolled-back transaction 12 Sep). It seeds all ten categories
+   `active = false` on purpose.
+3. **Flip them on, and flip the offline tile with them:**
+
+   ```sql
+   update myazar.categories set active = true
+    where id = 'arts-crafts' or parent_id = 'arts-crafts';
+   ```
+
+   In the same patch as that flip, `arts-crafts` in
+   `src/data/categories.ts` goes from `false` to `true`. That array is the
+   first-paint fallback, and a tile that disagrees with the database
+   flashes on every cold start — which is exactly why Jobs and Services
+   are `false` there today.
+
 Found on the way and deliberately not fixed here:
 
 - **The "admin identity requires mfa" policies are dead weight.** They
@@ -305,6 +339,33 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Arts & Crafts, the category half**, 12 Sep 2026. A fifth
+`condition_mode`: `made_to_order`, answering `ready` / `to_order`. Handmade
+work is the one section where New/Used is not a question anyone should be
+asked and a stock count is meaningless — the maker has as many as she has
+hours — so the fact a buyer needs is how long they wait, which arrives as
+`craft_lead_time`, hung off the condition with the same `$condition`
+dependency Properties uses for "Pets allowed". It is a five-bucket pick
+(1-3 days … more than a month) rather than a number of days, because a
+number cannot be filtered usefully and because Arabic cannot agree with
+one: a static unit renders "7 يوم", which is wrong for every count from 2
+to 10. A made-to-order price reads
+"From $45", because the figure is where the price starts and the size and
+add-ons are still to come, and the button says "Contact to order" rather
+than "Contact to buy". Nine leaves, six shared specs, and Craft Supplies
+overriding its parent back to New/Used, since half-used yarn really is one
+or the other. Everything is seeded `active = false` — see "Next up" for the
+three-step order it has to go live in.
+
+The same patch hardens `conditionModeForCategory` against a mode the build
+does not know, answering New/Used instead of throwing. That was written for
+this category's own rollout and immediately earned its keep: a fifth mode
+went into the database from a second session the same afternoon
+(`antique_grade`, under Hobbies), and on the build shipped today the admin
+auction-lot editor offers those leaves — its picker filters on a row's own
+`active`, not its parent's — and throws the moment one is chosen. Hobbies
+itself is off, so nothing a buyer or seller can reach is affected.
 
 **The tester forms are on the site**, 11 Sep 2026, in place of Google
 Forms: Vevaty Tester Onboarding (`vevaty.com/testers/join?k=KEY`, the link

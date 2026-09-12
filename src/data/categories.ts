@@ -4,8 +4,9 @@ import { ConditionMode, Category, ListingDomain } from '../types';
 // list is fetched from Supabase (myazar.categories) by SettingsStore --
 // this array is what the app shows before that fetch completes, and what
 // it falls back to if the device is offline. It intentionally mirrors the
-// database's current top-level seed data (14 categories, transcribed from
-// the reference marketplace's category picker) so there's no visible flash
+// database's current top-level seed data (15 categories, the original 14
+// transcribed from the reference marketplace's category picker plus Arts
+// & Crafts) so there's no visible flash
 // of different content on a normal, online launch. Subcategories are never
 // included here -- as before, they only ever come from Supabase once
 // loaded, both in the old 6-category tree and this one.
@@ -128,6 +129,10 @@ export const DEFAULT_CATEGORIES: Category[] = [
     ['Front, laid flat or worn', 'Back', 'Label / size tag', 'Any flaws close-up'],
     ['من الأمام، مفرودة أو ملبوسة', 'من الخلف', 'بطاقة الماركة / المقاس', 'صورة مقرّبة لأي عيوب']),
   topLevel('services', 'Services', 'خدمات', 'wrench', 13, true, [], [], null, false, 'jobs-services'),
+  topLevel('arts-crafts', 'Arts & Crafts', 'فنون وحرف يدوية', 'wand', 14, false,
+    ['The finished piece, straight on', 'A close-up of the detail or finish', 'Something beside it for scale', 'The back, or another angle'],
+    ['القطعة كاملة من الأمام', 'صورة مقرّبة للتفاصيل والتشطيب', 'غرض بجانبها لتوضيح الحجم', 'من الخلف أو من زاوية أخرى'],
+    'made_to_order', false),
 ];
 
 // Built-in icon fallback for categories that don't have a custom uploaded
@@ -148,6 +153,7 @@ export const BUILTIN_ICON_FALLBACK: Record<string, string> = {
   jobs: 'briefcase',
   'fashion-beauty': 'shirt',
   services: 'wrench',
+  'arts-crafts': 'wand',
 };
 export const GENERIC_CATEGORY_ICON = 'sparkle';
 

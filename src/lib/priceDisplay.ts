@@ -9,8 +9,10 @@ type Translate = (key: string, vars?: Record<string, string | number>) => string
 // number is the thing the buyer came for, and it must never be the half
 // that gets ellipsised.
 export interface PriceLine {
-  // null unless this is a card-variant line on a listing that carries an
-  // offer type; the detail variant never labels.
+  // null on most lines. Set on a card-variant line for a listing that
+  // carries an offer type ("Buy for", "Rent for"), and on BOTH variants
+  // for a made-to-order listing ("From"), where the label is not
+  // decoration but the difference between a price and a starting price.
   label: string | null;
   amount: string;
 }
@@ -47,9 +49,15 @@ export function priceLineText(line: PriceLine): string {
 //            The default: a full-width price line with its own rent-terms
 //            block underneath needs neither the label nor the shortening.
 //
-// A label is never applied to a listing without an offer type, where
-// "Buy for $500" on a used phone would be noise -- anything that isn't
-// offered both ways is for sale, so saying so adds nothing.
+// An OFFER-TYPE label is never applied to a listing without an offer type,
+// where "Buy for $500" on a used phone would be noise -- anything that
+// isn't offered both ways is for sale, so saying so adds nothing.
+//
+// The made-to-order "From" is the one label that is not an offer-type
+// label, and it therefore breaks both of those rules on purpose: it
+// appears on a listing with no offer type, and in both variants. It is
+// not saying what kind of deal this is; it is saying the figure is not
+// the whole figure, which no other line on either screen says.
 export function listingPriceLines(
   listing: Listing,
   t: Translate,
@@ -60,6 +68,24 @@ export function listingPriceLines(
   // word replaces the number outright, in both variants.
   if (listing.condition === 'free') {
     return { primary: { label: null, amount: t('listingCard.freeAmount') }, secondary: null };
+  }
+
+  // Made to order: the figure is where the price STARTS. What the buyer
+  // actually pays depends on the size, the base and the add-ons they
+  // choose, so a bare "$45" over a listing whose real total is $140 is a
+  // number the seller spends every conversation correcting -- and the
+  // buyer who only reads the card never gets as far as the conversation.
+  //
+  // Labelled in BOTH variants, unlike the sale/rent labels below. Those
+  // are card-only because a card is the one place with no room to say it
+  // any other way -- the detail page has a rent-terms block under the
+  // hero doing the same work in full sentences. Nothing on the detail
+  // page says "this is a starting price", so this label has to.
+  if (listing.condition === 'to_order') {
+    return {
+      primary: { label: t('listingCard.fromLabel'), amount: `$${listing.price.toLocaleString()}` },
+      secondary: null,
+    };
   }
 
   const isCard = opts?.variant === 'card';

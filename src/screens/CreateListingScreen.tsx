@@ -2899,9 +2899,25 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 price for a sale, the rent with its period for a rental,
                 both lines when the property is offered either way -- and
                 the word the card uses for a giveaway, which otherwise had
-                no money line here at all while the card had one. */}
+                no money line here at all while the card had one.
+                "From $45" for a made-to-order piece is the fourth of those.
+
+                It reimplements listingPriceLines rather than calling it
+                because there is no Listing here yet, only form state --
+                which is also why each of those four cases had to be found
+                twice. Anything added to listingPriceLines needs a line
+                here too, or the last screen before Post disagrees with the
+                first screen after it. It is already a near-mirror rather
+                than an exact one: this prints the seller's own digits and
+                the card groups thousands, so $1200 here is $1,200 there. */}
             {isFreeRehome && <Text style={styles.price}>{t('listingCard.freeAmount')}</Text>}
-            {showSalePriceField && <Text style={styles.price}>${price || '0'}</Text>}
+            {showSalePriceField && (
+              <Text style={styles.price}>
+                {condition === 'to_order'
+                  ? `${t('listingCard.fromLabel')} $${price || '0'}`
+                  : `$${price || '0'}`}
+              </Text>
+            )}
             {showRentFields && (
               <Text style={showSalePriceField ? styles.reviewRentLine : styles.price}>
                 {rentPeriod

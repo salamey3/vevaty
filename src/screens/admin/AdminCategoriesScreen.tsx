@@ -17,13 +17,47 @@ import { Category, ConditionMode } from '../../types';
 // whatever their parent says, and only the ones that mean something
 // different name it. A top-level row inheriting has nothing above it, so
 // it lands on New/Used.
+//
+// A Record over ConditionMode, not the hand-written array this used to be.
+// It is the one place outside src/lib/conditionModes.ts that still lists
+// the modes -- admin-only English, so it cannot live in the translation
+// table -- and a hand-written list is exactly what that file exists to
+// abolish. A mode missing from here is not a cosmetic gap: it is a mode no
+// admin can select, and a category already on it shows NO chip lit, which
+// reads as "Inherit" and invites someone to overwrite it. Being a Record
+// makes omitting one a compile error.
+const CONDITION_MODE_LABELS: Record<ConditionMode, string> = {
+  new_used: 'New / Used',
+  offer_type: 'Sale / rent',
+  rehome: 'For sale / free',
+  graded: 'New / like new / good / fair',
+  made_to_order: 'Ready now / made to order',
+};
+
 const CONDITION_MODES: { value: ConditionMode | null; label: string }[] = [
   { value: null, label: 'Inherit' },
-  { value: 'new_used', label: 'New / Used' },
-  { value: 'offer_type', label: 'Sale / rent' },
-  { value: 'rehome', label: 'For sale / free' },
-  { value: 'graded', label: 'New / like new / good / fair' },
+  ...(Object.keys(CONDITION_MODE_LABELS) as ConditionMode[]).map((value) => ({
+    value,
+    label: CONDITION_MODE_LABELS[value],
+  })),
 ];
+
+// A mode the DATABASE has and this build does not. It happens whenever a
+// mode is seeded before its app half ships, which is the normal order --
+// and without this the row's chips are all dark, which reads as "Inherit"
+// and invites an admin to overwrite a setting somebody put there on
+// purpose. Shown lit, under its raw value, because a build that cannot
+// name a mode should say so rather than guess a label for it.
+//
+// The sibling guard is in conditionModeForCategory, which answers New/Used
+// for the same class of value rather than handing it to a picker that has
+// no answers for it.
+function conditionModeChoices(current: ConditionMode | null) {
+  if (current && !CONDITION_MODES.some((m) => m.value === current)) {
+    return [...CONDITION_MODES, { value: current, label: `${current} (set elsewhere)` }];
+  }
+  return CONDITION_MODES;
+}
 import { RootStackParamList } from '../../navigation/types';
 
 type FormState = {
@@ -425,10 +459,13 @@ Inherit takes whatever the category above says, and is right for almost every ro
         it means New / Used. Naming one applies it to everything beneath, until a subcategory names its own,
         in either direction. Sale / rent adds rent terms (amount, period, advance payment) and is what Properties
         and Vehicles use. For sale / free suits live animals, where new-or-used is not a question anyone should be
-        asked, and "free" hides the price.
+        asked, and "free" hides the price. New / like new / good / fair is the wear grade Fashion uses, where "used"
+        puts a mint bag and a worn one in the same word. Ready now / made to order is for handmade work, where the
+        question is not what state the thing is in but whether it exists yet -- it turns the price into a starting
+        price and the button into "Contact to order".
       </Text>
       <View style={styles.chipRow}>
-        {CONDITION_MODES.map((m) => (
+        {conditionModeChoices(form.conditionMode).map((m) => (
           <Pressy
             key={m.value ?? 'inherit'}
             onPress={() => updateForm({ conditionMode: m.value })}

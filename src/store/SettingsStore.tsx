@@ -6,6 +6,7 @@ import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
 import { AttributeOption, AttributeType, Category, CategoryAttribute, ConditionMode, FilterFacet, ListingDomain, SiteSettings } from '../types';
 import { ICON_NAMES, type IconName } from '../icons/Icon';
+import { CONDITION_VALUES_BY_MODE } from '../lib/conditionModes';
 import {
   DEFAULT_CATEGORIES, DEFAULT_DOMAINS, DEFAULT_SITE_SETTINGS, BUILTIN_ICON_FALLBACK,
   GENERIC_CATEGORY_ICON, DEFAULT_LISTING_LIFETIME_DAYS,
@@ -766,7 +767,24 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       const chain = buildAncestorChain(categoryId);
       for (let i = chain.length - 1; i >= 0; i--) {
         const mode = categoryById(chain[i])?.conditionMode;
-        if (mode) return mode;
+        if (!mode) continue;
+        // A mode this build has no answer list for. The database runs
+        // ahead of the app for as long as an update takes to reach a
+        // device -- longer on a native install than on the website -- and
+        // an unknown mode is not a wrong label: conditionOptionsFor maps
+        // over undefined, which is a white screen on the create form and
+        // again on the browse filter.
+        //
+        // The answer is New/Used, NOT "keep walking up". A category that
+        // names its own mode has overridden its ancestors on purpose --
+        // that is the whole point of the nullable column -- so inheriting
+        // the parent's answer instead would put Sale/Rent pills on a leaf
+        // whose owner said it was something else, and a seller picking
+        // "For rent" there sends the rent into `price`. Falling back to
+        // the universal default asks a question that is merely useless on
+        // that category rather than actively wrong, and it is the same
+        // answer the walk gives when nothing names a mode at all.
+        return Object.prototype.hasOwnProperty.call(CONDITION_VALUES_BY_MODE, mode) ? mode : 'new_used';
       }
       return 'new_used';
     },
