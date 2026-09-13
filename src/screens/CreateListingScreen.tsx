@@ -665,6 +665,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // the seller changing nothing but the title would delete every group
   // they had, silently.
   const [choicesLoaded, setChoicesLoaded] = useState(!isEditMode);
+  const [choicesTry, setChoicesTry] = useState(0);
   const choicesProblem = useMemo(
     () => (hasChoicesStep ? groupsProblem(optionGroups, t) : null),
     [hasChoicesStep, optionGroups, t]
@@ -693,7 +694,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         // that until it does succeed, Save writes nothing here.
         choicesLoadedFor.current = null;
       });
-  }, [isEditMode, editListingId, hasChoicesStep]);
+  }, [isEditMode, editListingId, hasChoicesStep, choicesTry]);
   // The one attribute (if any) this category uses to break stock into
   // variants -- see the isVariant field's own doc comment. Kept out of
   // specAttrs/hasSpecs below ONLY when the Stock step will actually ask
@@ -2596,13 +2597,29 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
         {currentKind === 'choices' && (
           <View>
-            <OptionsBuilder
-              groups={optionGroups}
-              onChange={setOptionGroups}
-              minQty={optionMinQty}
-              onMinQty={setOptionMinQty}
-            />
-            {!!choicesProblem && <Text style={styles.choicesProblem}>{choicesProblem}</Text>}
+            {/* Nothing is shown until the listing's real set is in hand.
+                Saving REPLACES everything, and persistChoices refuses to
+                write a set it never loaded -- so a builder rendered over a
+                failed fetch would let the seller spend ten minutes on
+                groups that are then silently thrown away. */}
+            {!choicesLoaded ? (
+              <View style={styles.choicesLoading}>
+                <Text style={styles.choicesProblem}>{t('options.builder.loadFailed')}</Text>
+                <Pressy onPress={() => setChoicesTry((n) => n + 1)} style={styles.choicesRetry}>
+                  <Text style={styles.choicesRetryText}>{t('common.retry')}</Text>
+                </Pressy>
+              </View>
+            ) : (
+              <>
+                <OptionsBuilder
+                  groups={optionGroups}
+                  onChange={setOptionGroups}
+                  minQty={optionMinQty}
+                  onMinQty={setOptionMinQty}
+                />
+                {!!choicesProblem && <Text style={styles.choicesProblem}>{choicesProblem}</Text>}
+              </>
+            )}
           </View>
         )}
 
@@ -3333,6 +3350,12 @@ const SCROLL_BOTTOM_PAD = 20;
 
 const styles = StyleSheet.create({
   choicesProblem: { ...type.soft, color: colors.danger, marginTop: 10 },
+  choicesLoading: { alignItems: 'center', gap: 12, paddingVertical: 24 },
+  choicesRetry: {
+    paddingHorizontal: 18, paddingVertical: 10, borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  choicesRetryText: { ...type.soft, color: colors.white, fontWeight: '700' },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   progressRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 18, marginBottom: 14 },

@@ -287,8 +287,12 @@ question. On for Arts & Crafts and nowhere else so far.
 Three rules, all of them load-bearing:
 
 1. **The groups belong to the LISTING, never to a shared template.** What a
-   buyer saw has to stay what a buyer saw. A shop's saved sets are copied
-   into a listing, not referenced by it.
+   buyer saw has to stay what a buyer saw. `myazar.seller_option_sets` is
+   the seller's library of named sets, and a set is COPIED in — its stored
+   body holds no ids at all, only labels, prices and questions — so editing
+   "my usual sizes" next month cannot rewrite an order from last month. The
+   library hangs off the seller rather than the shop: for every real case
+   they are the same person, and the seller this was built for has no shop.
 2. **Every price a human reads is built server-side.** The client sends
    only the ids it ticked, the quantity and any typed answers;
    `myazar.send_listing_order` rebuilds the labels, the prices and the

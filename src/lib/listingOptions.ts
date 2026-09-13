@@ -49,9 +49,27 @@ export interface ListingOptions {
 // more often than it iterates, and because a set cannot hold the answers.
 export type Picks = Record<string, string>;
 
+// Rows carry a LOCAL id until the server assigns a real one on save. React
+// needs a stable key while the seller is still typing, and the id a row
+// eventually gets belongs to the database, not to the form. Kept here
+// rather than in the builder because a saved set is copied in through
+// bodyToGroups below, which needs the same ids and must not import a
+// component to get them.
+let seq = 0;
+export const draftId = () => `draft-${++seq}`;
+
+export function emptyChoice(): OptionChoice {
+  return { id: draftId(), label: '', extra: 0, per: 'item', ask: null, askRequired: false };
+}
+
+export function emptyGroup(): OptionGroup {
+  return { id: draftId(), title: '', pick: 'one', required: false, options: [emptyChoice()] };
+}
+
 export const MAX_GROUPS = 5;
 export const MAX_CHOICES = 12;
 export const MAX_QTY = 999;
+export const MAX_SAVED_SETS = 12;
 
 export const EMPTY_OPTIONS: ListingOptions = { minQty: 1, groups: [] };
 
@@ -214,6 +232,100 @@ export async function saveListingOptions(
   });
   if (error) throw error;
   return parseListingOptions(data);
+}
+
+// ---------------------------------------------------- the seller's library
+
+// A named set, saved once and copied into any listing in a tap. A TEMPLATE:
+// it holds no ids, and using one fills the form in rather than pointing the
+// listing at it -- editing "my usual sizes" next month must not rewrite an
+// order from last month.
+export interface SavedSet {
+  id: string;
+  name: string;
+  groups: OptionGroup[];
+  minQty: number;
+}
+
+// The form's groups as the server stores them: labels, prices and
+// questions, no ids. It TRIMS but does not tidy -- dropping blank rows and
+// enforcing the five-of-twelve caps is tidyGroups' job, and the posting
+// form runs that first. A caller that skips it will be refused by the
+// server, which checks the same caps as the listing saver
+// (myazar.check_option_groups).
+export function groupsToBody(groups: OptionGroup[], minQty: number) {
+  return {
+    min_qty: Math.max(1, Math.round(minQty) || 1),
+    groups: groups.map((g) => ({
+      title: g.title.trim(),
+      pick: g.pick,
+      required: g.required,
+      options: g.options.map((o) => ({
+        label: o.label.trim(),
+        extra: o.extra,
+        per: o.per,
+        ask: o.ask?.trim() || null,
+        ask_required: !!o.ask && o.askRequired,
+      })),
+    })),
+  };
+}
+
+// And back into form rows. The ids are draft ones because nothing in a
+// template is allowed to look like a live choice id -- but they are NOT
+// what keeps two uses of one set apart: the same SavedSet object is handed
+// back on every tap, so useSet re-mints them at the moment of copying.
+//
+// Array-guarded the same way parseListingOptions is, and for the same
+// reason: this parses a server payload, the caller swallows what it
+// throws, and a `groups` that arrives as an object rather than an array
+// would take the whole library down silently.
+export function bodyToGroups(body: any): { groups: OptionGroup[]; minQty: number } {
+  const rawGroups = Array.isArray(body?.groups) ? body.groups : [];
+  const parsed = parseListingOptions({ min_qty: body?.min_qty, groups: rawGroups.map((g: any, i: number) => ({
+    ...g,
+    id: `t${i}`,
+    options: (Array.isArray(g?.options) ? g.options : []).map((o: any, j: number) => ({ ...o, id: `t${i}-${j}` })),
+  })) });
+  return {
+    minQty: parsed.minQty,
+    groups: parsed.groups.map((g) => ({
+      ...g,
+      id: draftId(),
+      options: g.options.map((o) => ({ ...o, id: draftId() })),
+    })),
+  };
+}
+
+function parseSavedSets(raw: any): SavedSet[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .map((s: any): SavedSet => {
+      const { groups, minQty } = bodyToGroups(s?.body);
+      return { id: String(s?.id ?? ''), name: String(s?.name ?? ''), groups, minQty };
+    })
+    .filter((s) => s.id && s.name && s.groups.length > 0);
+}
+
+export async function fetchMyOptionSets(): Promise<SavedSet[]> {
+  const { data, error } = await supabase.rpc('my_option_sets');
+  if (error) throw error;
+  return parseSavedSets(data);
+}
+
+export async function saveOptionSet(name: string, groups: OptionGroup[], minQty: number): Promise<SavedSet[]> {
+  const { data, error } = await supabase.rpc('save_option_set', {
+    p_name: name.trim(),
+    p_body: groupsToBody(groups, minQty),
+  });
+  if (error) throw error;
+  return parseSavedSets(data);
+}
+
+export async function deleteOptionSet(id: string): Promise<SavedSet[]> {
+  const { data, error } = await supabase.rpc('delete_option_set', { p_id: id });
+  if (error) throw error;
+  return parseSavedSets(data);
 }
 
 export async function sendListingOrder(

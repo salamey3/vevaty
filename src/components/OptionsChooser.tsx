@@ -219,11 +219,11 @@ const styles = StyleSheet.create({
   // The one group Send is waiting on. A ring rather than a red field: the
   // buyer has not made a mistake, they have simply not finished.
   groupWaiting: { borderColor: colors.accentRing, borderWidth: 2 },
-  groupHead: { alignItems: 'baseline', justifyContent: 'space-between', gap: 8 },
+  groupHead: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 },
   groupTitle: { ...type.h3, flexShrink: 1 },
   groupHint: { ...type.tiny },
   row: {
-    alignItems: 'center',
+    flexDirection: 'row', alignItems: 'center',
     gap: 10,
     paddingVertical: 11,
     paddingHorizontal: 10,
@@ -254,7 +254,7 @@ const styles = StyleSheet.create({
     paddingVertical: 10,
     backgroundColor: colors.bg,
   },
-  qtyRow: { alignItems: 'center', gap: 10 },
+  qtyRow: { flexDirection: 'row', alignItems: 'center', gap: 10 },
   qtyBtn: {
     width: 44, height: 44, borderRadius: radius.sm, borderWidth: 1,
     borderColor: colors.line, alignItems: 'center', justifyContent: 'center',
@@ -273,7 +273,7 @@ const styles = StyleSheet.create({
     padding: 14,
     gap: 4,
   },
-  totalRow: { alignItems: 'baseline', justifyContent: 'space-between', gap: 8 },
+  totalRow: { flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between', gap: 8 },
   totalLabel: { ...type.h3 },
   totalAmount: { ...type.title, fontSize: 24, color: colors.primary },
   totalBreakdown: { ...type.soft },

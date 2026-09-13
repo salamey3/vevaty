@@ -64,9 +64,6 @@ chat — is the patch after it. What is left of that thread:
    the listing on the other account, pick, set a quantity above one, and
    send. The number on the chooser and the number on the card in the chat
    must be the same number, and the delivery must be charged once.
-2. **The shop's saved sets are not built** — part 2. A shop posting thirty
-   items retypes the same three groups thirty times until they exist. Not
-   urgent while there is one craft seller; urgent the week there are ten.
 
 Found on the way and deliberately not fixed here:
 
@@ -319,6 +316,16 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Saved sets**, 13 Sep 2026. A seller keeps up to twelve named sets of
+choices and drops one into a listing in a tap, instead of retyping Size and
+Add-ons on every item. A set is a template and is COPIED: the stored body
+holds no ids, so editing one next month cannot rewrite an order from last
+month, and the seller is told as much on the step. Kept on the seller, not
+the shop — for every real case they are the same person, and the maker this
+was built for has no shop. Using one asks before it replaces work already
+typed. The caps moved into `myazar.check_option_groups`, which the listing
+saver now asks too, so the two cannot drift about what a legal set is.
 
 **Choices with prices**, 13 Sep 2026. A made-to-order craft has no single
 price: a baby-cast is $60 for one hand and $110 for hands and feet, plus

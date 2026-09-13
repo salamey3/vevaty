@@ -36,7 +36,7 @@ await esbuild.build({
 
 const {
   parseListingOptions, totalsFor, whyNotOrderable, togglePick, setAnswer, prunePicks,
-  parseOrderSnapshot, money, extraLabel, EMPTY_OPTIONS,
+  parseOrderSnapshot, money, extraLabel, EMPTY_OPTIONS, groupsToBody, bodyToGroups,
 } = await import(OUT);
 
 const results = [];
@@ -124,7 +124,36 @@ check('a per-piece surcharge', extraLabel({ extra: 8, per: 'item' }, t), '+$8');
 check('a per-order surcharge says so', extraLabel({ extra: 30, per: 'order' }, t), '+$30 once');
 check('a free choice has no surcharge', extraLabel({ extra: 0, per: 'item' }, t), '');
 
+// --- the seller's saved sets: out to a template and back ----------------
+{
+  const body = groupsToBody(opts.groups, 24);
+  check('the template carries no ids', JSON.stringify(body).includes('"id"'), false);
+  check('min qty travels', body.min_qty, 24);
+  check('the question travels', body.groups[2].options[0].ask, 'Name to engrave');
+  check('per-order travels', body.groups[2].options[1].per, 'order');
+  check('a required question with no label cannot be saved',
+    groupsToBody([{ id: 'x', title: 'G', pick: 'any', required: false,
+      options: [{ id: 'y', label: 'A', extra: 0, per: 'item', ask: null, askRequired: true }] }], 1)
+      .groups[0].options[0].ask_required, false);
+
+  const back = bodyToGroups(body);
+  check('the round trip keeps every group', back.groups.length, 3);
+  check('the round trip keeps the minimum', back.minQty, 24);
+  check('the round trip keeps the prices', back.groups[0].options[1].extra, 50);
+  check('copied rows get draft ids', back.groups[0].id.startsWith('draft-'), true);
+  const twice = bodyToGroups(body);
+  check('using a set twice does not reuse a key', twice.groups[0].id === back.groups[0].id, false);
+  check('and the total is unchanged by the round trip',
+    totalsFor(60, { minQty: back.minQty, groups: back.groups },
+      Object.fromEntries(back.groups.flatMap((g) => g.options).filter((o) =>
+        ['Hands + feet', 'Dark wood', 'Name engraved', 'Delivery'].includes(o.label)).map((o) => [o.id, ''])),
+      60).total, 7710);
+}
+
 // --- a payload this build cannot read must not throw --------------------
+check('a template whose groups are not an array', bodyToGroups({ groups: 'nope' }).groups, []);
+check('a template whose options are not an array', bodyToGroups({ groups: [{ title: 'G', options: 7 }] }).groups, []);
+check('an empty template', bodyToGroups(undefined), { minQty: 1, groups: [] });
 check('garbage groups', parseListingOptions({ groups: 'nope' }).groups, []);
 check('a group with no choices is dropped', parseListingOptions({ groups: [{ id: 'g', options: [] }] }).groups, []);
 check('nothing at all', parseListingOptions(undefined), { minQty: 1, groups: [] });

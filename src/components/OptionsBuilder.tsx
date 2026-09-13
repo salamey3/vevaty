@@ -1,27 +1,22 @@
-import React from 'react';
+import React, { useEffect, useState } from 'react';
 import { StyleSheet, Switch, Text, TextInput, View } from 'react-native';
 import Pressy from './Pressy';
 import Icon from '../icons/Icon';
 import { colors, radius, type } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
 import { mirrorRow } from '../lib/mirrorRow';
-import { MAX_CHOICES, MAX_GROUPS, MAX_QTY, OptionChoice, OptionGroup, money } from '../lib/listingOptions';
+import {
+  MAX_CHOICES, MAX_GROUPS, MAX_QTY, MAX_SAVED_SETS, OptionChoice, OptionGroup, SavedSet,
+  deleteOptionSet, draftId, emptyChoice, emptyGroup, fetchMyOptionSets, money, saveOptionSet,
+} from '../lib/listingOptions';
+import { Alert } from '../lib/alertShim';
 
-// The seller's side: building the groups a buyer will pick from.
+// The seller's side: building the groups a buyer will pick from, and the
+// small library of named sets they can drop into the next listing.
 //
-// Rows carry a LOCAL id (`draft-…`) until the server assigns a real one on
-// save. React needs a stable key while the seller is still typing, and the
-// id a row eventually gets belongs to the database, not to this form.
-let seq = 0;
-const draftId = () => `draft-${++seq}`;
-
-export function emptyChoice(): OptionChoice {
-  return { id: draftId(), label: '', extra: 0, per: 'item', ask: null, askRequired: false };
-}
-
-export function emptyGroup(): OptionGroup {
-  return { id: draftId(), title: '', pick: 'one', required: false, options: [emptyChoice()] };
-}
+// The row helpers (draftId, emptyChoice, emptyGroup) live in the library
+// rather than here, because copying a saved set into the form needs them
+// and a library must not import a component to get them.
 
 // A group is worth saving once it has a name and at least one named
 // choice. Half-finished rows are dropped rather than rejected: a seller
@@ -119,6 +114,91 @@ export default function OptionsBuilder({
   const { t, isRTL } = useLanguage();
   const textDir = isRTL ? styles.rtl : null;
 
+  // The seller's library. Loaded once when the step first renders; a seller
+  // with none never sees the row at all, which is nearly all of them until
+  // they have posted twice.
+  const [sets, setSets] = useState<SavedSet[]>([]);
+  const [setsOpen, setSetsOpen] = useState(false);
+  const [saveName, setSaveName] = useState('');
+  const [busy, setBusy] = useState(false);
+  const [setsError, setSetsError] = useState<string | null>(null);
+  useEffect(() => {
+    let alive = true;
+    fetchMyOptionSets()
+      .then((s) => { if (alive) setSets(s); })
+      .catch((e) => { console.warn('[optionSets] load', e?.message ?? e); });
+    return () => { alive = false; };
+  }, []);
+
+  const tidy = tidyGroups(groups);
+  const canSave = tidy.length > 0 && saveName.trim().length > 0 && !busy;
+  // Anything the seller has actually typed, whether or not it would
+  // survive tidyGroups. The two differ in exactly the case the confirm
+  // exists for: three choice labels typed under a group not yet named
+  // tidies away to nothing, and replacing it without asking is the ten
+  // minutes of work the dialog is supposed to protect.
+  const hasTyped = groups.some(
+    (g) => g.title.trim().length > 0 ||
+      g.options.some((o) => o.label.trim().length > 0 || (o.ask?.trim().length ?? 0) > 0 || o.extra > 0)
+  );
+
+  const runSetAction = async (fn: () => Promise<SavedSet[]>) => {
+    setBusy(true);
+    setSetsError(null);
+    try {
+      setSets(await fn());
+      return true;
+    } catch (e: any) {
+      const code = String(e?.message ?? '').trim();
+      if (code === 'too_many_sets') {
+        setSetsError(t('options.sets.errTooMany', { n: MAX_SAVED_SETS }));
+      } else {
+        // Every other code the server can raise here is unreachable through
+        // this UI (the name is capped at 40, tidyGroups enforces the group
+        // and choice limits and drops the untitled). One arriving anyway is
+        // worth a line, the way reviews.ts and legal.ts do it.
+        console.warn('[optionSets]', code || e);
+        setSetsError(t('options.sets.errFailed'));
+      }
+      return false;
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // Using a set REPLACES what is on the step. Asked about first whenever
+  // there is anything to lose -- the whole value of a library is tapping it
+  // without thinking, and something that quietly ate ten minutes of typing
+  // the one time it mattered is something a seller stops tapping.
+  const useSet = (set: SavedSet) => {
+    const apply = () => {
+      // Fresh ids on every use. The same set tapped twice must not hand
+      // React the same keys, and nothing copied out of a template is
+      // allowed to look like a live choice id.
+      const copy = set.groups.map((g) => ({
+        ...g,
+        id: draftId(),
+        options: g.options.map((o) => ({ ...o, id: draftId() })),
+      }));
+      onChange(copy);
+      onMinQty(set.minQty);
+      setSetsOpen(false);
+    };
+    if (!hasTyped) { apply(); return; }
+    Alert.alert(
+      t('options.sets.replaceTitle'),
+      // #4: the minimum order rides along with the groups, so the dialog
+      // says so whenever it is actually about to change.
+      set.minQty !== minQty
+        ? t('options.sets.replaceMessageMin', { name: set.name, n: set.minQty })
+        : t('options.sets.replaceMessage', { name: set.name }),
+      [
+        { text: t('common.cancel'), style: 'cancel' },
+        { text: t('options.sets.replaceConfirm'), style: 'destructive', onPress: apply },
+      ]
+    );
+  };
+
   const patchGroup = (gi: number, patch: Partial<OptionGroup>) =>
     onChange(groups.map((g, i) => (i === gi ? { ...g, ...patch } : g)));
   const patchChoice = (gi: number, oi: number, patch: Partial<OptionChoice>) =>
@@ -128,6 +208,56 @@ export default function OptionsBuilder({
   return (
     <View style={styles.wrap}>
       <Text style={[styles.intro, textDir]}>{t('options.builder.intro')}</Text>
+
+      {sets.length > 0 && (
+        <View style={styles.setsCard}>
+          <Pressy onPress={() => setSetsOpen((v) => !v)} style={[styles.setsHead, mirrorRow(isRTL)]}>
+            <Icon name="copy" size={16} color={colors.primary} />
+            <Text style={[styles.setsHeadText, textDir]}>
+              {t('options.sets.use', { n: sets.length })}
+            </Text>
+            {/* One chevron, turned. There is no chevronDown in the icon
+                set, and swapping to a different glyph when open makes the
+                control change metaphor as it toggles. */}
+            <View style={setsOpen ? styles.chevronOpen : undefined}>
+              <Icon name="chevronRight" size={15} color={colors.inkSoft} />
+            </View>
+          </Pressy>
+          {setsOpen && !!setsError && <Text style={[styles.setsError, textDir]}>{setsError}</Text>}
+          {setsOpen && sets.map((set) => (
+            <View key={set.id} style={[styles.setRow, mirrorRow(isRTL)]}>
+              <Text style={[styles.setName, textDir]} numberOfLines={1}>{set.name}</Text>
+              <Text style={[styles.setCount, textDir]}>
+                {set.groups.length === 1
+                  ? t('options.sets.groupCountOne')
+                  : t('options.sets.groupCount', { n: set.groups.length })}
+              </Text>
+              <Pressy onPress={() => useSet(set)} disabled={busy} style={styles.setUseBtn}>
+                <Text style={styles.setUseBtnText}>{t('options.sets.useOne')}</Text>
+              </Pressy>
+              <Pressy
+                onPress={() => Alert.alert(
+                  t('options.sets.removeTitle'),
+                  t('options.sets.removeMessage', { name: set.name }),
+                  [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    {
+                      text: t('options.sets.removeConfirm'),
+                      style: 'destructive',
+                      onPress: () => { void runSetAction(() => deleteOptionSet(set.id)); },
+                    },
+                  ]
+                )}
+                disabled={busy}
+                style={styles.iconBtn}
+                accessibilityLabel={t('options.sets.remove')}
+              >
+                <Icon name="trash" size={15} color={colors.danger} />
+              </Pressy>
+            </View>
+          ))}
+        </View>
+      )}
 
       {groups.map((group, gi) => (
         <View key={group.id} style={styles.group}>
@@ -257,6 +387,60 @@ export default function OptionsBuilder({
         <Text style={[styles.capNote, textDir]}>{t('options.builder.groupCap', { n: MAX_GROUPS })}</Text>
       )}
 
+      {/* Saving the set. Offered only once there is a finished group to
+          save -- an empty library entry helps nobody, and the server
+          refuses one anyway. */}
+      {tidy.length > 0 && (
+        <View style={styles.group}>
+          <Text style={[styles.switchLabel, textDir]}>{t('options.sets.saveTitle')}</Text>
+          <Text style={[styles.capNote, textDir]}>{t('options.sets.saveHint')}</Text>
+          <View style={[styles.saveRow, mirrorRow(isRTL)]}>
+            <TextInput
+              value={saveName}
+              onChangeText={setSaveName}
+              placeholder={t('options.sets.namePlaceholder')}
+              placeholderTextColor={colors.inkSoft}
+              style={[styles.saveInput, textDir]}
+              maxLength={40}
+            />
+            <Pressy
+              onPress={() => {
+                const run = async () => {
+                  if (await runSetAction(() => saveOptionSet(saveName, tidy, minQty))) {
+                    setSaveName('');
+                    // #16: the library card is at the top of a long step
+                    // and starts collapsed, so a first save otherwise
+                    // looks like nothing happened. Open it.
+                    setSetsOpen(true);
+                  }
+                };
+                // A name already in the library REPLACES it, server-side.
+                // That is the right behaviour -- it is how a seller
+                // corrects a set -- but it is destructive, and it is the
+                // one action here that had no dialog.
+                const clash = sets.find(
+                  (s) => s.name.trim().toLowerCase() === saveName.trim().toLowerCase()
+                );
+                if (!clash) { void run(); return; }
+                Alert.alert(
+                  t('options.sets.overwriteTitle'),
+                  t('options.sets.overwriteMessage', { name: clash.name }),
+                  [
+                    { text: t('common.cancel'), style: 'cancel' },
+                    { text: t('options.sets.overwriteConfirm'), style: 'destructive', onPress: () => { void run(); } },
+                  ]
+                );
+              }}
+              disabled={!canSave}
+              style={[styles.saveBtn, !canSave && styles.saveBtnOff]}
+            >
+              <Text style={styles.saveBtnText}>{t('options.sets.save')}</Text>
+            </Pressy>
+          </View>
+          {!!setsError && <Text style={[styles.setsError, textDir]}>{setsError}</Text>}
+        </View>
+      )}
+
       <View style={styles.group}>
         <Text style={[styles.switchLabel, textDir]}>{t('options.builder.minQty')}</Text>
         <Text style={[styles.capNote, textDir]}>{t('options.builder.minQtyHint')}</Text>
@@ -285,13 +469,13 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, borderRadius: radius.md, borderWidth: 1,
     borderColor: colors.line, padding: 14, gap: 10,
   },
-  groupTop: { alignItems: 'center', gap: 8 },
+  groupTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   groupName: {
     ...type.h3, flex: 1, borderBottomWidth: 1, borderBottomColor: colors.line,
     paddingVertical: 8,
   },
   iconBtn: { width: 34, height: 34, alignItems: 'center', justifyContent: 'center' },
-  pickRow: { gap: 8 },
+  pickRow: { flexDirection: 'row', gap: 8 },
   pill: {
     paddingHorizontal: 12, paddingVertical: 7, borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.bg,
@@ -299,24 +483,24 @@ const styles = StyleSheet.create({
   pillOn: { borderColor: colors.primary, backgroundColor: colors.primaryTint },
   pillText: { ...type.tiny },
   pillTextOn: { color: colors.primary, fontWeight: '700' },
-  switchRow: { alignItems: 'center', justifyContent: 'space-between', gap: 10 },
+  switchRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', gap: 10 },
   switchLabel: { ...type.body, flexShrink: 1 },
   choice: {
     borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
     padding: 10, gap: 8, backgroundColor: colors.bg,
   },
-  choiceTop: { alignItems: 'center', gap: 8 },
+  choiceTop: { flexDirection: 'row', alignItems: 'center', gap: 8 },
   choiceLabel: {
     ...type.body, flex: 1, backgroundColor: colors.card, borderRadius: radius.sm,
     borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 9,
   },
   priceWrap: {
-    alignItems: 'center', backgroundColor: colors.card, borderRadius: radius.sm,
+    flexDirection: 'row', alignItems: 'center', backgroundColor: colors.card, borderRadius: radius.sm,
     borderWidth: 1, borderColor: colors.line, paddingHorizontal: 8,
   },
   priceSign: { ...type.soft, fontWeight: '600' },
   priceInput: { ...type.body, minWidth: 54, paddingVertical: 9, textAlign: 'center' },
-  perRow: { alignItems: 'center', gap: 6, flexWrap: 'wrap' },
+  perRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
   perPill: {
     paddingHorizontal: 10, paddingVertical: 5, borderRadius: radius.pill,
     borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
@@ -325,20 +509,49 @@ const styles = StyleSheet.create({
   perText: { ...type.tiny },
   perTextOn: { color: colors.primary, fontWeight: '700' },
   perHint: { ...type.tiny, flex: 1, minWidth: 120 },
-  askRow: { alignItems: 'center', gap: 6 },
+  askRow: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   askInput: {
     ...type.soft, flex: 1, backgroundColor: colors.card, borderRadius: radius.sm,
     borderWidth: 1, borderColor: colors.line, paddingHorizontal: 10, paddingVertical: 8,
   },
-  addBtn: { alignItems: 'center', gap: 6, paddingVertical: 8 },
+  addBtn: { flexDirection: 'row', alignItems: 'center', gap: 6, paddingVertical: 8 },
   addText: { ...type.soft, color: colors.primary, fontWeight: '600' },
   addGroup: {
-    alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14,
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8, paddingVertical: 14,
     borderRadius: radius.md, borderWidth: 1, borderStyle: 'dashed', borderColor: colors.primary,
     backgroundColor: colors.primaryTint,
   },
   addGroupText: { ...type.body, color: colors.primary, fontWeight: '700' },
   capNote: { ...type.tiny },
+  setsCard: {
+    backgroundColor: colors.primaryTint, borderRadius: radius.md, padding: 4,
+  },
+  setsHead: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 10 },
+  setsHeadText: { ...type.body, flex: 1, color: colors.primary, fontWeight: '600' },
+  setRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 10, paddingVertical: 8,
+    backgroundColor: colors.card, borderRadius: radius.sm, marginHorizontal: 4, marginBottom: 4,
+  },
+  setName: { ...type.body, flex: 1 },
+  setCount: { ...type.tiny },
+  setUseBtn: {
+    paddingHorizontal: 12, paddingVertical: 6, borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  setUseBtnText: { ...type.tiny, color: colors.white, fontWeight: '700' },
+  saveRow: { flexDirection: 'row', alignItems: 'center', gap: 8 },
+  saveInput: {
+    ...type.body, flex: 1, backgroundColor: colors.bg, borderRadius: radius.sm, borderWidth: 1,
+    borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 10,
+  },
+  saveBtn: {
+    paddingHorizontal: 16, paddingVertical: 11, borderRadius: radius.pill,
+    backgroundColor: colors.primary,
+  },
+  saveBtnOff: { opacity: 0.4 },
+  saveBtnText: { ...type.soft, color: colors.white, fontWeight: '700' },
+  setsError: { ...type.tiny, color: colors.danger, paddingHorizontal: 10, paddingBottom: 6 },
+  chevronOpen: { transform: [{ rotate: '90deg' }] },
   minInput: {
     ...type.body, backgroundColor: colors.bg, borderRadius: radius.sm, borderWidth: 1,
     borderColor: colors.line, paddingHorizontal: 12, paddingVertical: 10, maxWidth: 110,
