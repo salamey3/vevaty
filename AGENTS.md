@@ -275,6 +275,48 @@ writing the migration.
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.
 
+# A category can offer choices with prices, and the server owns the money
+
+`categories.options_mode` ('off'/'on', nullable, resolved
+nearest-ancestor-first exactly like `condition_mode` — read it through
+`optionsOnForCategory`, never off the row) turns on a step in the posting
+form where the seller builds option groups: Size (pick one), Add-ons (tick
+any), each choice able to add money and to ask the buyer one short
+question. On for Arts & Crafts and nowhere else so far.
+
+Three rules, all of them load-bearing:
+
+1. **The groups belong to the LISTING, never to a shared template.** What a
+   buyer saw has to stay what a buyer saw. A shop's saved sets are copied
+   into a listing, not referenced by it.
+2. **Every price a human reads is built server-side.** The client sends
+   only the ids it ticked, the quantity and any typed answers;
+   `myazar.send_listing_order` rebuilds the labels, the prices and the
+   total from the live rows and writes them into the message. A card can
+   therefore never show a price the seller never published, and it is
+   frozen at the moment of sending.
+3. **A priced choice is per item or per order.** Twelve gift boxes at +$12
+   is fair; one delivery at +$30 charged twelve times is not. The formula
+   is `qty × (base + per-item extras) + per-order extras`, and it is
+   written twice on purpose — in `send_listing_order` and in `totalsFor`
+   in `src/lib/listingOptions.ts` — because a total that changes when the
+   buyer taps Send is a total nobody trusts.
+   `scripts/test/listing-options.test.mjs` checks the client against the
+   figures the SQL harness produced (60 favours with a per-order delivery
+   = $7,710). Change one side and you must change the other, and that test
+   is what will tell you.
+
+The buyer's picks arrive in the chat as `kind = 'order'`, a fourth kind
+beside text, offer and system, with the frozen detail in
+`chat_messages.order_snapshot`. `body` always carries the same thing as a
+readable sentence, which is what a build that predates the kind renders.
+The seller's "Give a price" pre-fills the existing offer card rather than
+sending it.
+
+It is an **estimate**, not a checkout. Vevaty takes no money; a total
+presented as final would be the app promising something on the seller's
+behalf. Anything added here says so.
+
 # Listing expiry is per category, and the database owns it
 
 How long a listing lives is `categories.listing_lifetime_days` — nullable,

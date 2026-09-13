@@ -54,39 +54,19 @@ invite goes out, in this order:
    updates.
 4. **Only then** switch sign-up to invite-only and send the invites.
 
-**Arts & Crafts is half built and switched off**, 12 Sep 2026. This patch
-is the category half: the fifth condition mode (`made_to_order` — Ready
-now / Made to order), the nine leaves, six shared specs, a "From $45"
-price line and a "Contact to order" button. The choices half — the seller
-building Size / Base / Add-ons groups with prices, the buyer's running
-total, the order card in chat and the shop's saved sets — is the patch
-after this one. Three steps, in this order and not out of it:
+**Arts & Crafts is live and its choices are built**, 13 Sep 2026. The
+category went on that morning; the choices half — the seller's groups with
+prices, the buyer's chooser and running total, and the order card in the
+chat — is the patch after it. What is left of that thread:
 
-1. **Ship this patch and let the update reach the phone.** The category
-   cannot go live before the app knows the fifth mode. An older build
-   resolves `made_to_order` to an answer list it does not have and calls
-   `.map` on `undefined`: not a wrong label, a thrown error that unmounts
-   the screen — the create form and the browse filter both. The guard
-   added here (`conditionModeForCategory` answers New/Used for a mode it
-   does not know) protects builds that CARRY it, which by definition is
-   not the build already on someone's phone. So the seeding order is the
-   real protection, and it is worth being honest that on a native install
-   "the update has landed" is never true of every device at once.
-2. **Apply the migration** (`arts_crafts_category`, test-fired in a
-   rolled-back transaction 12 Sep). It seeds all ten categories
-   `active = false` on purpose.
-3. **Flip them on, and flip the offline tile with them:**
-
-   ```sql
-   update myazar.categories set active = true
-    where id = 'arts-crafts' or parent_id = 'arts-crafts';
-   ```
-
-   In the same patch as that flip, `arts-crafts` in
-   `src/data/categories.ts` goes from `false` to `true`. That array is the
-   first-paint fallback, and a tile that disagrees with the database
-   flashes on every cold start — which is exactly why Jobs and Services
-   are `false` there today.
+1. **Post one handmade listing yourself and order from it.** Build a Size
+   group and an Add-ons group with a per-order delivery charge, then open
+   the listing on the other account, pick, set a quantity above one, and
+   send. The number on the chooser and the number on the card in the chat
+   must be the same number, and the delivery must be charged once.
+2. **The shop's saved sets are not built** — part 2. A shop posting thirty
+   items retypes the same three groups thirty times until they exist. Not
+   urgent while there is one craft seller; urgent the week there are ten.
 
 Found on the way and deliberately not fixed here:
 
@@ -339,6 +319,40 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Choices with prices**, 13 Sep 2026. A made-to-order craft has no single
+price: a baby-cast is $60 for one hand and $110 for hands and feet, plus
+$10 for a dark base and $8 to engrave a name. The seller now builds real
+groups — Size (pick one), Add-ons (tick any) — each choice able to add
+money; the buyer picks, says how many, and watches a total build.
+
+Three things that decide whether it is any use:
+
+- **Per item or per order.** Twelve gift boxes at +$12 is fair; one
+  delivery at +$30 charged twelve times is $360 of delivery shown as if it
+  were real. The seller marks each priced choice, defaulting to per item.
+  60 favours with a $30 delivery come to $7,710, not $9,480.
+- **A choice can ask a question.** "Name engraved +$8" — but whose name?
+  The seller writes the question, the buyer's answer travels in the order
+  and can be made compulsory.
+- **It is an estimate, not a checkout.** Vevaty takes no money, so the
+  figure says so on the chooser and again on the card, and the button
+  reads "Send my choices", never "Buy".
+
+The card in the chat is a fourth message kind beside text, offer and
+system, and the labels and prices in it are built by the SERVER from the
+live listing at the moment of sending — so it can never show a price the
+seller never published, and the seller raising a price tomorrow does not
+rewrite what was sent today. The seller reads it and taps "Give a price",
+which pre-fills the offer card that already existed with the estimate;
+pre-fills rather than sends, because the whole reason it is an estimate is
+that they may want a different number. `body` still carries the same thing
+as a plain sentence, which is what an older build shows.
+
+Open to anyone posting in the category, not only verified shops — the
+woman making crochet baskets at her kitchen table is who this is for. Five
+groups of twelve choices, and an optional smallest-order-accepted for
+favours.
 
 **Arts & Crafts, the category half**, 12 Sep 2026. A fifth
 `condition_mode`: `made_to_order`, answering `ready` / `to_order`. Handmade

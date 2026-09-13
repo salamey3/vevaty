@@ -1,6 +1,7 @@
 import React, { createContext, useCallback, useContext, useMemo, useRef, useState } from 'react';
 import { ChatMessage, ChatThread } from '../types';
 import { supabase, ensureSession } from '../lib/supabase';
+import { parseOrderSnapshot } from '../lib/listingOptions';
 
 // Phase 4 item 11 -- real in-app chat, built directly on top of the
 // `chat_threads`/`chat_messages` tables. Both tables (and their RLS
@@ -39,9 +40,17 @@ function dbMessageToLocal(row: any): ChatMessage {
     // silently turned anything new into a plain bubble -- so the first
     // 'system' announcement Vevaty posted would have rendered as a chat
     // message from a person, with a reply box under it.
-    kind: row.kind === 'offer' ? 'offer' : row.kind === 'system' ? 'system' : 'text',
+    kind:
+      row.kind === 'offer' ? 'offer'
+      : row.kind === 'system' ? 'system'
+      : row.kind === 'order' ? 'order'
+      : 'text',
     offerAmount: row.offer_amount != null ? Number(row.offer_amount) : null,
     offerStatus: row.offer_status === 'pending' || row.offer_status === 'accepted' || row.offer_status === 'declined' ? row.offer_status : null,
+    // Parsed defensively, and a failure is not an error: an order written
+    // by a newer build falls back to `body`, which the plain bubble already
+    // renders, rather than to an empty card.
+    orderSnapshot: parseOrderSnapshot(row.order_snapshot),
   };
 }
 

@@ -65,6 +65,11 @@ function topLevel(
     active,
     isService,
     conditionMode,
+    // Offline fallback only, like everything else here. Null means
+    // "inherit", and with no ancestor above a top-level row that resolves
+    // to off -- so the first paint never offers a chooser the real fetch
+    // would then take away.
+    optionsMode: null,
     // Offline/first-paint fallback only, same story as the rest of this
     // builder: null means "inherit", and with no ancestor to inherit from
     // the resolver lands on DEFAULT_LISTING_LIFETIME_DAYS -- which is what
@@ -132,7 +137,7 @@ export const DEFAULT_CATEGORIES: Category[] = [
   topLevel('arts-crafts', 'Arts & Crafts', 'فنون وحرف يدوية', 'wand', 14, false,
     ['The finished piece, straight on', 'A close-up of the detail or finish', 'Something beside it for scale', 'The back, or another angle'],
     ['القطعة كاملة من الأمام', 'صورة مقرّبة للتفاصيل والتشطيب', 'غرض بجانبها لتوضيح الحجم', 'من الخلف أو من زاوية أخرى'],
-    'made_to_order', false),
+    'made_to_order'),
 ];
 
 // Built-in icon fallback for categories that don't have a custom uploaded

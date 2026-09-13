@@ -172,6 +172,9 @@ interface SettingsValue {
   // nearest ancestor (itself included) that names something other than
   // the default wins.
   conditionModeForCategory: (categoryId: string) => ConditionMode;
+  // Whether a seller here builds option groups with prices. See
+  // Category.optionsMode.
+  optionsOnForCategory: (categoryId: string) => boolean;
   // Slug of the attribute whose value labels a listing card here, or null
   // to use the category's own name. Inherited nearest-ancestor-first --
   // see Category.cardKindSlug for why the two collapsed categories need it.
@@ -289,6 +292,7 @@ function dbToCategory(row: any): Category {
     active: row.active !== false,
     isService: !!row.is_service,
     conditionMode: (row.condition_mode as ConditionMode) ?? null,
+    optionsMode: row.options_mode === 'on' ? 'on' : row.options_mode === 'off' ? 'off' : null,
     cardKindSlug: row.card_kind_slug || null,
     cardConditionSlug: row.card_condition_slug || null,
     listingLifetimeDays: typeof row.listing_lifetime_days === 'number' ? row.listing_lifetime_days : null,
@@ -820,6 +824,24 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         if (slug) return slug;
       }
       return null;
+    },
+    [buildAncestorChain, categoryById]
+  );
+
+  // Whether this category offers choices with prices. The same
+  // nearest-first walk as conditionModeForCategory, for the same reason: a
+  // leaf inherits from the branch it hangs off, and reading it off the row
+  // would make every subcategory answer only for itself. Mirrors
+  // myazar.category_options_on, which is what actually enforces it -- the
+  // two are one answer written twice and must not drift.
+  const optionsOnForCategory = useCallback(
+    (categoryId: string): boolean => {
+      const chain = buildAncestorChain(categoryId);
+      for (let i = chain.length - 1; i >= 0; i--) {
+        const mode = categoryById(chain[i])?.optionsMode;
+        if (mode) return mode === 'on';
+      }
+      return false;
     },
     [buildAncestorChain, categoryById]
   );
@@ -1388,6 +1410,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       conditionModeForCategory,
+      optionsOnForCategory,
       cardKindSlugForCategory,
       cardConditionSlugForCategory,
       lifetimeDaysForCategory,
@@ -1435,6 +1458,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       categoryMatches,
       isServiceCategory,
       conditionModeForCategory,
+      optionsOnForCategory,
       cardKindSlugForCategory,
       cardConditionSlugForCategory,
       lifetimeDaysForCategory,

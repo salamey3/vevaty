@@ -29,6 +29,8 @@ import RentTermsFields from '../components/RentTermsFields';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingActionMessage } from '../lib/listingActionMessage';
 import { conditionOptionsFor, conditionFieldLabel, conditionStepLabel } from '../lib/conditionModes';
+import OptionsBuilder, { groupsProblem, tidyGroups } from '../components/OptionsBuilder';
+import { OptionGroup, fetchListingOptions, saveListingOptions } from '../lib/listingOptions';
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { mirrorRow } from '../lib/mirrorRow';
@@ -62,7 +64,7 @@ import LocationMapPicker from '../components/LocationMapPicker';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'CreateListing'>;
 
-type StepKind = 'classify' | 'photos' | 'verify' | 'spin' | 'specs' | 'stock' | 'details' | 'translate' | 'review';
+type StepKind = 'classify' | 'photos' | 'verify' | 'spin' | 'specs' | 'stock' | 'choices' | 'details' | 'translate' | 'review';
 
 // 360° spin capture frame count (Phase 3 item 7, raised from 8 to 12 after
 // feedback that 8 (≥45°/frame) read as too choppy for bigger items like
@@ -104,7 +106,7 @@ function spinLabelSuggestionsFor(isVehicle: boolean, isProperty: boolean, langua
 
 export default function CreateListingScreen({ navigation, route }: Props) {
   const { addListing, updateListing, profile, listings, isVerified, authChecked, myShop } = useAppStore();
-  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, conditionModeForCategory, isServiceCategory, domains, allDomains, domainOfCategory, allCategories, childrenOf } = useSettings();
+  const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory, conditionModeForCategory, isServiceCategory, domains, allDomains, domainOfCategory, allCategories, childrenOf, optionsOnForCategory } = useSettings();
   const { t, language, isRTL } = useLanguage();
   const editListingId = route.params && 'editListingId' in route.params ? route.params.editListingId : undefined;
   const editingListing = editListingId ? listings.find((l) => l.id === editListingId) : undefined;
@@ -645,6 +647,53 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // seller is reconciled by kind rather than index (see below), and
   // buildStock refuses to invent numbers for a step nobody filled in.
   const hasStockStep = cat?.stockMode === 'multiple' && attachToShop && !!myShop?.verifiedAt;
+  // Choices with prices. Open to anyone posting in a category that offers
+  // them, NOT gated on a verified shop the way the Stock step is: the woman
+  // making crochet baskets at her kitchen table is precisely who this is
+  // for, and she has no shop. The step is skipped entirely everywhere else,
+  // which today is everywhere but Arts & Crafts.
+  const hasChoicesStep = !!category && optionsOnForCategory(category);
+  const [optionGroups, setOptionGroups] = useState<OptionGroup[]>([]);
+  const [optionMinQty, setOptionMinQty] = useState(1);
+  // Whether what is on the Choices step is the listing's real set. A NEW
+  // listing has nothing to load, so it starts true; an edit starts false
+  // and flips only when the fetch actually lands.
+  //
+  // This gates the SAVE, and that is the whole point of it. save_listing_options
+  // replaces the entire set, so a fetch that failed once -- a flaky
+  // connection on opening Edit -- would otherwise show an empty step, and
+  // the seller changing nothing but the title would delete every group
+  // they had, silently.
+  const [choicesLoaded, setChoicesLoaded] = useState(!isEditMode);
+  const choicesProblem = useMemo(
+    () => (hasChoicesStep ? groupsProblem(optionGroups, t) : null),
+    [hasChoicesStep, optionGroups, t]
+  );
+  // Editing a listing that already has choices: load them once, and only
+  // for a category that still offers them. A listing moved OUT of Arts &
+  // Crafts keeps its rows -- nothing deletes them, and nothing should: the
+  // buyer's page reads the category first and shows no chooser, and if the
+  // seller moves the listing back the groups they spent ten minutes on are
+  // still there. Not loading them here is what stops the form offering to
+  // edit something no buyer can see.
+  const choicesLoadedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isEditMode || !editListingId || !hasChoicesStep) return;
+    if (choicesLoadedFor.current === editListingId) return;
+    choicesLoadedFor.current = editListingId;
+    fetchListingOptions(editListingId)
+      .then((o) => {
+        setOptionGroups(o.groups);
+        setOptionMinQty(o.minQty);
+        setChoicesLoaded(true);
+      })
+      .catch(() => {
+        // Let a later render try again rather than leaving the step
+        // permanently, invisibly empty -- and keep choicesLoaded false so
+        // that until it does succeed, Save writes nothing here.
+        choicesLoadedFor.current = null;
+      });
+  }, [isEditMode, editListingId, hasChoicesStep]);
   // The one attribute (if any) this category uses to break stock into
   // variants -- see the isVariant field's own doc comment. Kept out of
   // specAttrs/hasSpecs below ONLY when the Stock step will actually ask
@@ -818,11 +867,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       ...(cat?.supports3d ? (['spin'] as const) : []),
       ...(hasSpecs ? (['specs'] as const) : []),
       ...(hasStockStep ? (['stock'] as const) : []),
+      ...(hasChoicesStep ? (['choices'] as const) : []),
       'details',
       'translate',
       'review',
     ],
-    [needsVerification, hasSpecs, cat?.supports3d, hasStockStep]
+    [needsVerification, hasSpecs, cat?.supports3d, hasStockStep, hasChoicesStep]
   );
 
   // Auto-runs the classifier once there's enough photos to work from --
@@ -855,6 +905,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     spin: t('createListing.stepSpin'),
     specs: t('createListing.stepSpecs'),
     stock: t('createListing.stepStock'),
+    choices: t('createListing.stepChoices'),
     details: t('createListing.stepDetails'),
     translate: t('createListing.stepTranslate'),
     review: t('createListing.stepReview'),
@@ -1532,6 +1583,10 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     verify: verificationComplete,
     spin: true, // spin capture is optional even in supports3d categories, same as photos
     specs: specsValid,
+    // A half-typed group is dropped rather than blocking (see tidyGroups);
+    // only a named group with nothing in it, or choices under no name at
+    // all, hold Continue -- both of those would post something broken.
+    choices: !choicesProblem,
     // Never blocks Next -- a shop can post with everything at 0 (e.g.
     // "coming soon"), same "optional, not a gate" treatment as photos/spin.
     stock: true,
@@ -1779,10 +1834,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         // of the next one. The Save-and-exit paths deliberately do not
         // wait -- backing out is a bail-out, not a commitment.
         await updateListing(editListingId, payload, { waitMedia: true });
+        await persistChoices(editListingId);
         setPosting(false);
         navigation.navigate('ListingDetail', { listingId: editListingId });
       } else {
         const listing = await addListing(payload);
+        await persistChoices(listing.id);
         setPosting(false);
         navigation.replace('ListingDetail', { listingId: listing.id });
       }
@@ -1845,6 +1902,13 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       attachToShop,
       plainStockQty,
       variantStock,
+      // Not read by buildPayload -- the choices are saved by their own
+      // call, after the listing exists -- but a seller who opens Edit,
+      // changes one choice's price and walks away has made a real change
+      // and must be asked. The snapshot is about unsaved WORK, not about
+      // one payload.
+      optionGroups,
+      optionMinQty,
       resolvedPlaceId: resolvedPlace?.id ?? null,
       preciseCoords,
     });
@@ -1859,6 +1923,24 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // notice the draft that was just created.
   const createdDraftIdRef = useRef<string | null>(null);
 
+  // The choices are written after the listing, because they hang off its
+  // id -- there is nothing to attach them to until it exists. Saved on the
+  // draft path too: a seller who bails out mid-form and comes back should
+  // find the groups they typed, not an empty step.
+  //
+  // A failure here is deliberately not fatal to the post. The listing is
+  // already saved and live; losing the choices is a thing the seller can
+  // fix by editing, whereas throwing would leave them on a dead Post
+  // button looking at a listing that did in fact go up.
+  const persistChoices = async (listingId: string) => {
+    if (!hasChoicesStep || !choicesLoaded) return;
+    try {
+      await saveListingOptions(listingId, tidyGroups(optionGroups), optionMinQty);
+    } catch {
+      /* the listing stands; the seller can add the choices from Edit */
+    }
+  };
+
   const saveAsDraftAndExit = async (): Promise<boolean> => {
     // Nothing worth keeping yet (category is always the very first thing
     // picked, before anything else in the wizard can even be reached) --
@@ -1869,9 +1951,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       const targetId = editListingId || createdDraftIdRef.current;
       if (targetId) {
         await updateListing(targetId, payload);
+        await persistChoices(targetId);
       } else {
         const listing = await addListing(payload);
         createdDraftIdRef.current = listing.id;
+        await persistChoices(listing.id);
       }
       return true;
     } catch (e: any) {
@@ -1906,6 +1990,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     }
     try {
       await updateListing(editListingId as string, buildPayload());
+      await persistChoices(editListingId as string);
       return true;
     } catch (e: any) {
       // Same as saveAsDraftAndExit above -- and this is the path the
@@ -2506,6 +2591,18 @@ export default function CreateListingScreen({ navigation, route }: Props) {
               onFocus={onInputFocus}
               vehicleBrandModelPlaceholder={t('createListing.vehicleBrandModelPlaceholder')}
             />
+          </View>
+        )}
+
+        {currentKind === 'choices' && (
+          <View>
+            <OptionsBuilder
+              groups={optionGroups}
+              onChange={setOptionGroups}
+              minQty={optionMinQty}
+              onMinQty={setOptionMinQty}
+            />
+            {!!choicesProblem && <Text style={styles.choicesProblem}>{choicesProblem}</Text>}
           </View>
         )}
 
@@ -3235,6 +3332,7 @@ const fieldStyles = StyleSheet.create({
 const SCROLL_BOTTOM_PAD = 20;
 
 const styles = StyleSheet.create({
+  choicesProblem: { ...type.soft, color: colors.danger, marginTop: 10 },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   progressRow: { flexDirection: 'row', gap: 6, paddingHorizontal: 18, marginBottom: 14 },

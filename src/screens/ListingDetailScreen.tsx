@@ -56,6 +56,10 @@ import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { shareLink } from '../lib/share';
 import { Alert } from '../lib/alertShim';
 import { openCategoryFromOutside } from '../lib/browseNav';
+import OptionsChooser from '../components/OptionsChooser';
+import {
+  EMPTY_OPTIONS, ListingOptions, Picks, fetchListingOptions, prunePicks, sendListingOrder, whyNotOrderable,
+} from '../lib/listingOptions';
 
 const REPORT_REASONS = ['spam', 'prohibited', 'scam', 'other'] as const;
 type ReportReason = (typeof REPORT_REASONS)[number];
@@ -64,7 +68,7 @@ type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
   const { listings, profile, deleteListing, hideListing, markListingSold, isVerified, contactPrompts } = useAppStore();
-  const { ready: settingsReady, categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory, domainOfCategory } = useSettings();
+  const { ready: settingsReady, categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory, domainOfCategory, optionsOnForCategory } = useSettings();
   const { collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
   const { getOrCreateThread } = useChat();
   const { isFavorite, toggleFavorite } = useFavorites();
@@ -216,6 +220,48 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       listing.condition
     ).filter((a) => attrHasValue(listing.attributes[a.slug]));
   }, [listing, resolveAttributesForCategory]);
+  // Choices with prices. Fetched rather than carried on the listing: a
+  // listing row is loaded in bulk on every browse screen and most listings
+  // have no choices at all, so the groups are asked for once, here, on the
+  // one page that can show them.
+  const [options, setOptions] = useState<ListingOptions>(EMPTY_OPTIONS);
+  const [picks, setPicks] = useState<Picks>({});
+  const [qty, setQty] = useState(1);
+  const [orderSending, setOrderSending] = useState(false);
+  const [orderError, setOrderError] = useState<string | null>(null);
+  const hasChoices = !!listing && settingsReady && optionsOnForCategory(listing.cat);
+  // Choices are only worth showing where they can be SENT. A seller who
+  // takes phone calls only would otherwise hand the buyer a chooser, a
+  // running total and no way to pass any of it on.
+  const showsChoices = hasChoices && !!listing && listing.contactMethod !== 'phone';
+  useEffect(() => {
+    // Cleared synchronously, not when the next fetch resolves. This screen
+    // is re-pointed in place by a deep link or a notification hop (see the
+    // reset effect below), and for the length of a fetch it would
+    // otherwise show the PREVIOUS listing's groups and ticks priced
+    // against this listing's number -- an estimate belonging to neither,
+    // over a Send button that would then be refused.
+    setOptions(EMPTY_OPTIONS);
+    setPicks({});
+    setQty(1);
+    setOrderError(null);
+    if (!listingId || !showsChoices) return;
+    let alive = true;
+    // Same stale-response guard the contact reveal uses: this screen is
+    // reused when a buyer taps a related listing, and a slow answer for
+    // the previous one must not paint its groups over the new page.
+    fetchListingOptions(listingId)
+      .then((o) => { if (alive) { setOptions(o); setQty(o.minQty); } })
+      .catch(() => { if (alive) setOptions(EMPTY_OPTIONS); });
+    return () => { alive = false; };
+  }, [listingId, showsChoices]);
+
+  const orderBlock = useMemo(
+    () => (options.groups.length > 0 ? whyNotOrderable(options, picks, qty) : null),
+    [options, picks, qty]
+  );
+  const blockedGroupId = orderBlock?.kind === 'group' ? orderBlock.groupId : null;
+
   const isDesktop = useIsDesktop();
   const isOwner = !!listing && listing.sellerId === profile.id;
   const favorited = !!listing && isFavorite(listing.id);
@@ -436,6 +482,47 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       setChatError(t('listingDetail.chatFailed'));
     } finally {
       setChatLoading(false);
+    }
+  };
+
+  // The buyer's picks, sent as the first thing in the conversation. It
+  // opens the same thread "Message seller" would -- there is only ever one
+  // per listing -- and lands them in it with the order already posted,
+  // rather than in an empty box they then have to describe it in.
+  const sendChoices = async () => {
+    if (!listing || orderBlock || orderSending) return;
+    setOrderSending(true);
+    setOrderError(null);
+    try {
+      const threadId = await getOrCreateThread(listing.id, listing.sellerId);
+      await sendListingOrder(threadId, qty, picks, language);
+      // Cleared on the way out. The screen stays mounted behind the chat,
+      // and a buyer who comes back and taps Send again would otherwise
+      // post the same order twice without meaning to.
+      setPicks({});
+      setQty(options.minQty);
+      navigation.navigate('ChatThread', { threadId });
+    } catch (e: any) {
+      // The server re-checks everything this screen checked, against the
+      // live listing rather than the copy loaded a minute ago -- so a
+      // refusal here usually means the seller changed the choices while
+      // this page was open, and re-reading them is the fix.
+      setOrderError(t('listingDetail.orderFailed'));
+      // Re-read, and drop any tick pointing at a choice that is no longer
+      // there. Without the pruning the buyer is stuck: the total quietly
+      // ignores the dead pick, so Send stays lit, and every retry is
+      // refused for the same reason the first one was.
+      if (listing) {
+        fetchListingOptions(listing.id)
+          .then((o) => {
+            setOptions(o);
+            setPicks((prev) => prunePicks(o, prev));
+            setQty((q) => Math.max(o.minQty, q));
+          })
+          .catch(() => {});
+      }
+    } finally {
+      setOrderSending(false);
     }
   };
 
@@ -855,6 +942,26 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
               </View>
             ))}
           </View>
+        </>
+      )}
+
+      {/* Rendered for the owner too, and fully working for them -- only
+          the CTA block below is hidden. A seller checking their own
+          listing should be able to tick through it exactly as a buyer
+          would, which is the only way they catch a price they typed
+          wrong or a per-order fee they marked per-item. */}
+      {options.groups.length > 0 && (
+        <>
+          <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.chooseOptions')}</Text>
+          <OptionsChooser
+            options={options}
+            picks={picks}
+            onPicks={setPicks}
+            qty={qty}
+            onQty={setQty}
+            basePrice={listing.price}
+            blockedGroupId={blockedGroupId}
+          />
         </>
       )}
 
@@ -1300,6 +1407,8 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // own per-listing choice (Phase 4 item 14, `listing.contactMethod`) --
   // 'both' is the default for every listing, matching the original
   // always-show-everything behavior these two blocks had before item 14.
+  // Kept in step with showsChoices above, which gates the chooser on the
+  // same answer -- a chooser the buyer cannot send is a dead end.
   const showChat = listing.contactMethod !== 'phone';
   const showPhone = listing.contactMethod !== 'chat';
   const ctaSection = (extraStyle?: any) => {
@@ -1310,11 +1419,51 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <Button label={ctaLabel} onPress={() => navigation.navigate('Auth')} />
         ) : (
           <>
+            {/* With choices on the listing, sending them IS the way to
+                start the conversation -- it opens the same single thread
+                "Message seller" would and posts the order into it. The
+                plain button stays underneath, because a buyer with a
+                question ("can you do it in blue?") should not have to
+                invent an order to ask it. */}
+            {showChat && options.groups.length > 0 && (
+              <>
+                <Pressy
+                  onPress={sendChoices}
+                  disabled={orderSending || !!orderBlock}
+                  style={[styles.messageBtn, (orderSending || !!orderBlock) && styles.contactBtnLoading]}
+                >
+                  <Icon name="chat" size={16} color={colors.white} />
+                  <Text style={styles.messageBtnText}>
+                    {orderSending ? t('common.loading') : t('listingDetail.sendChoices')}
+                  </Text>
+                </Pressy>
+                {!!orderBlock && (
+                  <Text style={styles.orderBlockText}>
+                    {orderBlock.kind === 'group'
+                      ? t('listingDetail.orderNeedsGroup', { group: orderBlock.groupTitle })
+                      : orderBlock.kind === 'answer'
+                        ? t('listingDetail.orderNeedsAnswer', { ask: orderBlock.ask })
+                        : t('listingDetail.orderNeedsQty', { n: orderBlock.minQty })}
+                  </Text>
+                )}
+              </>
+            )}
             {showChat && (
-              <Pressy onPress={openChat} disabled={chatLoading} style={[styles.messageBtn, chatLoading && styles.contactBtnLoading]}>
-                <Icon name="chat" size={16} color={colors.white} />
-                <Text style={styles.messageBtnText}>
-                  {chatLoading ? t('common.loading') : t('listingDetail.messageSeller')}
+              <Pressy
+                onPress={openChat}
+                disabled={chatLoading}
+                style={[
+                  options.groups.length > 0 ? styles.askBtn : styles.messageBtn,
+                  chatLoading && styles.contactBtnLoading,
+                ]}
+              >
+                <Icon name="chat" size={16} color={options.groups.length > 0 ? colors.ink : colors.white} />
+                <Text style={options.groups.length > 0 ? styles.askBtnText : styles.messageBtnText}>
+                  {chatLoading
+                    ? t('common.loading')
+                    : options.groups.length > 0
+                      ? t('listingDetail.askInstead')
+                      : t('listingDetail.messageSeller')}
                 </Text>
               </Pressy>
             )}
@@ -1342,6 +1491,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
         )}
         {!!contactError && <Text style={styles.reportErrorText}>{contactError}</Text>}
         {!!chatError && <Text style={styles.reportErrorText}>{chatError}</Text>}
+        {!!orderError && <Text style={styles.reportErrorText}>{orderError}</Text>}
       </View>
     );
   };
@@ -1720,6 +1870,18 @@ const styles = StyleSheet.create({
     height: 52, borderRadius: radius.pill, backgroundColor: colors.primary,
   },
   messageBtnText: { fontSize: 15.5, fontWeight: '600', color: colors.white },
+  // "Just ask a question", under a filled Send. Outlined rather than a
+  // second filled button: two primaries in a row is two buttons neither of
+  // which reads as the thing to do.
+  askBtn: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 46, borderRadius: radius.pill, backgroundColor: colors.card,
+    borderWidth: 1, borderColor: colors.line, marginTop: 8,
+  },
+  askBtnText: { fontSize: 14.5, fontWeight: '600', color: colors.ink },
+  // Why Send is waiting, right under it. Not red: the buyer has not made a
+  // mistake, they have not finished.
+  orderBlockText: { ...type.tiny, marginTop: 8, textAlign: 'center' },
   contactBtnLoading: { opacity: 0.7 },
   contactRow: { flexDirection: 'row', gap: 10, marginTop: 10 },
   contactBtn: {

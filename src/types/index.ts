@@ -95,6 +95,15 @@ export interface Category {
   // Inherits nearest-ancestor-first, so it is read through
   // cardKindSlugForCategory in SettingsStore, never off the row.
   cardKindSlug: string | null;
+  // Whether a seller here builds option groups with prices -- Size, Base,
+  // Add-ons -- and a buyer picks from them and sends the result into the
+  // chat. Null inherits, 'off' if nothing in the ancestry says otherwise,
+  // the same nullable-inherit shape as conditionMode and for the same
+  // reason: it is set once on Arts & Crafts and every leaf under it
+  // follows, including leaves that do not exist yet.
+  //
+  // Read through optionsOnForCategory in SettingsStore, never off the row.
+  optionsMode: 'off' | 'on' | null;
   // Which attribute supplies the card's CONDITION badge. Null means the
   // universal `listings.condition` column is the badge, which is the normal
   // case and covers most of the catalogue.
@@ -766,6 +775,11 @@ export interface ChatThread {
 }
 
 // A single message inside a ChatThread. Mirrors myazar.chat_messages.
+// Re-exported from the library that owns the arithmetic, so the type of a
+// message and the code that builds one cannot drift apart.
+import type { OrderSnapshot } from '../lib/listingOptions';
+export type { OrderSnapshot };
+
 export interface ChatMessage {
   id: string;
   threadId: string;
@@ -779,9 +793,19 @@ export interface ChatMessage {
   // itself speaking -- an auction result, so far -- posted by the server
   // and rendered as a centred notice with no reply affordance, because
   // there is nobody on the other end of that thread to read an answer.
-  kind: 'text' | 'offer' | 'system';
+  // 'order' is a buyer's picks from a listing's option groups, frozen by
+  // the server at the moment it was sent (see myazar.send_listing_order):
+  // the labels and prices in orderSnapshot are what the seller had
+  // published then, not what they charge today. It renders as an itemised
+  // card with the estimate at the foot, and the seller gets one tap to
+  // turn that estimate into a real 'offer'.
+  kind: 'text' | 'offer' | 'system' | 'order';
   offerAmount: number | null;
   offerStatus: 'pending' | 'accepted' | 'declined' | null;
+  // Null on every message that is not an order, and on an order this build
+  // could not read -- in which case `body`, which always carries a plain
+  // readable sentence, is what the bubble shows instead.
+  orderSnapshot: OrderSnapshot | null;
 }
 
 // Phase 4 item 17 -- a listing a user has saved. One row per (user,

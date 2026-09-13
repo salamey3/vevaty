@@ -12,6 +12,8 @@ import { useChat } from '../store/ChatStore';
 import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { ChatMessage } from '../types';
+import { extraLabel, money } from '../lib/listingOptions';
+import { mirrorRow } from '../lib/mirrorRow';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle } from '../lib/listingText';
 import { useGoBack } from '../hooks/useGoBack';
@@ -38,7 +40,7 @@ const QUICK_REPLY_KEYS = [
 export default function ChatThreadScreen({ route, navigation }: Props) {
   const goBack = useGoBack();
   const { threadId } = route.params;
-  const { t, language } = useLanguage();
+  const { t, language, isRTL } = useLanguage();
   const insets = useSafeAreaInsets();
   const { profile, listings } = useAppStore();
   const { threads, messagesByThread, loadMessages, sendMessage, sendOffer, respondToOffer, subscribeToThread, loadThreads } = useChat();
@@ -249,6 +251,69 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
                     <View style={styles.systemCard}>
                       <Icon name="sparkle" size={13} color={colors.accentDeep} />
                       <Text style={styles.systemText}>{item.body}</Text>
+                    </View>
+                  </View>
+                );
+              }
+              // A buyer's picks from the listing's option groups, frozen
+              // when they were sent. Itemised rather than summarised: the
+              // seller has to be able to read off exactly what to make,
+              // including whatever the buyer typed into a choice's own
+              // question, without asking a single follow-up.
+              //
+              // Falls through to the plain bubble when the snapshot cannot
+              // be read -- `body` always carries the same thing as a
+              // sentence, which is also what an older build shows.
+              if (item.kind === 'order' && item.orderSnapshot) {
+                const snap = item.orderSnapshot;
+                return (
+                  <View style={[styles.bubbleRow, mine ? styles.bubbleRowMine : styles.bubbleRowTheirs]}>
+                    <View style={styles.orderCard}>
+                      <Text style={[styles.orderTitle, isRTL && styles.rtlText]}>
+                        {t('chat.orderTitle', { n: snap.qty })}
+                      </Text>
+                      {snap.lines.map((line, i) => (
+                        <View key={i} style={styles.orderLine}>
+                          <Text style={[styles.orderLineLabel, isRTL && styles.rtlText]}>
+                            {line.group ? `${line.group}: ` : ''}{line.label}
+                            {line.extra > 0 ? `  ${extraLabel(line, t)}` : ''}
+                          </Text>
+                          {!!line.answer && (
+                            <Text style={[styles.orderLineAnswer, isRTL && styles.rtlText]}>
+                              {line.ask ? `${line.ask}: ` : ''}{line.answer}
+                            </Text>
+                          )}
+                        </View>
+                      ))}
+                      <View style={[styles.orderTotalRow, mirrorRow(isRTL)]}>
+                        <Text style={[styles.orderTotalLabel, isRTL && styles.rtlText]}>{t('options.estimate')}</Text>
+                        <Text style={[styles.orderTotalAmount, isRTL && styles.rtlText]}>{money(snap.total)}</Text>
+                      </View>
+                      <Text style={[styles.orderNote, isRTL && styles.rtlText]}>{t('chat.orderNote')}</Text>
+                      {/* The seller's one tap. It pre-fills the offer box
+                          with the estimate rather than sending it: the
+                          whole reason this is an estimate is that the
+                          seller may want a different number, and a button
+                          that sent it outright would take that away. */}
+                      {!mine && (
+                        <Pressy
+                          onPress={() => {
+                            // The estimate as it stands, cents included --
+                            // rounding it here would quietly move the
+                            // number the buyer was shown. And the panel is
+                            // opened clean: openOfferPanel clears the last
+                            // failure's error, and arriving here with a
+                            // stale red line over a pre-filled amount
+                            // reads as a refusal of THIS amount.
+                            setOfferError(null);
+                            setOfferAmount(String(snap.total));
+                            setOfferPanelOpen(true);
+                          }}
+                          style={styles.orderPriceBtn}
+                        >
+                          <Text style={styles.orderPriceBtnText}>{t('chat.orderGivePrice')}</Text>
+                        </Pressy>
+                      )}
                     </View>
                   </View>
                 );
@@ -487,6 +552,30 @@ const styles = StyleSheet.create({
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
   },
   offerAmountText: { fontSize: 16, fontWeight: '700', color: colors.ink },
+  orderCard: {
+    maxWidth: '86%', backgroundColor: colors.card, borderRadius: radius.md,
+    borderWidth: 1, borderColor: colors.line, padding: 12, gap: 6,
+  },
+  orderTitle: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
+  orderLine: { gap: 1 },
+  orderLineLabel: { fontSize: 13.5, color: colors.ink },
+  orderLineAnswer: { fontSize: 12.5, color: colors.inkSoft, fontStyle: 'italic' },
+  orderTotalRow: {
+    flexDirection: 'row', alignItems: 'baseline', justifyContent: 'space-between',
+    gap: 8, marginTop: 4, paddingTop: 8, borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  orderTotalLabel: { fontSize: 13, fontWeight: '600', color: colors.inkSoft },
+  orderTotalAmount: { fontSize: 18, fontWeight: '700', color: colors.primary },
+  orderNote: { fontSize: 11.5, color: colors.inkSoft },
+  // This screen has no ambient direction on native (see mirrorRow), and
+  // the order card is the most bidi-sensitive thing on it: a line is a
+  // seller-written label, a buyer-typed answer and a figure in one run.
+  rtlText: { textAlign: 'right', writingDirection: 'rtl' },
+  orderPriceBtn: {
+    marginTop: 6, height: 40, borderRadius: radius.pill, alignItems: 'center',
+    justifyContent: 'center', backgroundColor: colors.primary,
+  },
+  orderPriceBtnText: { fontSize: 14, fontWeight: '700', color: colors.white },
   offerStatusPill: {
     alignSelf: 'flex-start', backgroundColor: colors.warnBg, borderRadius: radius.pill,
     paddingHorizontal: 10, height: 22, justifyContent: 'center',
