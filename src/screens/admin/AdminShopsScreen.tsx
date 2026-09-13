@@ -56,7 +56,21 @@ export default function AdminShopsScreen() {
       const { data, error: err } = await supabase
         .from('shops')
         .select(
-          'id,slug,name_en,name_ar,tagline_en,logo_url,governorate,caza,primary_category_id,verified_at,verification_note,created_at,owner_id,owner:profiles(full_name)'
+          'id,slug,name_en,name_ar,tagline_en,logo_url,governorate,caza,primary_category_id,' +
+            'verified_at,verification_note,created_at,owner_id,' +
+            // NAMED, not a bare `owner:profiles(...)`. `shops` reaches
+            // profiles twice -- shops_owner_id_fkey and, because the admin
+            // who approves a shop is stamped on it, shops_verified_by_fkey
+            // -- and PostgREST refuses an embed it cannot pick a path for:
+            // "Could not embed because more than one relationship was found
+            // for 'shops' and 'profiles'". It refuses at parse time, so the
+            // screen failed with nothing in it and no shop to look at.
+            //
+            // Every other two-path embed in the app already names its key
+            // (see AdminReportsScreen, which has the same shape twice over).
+            // This one was written when shops had a single path to profiles
+            // and verified_by had not been added yet.
+            'owner:profiles!shops_owner_id_fkey(full_name)'
         )
         .order('created_at', { ascending: false });
       if (err) throw err;

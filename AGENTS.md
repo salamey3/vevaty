@@ -275,6 +275,21 @@ writing the migration.
 A `free` listing posts at `price: 0` and renders as the word "Free"
 (`listingPriceLines`), never as `$0`.
 
+# Name the foreign key in every PostgREST embed
+
+`select('*, owner:profiles(full_name)')` works right up until someone adds a
+second column pointing at the same table, and then the whole query dies at
+parse time with *"Could not embed because more than one relationship was
+found"* — an empty screen, not a missing field. It has happened once: the
+admin Storefronts page went dark the first time a storefront was created,
+because `shops` had grown a `verified_by` beside its `owner_id`.
+
+So spell the key out: `owner:profiles!shops_owner_id_fkey(full_name)`. Seven
+tables in this schema already reach `profiles` twice — `shops`, `reports`,
+`reviews`, `chat_threads`, `transactions`, `admin_actions`,
+`auction_submissions` — and any of the others can grow a second path the day
+somebody records who did something.
+
 # A category can offer choices with prices, and the server owns the money
 
 `categories.options_mode` ('off'/'on', nullable, resolved
