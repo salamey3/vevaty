@@ -27,6 +27,8 @@ import ShopsDirectoryScreen from '../screens/ShopsDirectoryScreen';
 import StorefrontScreen from '../screens/StorefrontScreen';
 import CollectionScreen from '../screens/CollectionScreen';
 import MyStorefrontScreen from '../screens/MyStorefrontScreen';
+import ShopDayScreen from '../screens/ShopDayScreen';
+import RestockScreen from '../screens/RestockScreen';
 import AdminShopsScreen from '../screens/admin/AdminShopsScreen';
 import AdminGateScreen from '../screens/admin/AdminGateScreen';
 import AdminCategoriesScreen from '../screens/admin/AdminCategoriesScreen';
@@ -136,6 +138,8 @@ const linking: LinkingOptions<RootStackParamList> = {
       Storefront: 'shop/:shopSlug',
       Collection: 'collection/:slug',
       MyStorefront: 'storefront/manage',
+      ShopDay: 'shop/today',
+      Restock: 'shop/delivery',
       // The admin area lives under 'control-room', not 'admin', since 10 Sep
       // 2026: /admin is the first address anyone -- and every program that
       // hunts for admin pages -- tries. That is obscurity, not the lock: the
@@ -223,6 +227,8 @@ export default function RootNavigator() {
         <Stack.Screen name="Storefront" component={StorefrontScreen} />
         <Stack.Screen name="Collection" component={CollectionScreen} />
         <Stack.Screen name="MyStorefront" component={MyStorefrontScreen} />
+        <Stack.Screen name="ShopDay" component={ShopDayScreen} />
+        <Stack.Screen name="Restock" component={RestockScreen} />
         <Stack.Screen name="AdminShops" component={AdminShopsPage} />
         <Stack.Screen name="Admin" component={AdminGateScreen} />
         <Stack.Screen name="AdminCategories" component={AdminCategoriesPage} />

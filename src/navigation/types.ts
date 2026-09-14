@@ -101,6 +101,12 @@ export type RootStackParamList = {
   // The signed-in seller's own shop -- create or manage. No params: it
   // always operates on AppStore's myShop, never someone else's.
   MyStorefront: undefined;
+  // The shop's day: what needs the seller this morning -- orders sitting
+  // in chat, rows at zero, rows running low. No params, same as
+  // MyStorefront: it always operates on the signed-in seller's own shop.
+  ShopDay: undefined;
+  // Booking a delivery in: every row the shop has, a +N on each, one save.
+  Restock: undefined;
   AdminShops: undefined;
   Admin: undefined;
   AdminCategories: undefined;

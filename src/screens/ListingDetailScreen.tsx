@@ -36,7 +36,8 @@ import { useSettings } from '../store/SettingsStore';
 import StockPanel from '../components/StockPanel';
 import VariantChooser from '../components/VariantChooser';
 import {
-  Variant, fetchVariants, priceOf, rowFor, sendStockOrder, stockErrorKey, variantDimensions,
+  Variant, fetchMyWaitlist, fetchVariants, joinWaitlist, leaveWaitlist, priceOf, rowFor,
+  sendStockOrder, stockErrorKey, variantDimensions,
 } from '../lib/stock';
 import { useCollections } from '../store/CollectionsStore';
 import BannerSlot from '../components/BannerSlot';
@@ -256,6 +257,9 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // shelf for one sale. Nothing is reserved, so the server cannot tell the
   // two apart either.
   const [askedFor, setAskedFor] = useState<{ id: string; threadId: string } | null>(null);
+  // Which sold-out combinations this reader has asked to be told about.
+  const [waiting, setWaiting] = useState<Set<string>>(new Set());
+  const [waitBusy, setWaitBusy] = useState(false);
   const listingIdRef = useRef<string | null>(null);
   useEffect(() => { listingIdRef.current = listingId ?? null; }, [listingId]);
   useEffect(() => {
@@ -268,6 +272,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     setStockQty(1);
     setStockOrderError(null);
     setAskedFor(null);
+    setWaiting(new Set());
     if (!listingId || !couldHaveStock) return;
     let alive = true;
     fetchVariants(listingId)
@@ -275,6 +280,53 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       .catch(() => { if (alive) setVariants([]); });
     return () => { alive = false; };
   }, [listingId, couldHaveStock]);
+
+  // Its own effect, deliberately. Folding it into the one above put
+  // `isVerified` in that effect's dependencies -- and that effect clears
+  // the buyer's size, colour and quantity before it refetches. Signing in
+  // is the one moment a buyer is MOST likely to have already chosen (the
+  // contact button sends them to Auth and this screen stays mounted
+  // underneath), so it wiped their pick at exactly the wrong moment.
+  //
+  // Allowed to fail quietly: not knowing whether somebody is already
+  // waiting costs them one extra tap, which the server refuses harmlessly.
+  useEffect(() => {
+    setWaiting(new Set());
+    if (!listingId || !couldHaveStock || !isVerified) return;
+    let alive = true;
+    fetchMyWaitlist(listingId)
+      .then((ids) => { if (alive) setWaiting(ids); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [listingId, couldHaveStock, isVerified]);
+
+  // Tell me when it's back. Not optimistic: the server is the thing that
+  // will actually do the telling, so the button says yes only once it has
+  // agreed to.
+  const setWaitingOn = async (row: Variant, on: boolean) => {
+    if (waitBusy) return;
+    setWaitBusy(true);
+    setStockOrderError(null);
+    // The same stale-answer guard the rest of this screen uses: it is
+    // reused when a buyer taps a related listing, and an answer landing
+    // afterwards would put the previous item's refusal under this one's
+    // chooser.
+    const forListing = listing?.id ?? null;
+    try {
+      if (on) await joinWaitlist(row.id, language);
+      else await leaveWaitlist(row.id);
+      if (listingIdRef.current !== forListing) return;
+      setWaiting((prev) => {
+        const next = new Set(prev);
+        if (on) next.add(row.id); else next.delete(row.id);
+        return next;
+      });
+    } catch (e: any) {
+      if (listingIdRef.current === forListing) setStockOrderError(t(stockErrorKey(e)));
+    } finally {
+      setWaitBusy(false);
+    }
+  };
   // The picture follows the pick. The shop tags one gallery photo per
   // colour (StockPanel), so choosing navy moves the gallery to the navy
   // shot -- moved, not replaced, so the buyer can still swipe through
@@ -1142,7 +1194,15 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             language={language}
             isRTL={isRTL}
             t={t}
+            waiting={waiting}
+            onWait={setWaitingOn}
+            waitBusy={waitBusy}
+            // Not for the shop's own listing -- it would be messaging
+            // itself -- and not for a reader who has no account for the
+            // message to reach.
+            canWait={!isOwner && isVerified}
           />
+          {!!stockOrderError && <Text style={styles.orderBlockText}>{stockOrderError}</Text>}
         </>
       )}
 

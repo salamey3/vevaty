@@ -504,6 +504,30 @@ everything about `myazar.listing_variants` follows from that.
   that default is the one that matters. Turning it off must SAVE — an
   empty table is what parks the rows, and gating the save on the switch
   instead left the grid hidden while the rows stayed live on the server.
+- **A user id is not one thing.** `auth.users` and `myazar.profiles` are
+  different tables, and fifteen accounts in this database are signed in
+  with no profiles row. `chat_threads.buyer_id` points at profiles, so a
+  waiting-list table pointing at auth.users could hold somebody the chat
+  cannot reach -- and the message goes out inside the SELLER's restock
+  transaction, so their delivery would refuse to book in for ever, on a
+  row they cannot see anything wrong with. Anything that will end up as a
+  chat participant references profiles, and `isVerified` in the app means
+  "not anonymous", never "has a profile".
+- **Work done inside a lock is work the whole transaction waits for.**
+  `stock_move` holds `FOR UPDATE` on the row, and the telling runs inside
+  it: every waiter is a thread lookup, maybe a thread insert, and a
+  message insert. `authenticated` has an 8-second statement timeout and
+  the batch restock is all-or-nothing, so a slow enough telling is a
+  delivery that can never be booked in — the retry does the same work and
+  fails the same way. The waiting list is capped at 50 per row, a delivery
+  at 100 rows, and the size and colour are resolved to words ONCE rather
+  than twice per waiter.
+- **A write and the read after it are different failures.** The delivery
+  screen books the box in, then re-reads. Both used to sit in one try, so
+  a dropped connection on the re-read told the seller "nothing was booked
+  in" over a delivery that had just landed — and their typed numbers were
+  already cleared, so retyping it booked the whole box in twice. Once a
+  write has committed, nothing after it may say otherwise.
 - **A flex child beside a fixed one needs `minWidth: 0`.** On
   react-native-web a flex item's `min-width` stays `auto`, so a TextInput
   or a line of text will not shrink below its own content — the row

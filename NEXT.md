@@ -373,6 +373,40 @@ Nothing in either stage touches the one-of-a-kind shop: a listing with no
 stock table is untouched by all of it, and a private seller never sees any
 of it.
 
+**Shop stock, stage 3: the shop's day**, 14 Sep 2026. Three things a shop
+cannot do one listing at a time.
+
+**The morning list** (Profile → Your shop today, and a line at the top of
+Home when something is actually waiting): orders sitting in chat that
+nobody has taken off the shelf, rows at zero, rows at or under their low
+mark. Nothing else — no totals, no charts. A shop opens it while unlocking
+the door, and if it says "nothing needs you" that is the whole answer.
+
+**The delivery screen.** A box arrives with twenty things across eight
+listings; doing that one listing at a time is eight screens and eight
+saves, so it does not get done and the numbers quietly stop being true.
+One list, a +N box on each row, one save, all of it or none of it. Find by
+code is in the same box, for a shop that labels its stock.
+
+**The waiting list.** A buyer taps "tell me when it's back" on a sold-out
+size; the shop restocks; a message appears in their chat. That is a
+message and not a notification because **there is no way to reach a Vevaty
+user who is not looking at the app** — no push (adding it changes
+package.json and app.json, so it forces a native build), no email, and
+Meta blocks the WhatsApp channel. Chat is the only thing that works today.
+If push is ever added, the waiting list starts buzzing phones with nothing
+rebuilt.
+
+Review found eleven things; the two that mattered are both written up in
+@AGENTS.md because each is a class. The waiting list pointed at
+`auth.users` while chat threads point at `myazar.profiles`, and fifteen
+accounts here have no profile — one of them joining a list would have made
+that combination permanently unrestockable, with the seller seeing only
+"that did not save". And the delivery screen booked the box in and then
+re-read in the same try block, so a dropped connection said "nothing was
+booked in" over a delivery that had landed, after clearing the typed
+numbers — retyping it books the box in twice.
+
 **Shop stock reaches every countable category**, 14 Sep 2026. The first
 cut gated the whole thing on `categories.stock_mode`, which was set on
 eight categories, all of them clothing. Yousif posted a sofa into his

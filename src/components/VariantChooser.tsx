@@ -20,6 +20,7 @@ import { Variant, isLow, pickable, priceOf, rowFor } from '../lib/stock';
 
 export default function VariantChooser({
   rows, dims, a, b, qty, onA, onB, onQty, listingPrice, language, isRTL, t,
+  waiting, onWait, waitBusy, canWait,
 }: {
   rows: Variant[];
   dims: CategoryAttribute[];
@@ -33,6 +34,14 @@ export default function VariantChooser({
   language: 'en' | 'ar';
   isRTL: boolean;
   t: (k: string, v?: Record<string, string | number>) => string;
+  // Which combinations this reader has already asked to be told about.
+  waiting: Set<string>;
+  onWait: (row: Variant, on: boolean) => void;
+  waitBusy: boolean;
+  // False for the shop looking at its own listing, and for anyone not
+  // signed in -- the server refuses both, and a button that can only fail
+  // is worse than no button.
+  canWait: boolean;
 }) {
   // "Nothing to pick" is a property of the ROWS, not of the category. A
   // listing posted before its category gained a size still has one row
@@ -168,6 +177,26 @@ export default function VariantChooser({
         </View>
         {!!chosen && left > 0 && stepper}
       </View>
+
+      {/* Out of stock, and there is somewhere for the answer to go. One
+          tap now, a message in the chat the moment the shop puts it back
+          -- which is the only way to reach somebody who is not looking at
+          the app. */}
+      {!!chosen && left === 0 && canWait && (
+        <Pressy
+          onPress={() => onWait(chosen, !waiting.has(chosen.id))}
+          disabled={waitBusy}
+          style={[
+            styles.waitBtn,
+            waiting.has(chosen.id) && styles.waitBtnOn,
+            waitBusy && styles.waitBtnBusy,
+          ]}
+        >
+          <Text style={[styles.waitText, waiting.has(chosen.id) && styles.waitTextOn]}>
+            {waiting.has(chosen.id) ? t('stock.waitingOn') : t('stock.tellMeWhenBack')}
+          </Text>
+        </Pressy>
+      )}
     </View>
   );
 }
@@ -211,4 +240,16 @@ const styles = StyleSheet.create({
   stepOff: { opacity: 0.4 },
   stepGlyph: { fontSize: 20, lineHeight: 22, fontWeight: '700', color: colors.ink },
   qtyText: { fontSize: 17, fontWeight: '800', color: colors.ink, minWidth: 22, textAlign: 'center' },
+
+  waitBtn: {
+    marginTop: 10, height: 46, borderRadius: radius.pill,
+    borderWidth: 1, borderColor: colors.line, backgroundColor: colors.card,
+    alignItems: 'center', justifyContent: 'center',
+  },
+  // Answered, not pending: the shop has the request and there is nothing
+  // more for the buyer to do.
+  waitBtnOn: { backgroundColor: colors.primaryTint, borderColor: colors.primary },
+  waitBtnBusy: { opacity: 0.55 },
+  waitText: { fontSize: 14, fontWeight: '700', color: colors.ink },
+  waitTextOn: { color: colors.primary },
 });

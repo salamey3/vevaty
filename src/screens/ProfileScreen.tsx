@@ -268,6 +268,18 @@ export default function ProfileScreen() {
           </View>
         )}
 
+        {/* Only for a shop that is actually trading. A storefront still
+            waiting on verification has no listings in it yet, so its
+            morning is always empty and the row is only a dead end. */}
+        {isVerified && !!myShop?.verifiedAt && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('ShopDay')} style={styles.adminBtn}>
+              <Icon name="checkCircle" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('profile.shopDay')}</Text>
+            </Pressy>
+          </View>
+        )}
+
         {isVerified && (
           <View style={styles.section}>
             <Pressy onPress={() => navigation.navigate('MyStorefront')} style={styles.adminBtn}>

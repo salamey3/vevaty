@@ -67,6 +67,7 @@ import { sortListingsForBrowse } from '../lib/listingSort';
 import { findPlaceByFreeText } from '../data/lebanonPlaces';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import ContactOutcomePrompt from '../components/ContactOutcomePrompt';
+import ShopDayCard from '../components/ShopDayCard';
 
 // Parallel, always-visible selection state -- replaces the old one-facet-
 // at-a-time drill-down. Every enabled facet is its own sidebar section;
@@ -1139,12 +1140,24 @@ export default function HomeScreen() {
     </View>
   );
 
+  // The shop's morning, for the handful of people who have one. Renders
+  // nothing at all for everybody else, and nothing for a shop with a quiet
+  // morning -- see ShopDayCard. Same slot and the same "only on a section
+  // home" rule as the prompt above: it is a thing to do, not a thing to
+  // read halfway through a search.
+  const shopDayCard = isSectionHome && (
+    <View style={styles.contactPromptSlot}>
+      <ShopDayCard />
+    </View>
+  );
+
   // Passed into BOTH branches. `carousels` is what mobile renders on a
   // section home with listings -- the exact case this question exists for
   // -- and it takes its own header, so a card added only to scrollHeader
   // (the non-carousel path) never appeared on a phone at all.
   const carousels = renderCarousels(
     <>
+      {shopDayCard}
       {contactPromptCard}
       {mobileCollectionRowsStandalone}
     </>
@@ -1210,6 +1223,7 @@ export default function HomeScreen() {
   const scrollHeader = (
     <>
       {elsewhereLine}
+      {shopDayCard}
       {contactPromptCard}
       {isSectionHome && (isDesktop ? collectionRowsHeader : mobileCollectionRowsHeader)}
     </>

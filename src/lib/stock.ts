@@ -401,6 +401,142 @@ export async function threadStockTaken(threadId: string): Promise<Set<string>> {
   return new Set(Array.isArray(data) ? data.map((x: any) => String(x)) : []);
 }
 
+// ------------------------------------------------------- the shop's day
+
+// One row of the shop's stock, wherever it lives. Carries its listing with
+// it, because every screen in the shop's day is a list ACROSS listings --
+// the whole point of them is not having to open one at a time.
+export interface ShopRow extends Variant {
+  listingId: string;
+  titleEn: string;
+  titleAr: string;
+  categoryId: string;
+  // How many people asked to be told when this one comes back. Zero on
+  // anything that is in stock.
+  waiting: number;
+}
+
+// An order card a buyer sent that nobody has taken off the shelf yet.
+export interface WaitingOrder {
+  messageId: string;
+  threadId: string;
+  listingId: string;
+  titleEn: string;
+  titleAr: string;
+  qty: number;
+  // The frozen labels, already in the language the buyer was reading.
+  what: string;
+  at: number;
+}
+
+export interface ShopDay {
+  orders: WaitingOrder[];
+  low: ShopRow[];
+  out: ShopRow[];
+}
+
+export const EMPTY_DAY: ShopDay = { orders: [], low: [], out: [] };
+
+// Is there anything at all? What the Home card asks before it decides to
+// exist.
+export const dayIsQuiet = (d: ShopDay): boolean =>
+  d.orders.length === 0 && d.low.length === 0 && d.out.length === 0;
+
+export const dayCount = (d: ShopDay): number => d.orders.length + d.low.length + d.out.length;
+
+function parseRow(raw: any): ShopRow {
+  return {
+    id: String(raw?.id ?? ''),
+    a: raw?.size ? String(raw.size) : null,
+    b: raw?.colour ? String(raw.colour) : null,
+    sku: raw?.sku ? String(raw.sku) : null,
+    price: toNum(raw?.price),
+    photo: null,
+    qty: Math.max(0, toNum(raw?.qty, 0) ?? 0),
+    lowAt: toNum(raw?.low_at),
+    listingId: String(raw?.listing_id ?? ''),
+    titleEn: String(raw?.title_en ?? ''),
+    titleAr: String(raw?.title_ar ?? ''),
+    categoryId: String(raw?.category_id ?? ''),
+    waiting: Math.max(0, toNum(raw?.waiting, 0) ?? 0),
+  };
+}
+
+export function parseShopRows(raw: any): ShopRow[] {
+  return Array.isArray(raw) ? raw.map(parseRow).filter((r) => r.id) : [];
+}
+
+export function parseShopDay(raw: any): ShopDay {
+  if (!raw || typeof raw !== 'object') return EMPTY_DAY;
+  return {
+    orders: Array.isArray(raw.orders)
+      ? raw.orders
+          .map((o: any): WaitingOrder => ({
+            messageId: String(o?.message_id ?? ''),
+            threadId: String(o?.thread_id ?? ''),
+            listingId: String(o?.listing_id ?? ''),
+            titleEn: String(o?.title_en ?? ''),
+            titleAr: String(o?.title_ar ?? ''),
+            qty: Math.max(1, toNum(o?.qty, 1) ?? 1),
+            // Built from the frozen lines rather than resolved again: the
+            // labels on an old order are what the seller published then.
+            what: Array.isArray(o?.lines)
+              ? o.lines.map((l: any) => String(l?.label ?? '')).filter(Boolean).join(' · ')
+              : '',
+            at: Date.parse(String(o?.at ?? '')) || 0,
+          }))
+          .filter((o: WaitingOrder) => o.messageId)
+      : [],
+    low: parseShopRows(raw.low),
+    out: parseShopRows(raw.out),
+  };
+}
+
+export function shopRowLabel(
+  r: { a: string | null; b: string | null },
+  dims: CategoryAttribute[],
+  language: 'en' | 'ar'
+): string {
+  return !r.a && !r.b ? '' : variantLabel(r, dims, language);
+}
+
+export async function fetchShopDay(): Promise<ShopDay> {
+  const { data, error } = await supabase.rpc('shop_needs_me');
+  if (error) throw error;
+  return parseShopDay(data);
+}
+
+// Every row the shop has, optionally narrowed by a code or a title.
+export async function fetchShopRows(query?: string): Promise<ShopRow[]> {
+  const { data, error } = await supabase.rpc('shop_stock_rows', {
+    p_query: query?.trim() || null,
+    p_limit: 300,
+  });
+  if (error) throw error;
+  return parseShopRows(data);
+}
+
+// ---------------------------------------------------------- the waiting
+
+export async function joinWaitlist(variantId: string, language: 'en' | 'ar'): Promise<void> {
+  const { error } = await supabase.rpc('join_stock_waitlist', {
+    p_variant_id: variantId,
+    p_language: language,
+  });
+  if (error) throw error;
+}
+
+export async function leaveWaitlist(variantId: string): Promise<void> {
+  const { error } = await supabase.rpc('leave_stock_waitlist', { p_variant_id: variantId });
+  if (error) throw error;
+}
+
+export async function fetchMyWaitlist(listingId: string): Promise<Set<string>> {
+  const { data, error } = await supabase.rpc('my_waitlist', { p_listing_id: listingId });
+  if (error) throw error;
+  return new Set(Array.isArray(data) ? data.map((x: any) => String(x)) : []);
+}
+
 // Why the server refused, in the seller's own words.
 export function stockErrorKey(e: any): string {
   const code = String(e?.message ?? '').trim();
@@ -409,11 +545,18 @@ export function stockErrorKey(e: any): string {
     case 'not_your_listing': return 'stock.errNotYours';
     case 'no_such_variant': return 'stock.errGone';
     case 'too_many_variants': return 'stock.errTooMany';
+    // The per-row ceiling, which the delivery screen is the first thing
+    // that makes easy to hit: six digits in a box, and the refusal takes
+    // the whole batch with it.
+    case 'too_many': return 'stock.errTooBig';
     case 'variant_needs_a_dimension': return 'stock.errNoDimension';
     case 'mixed_dimensions': return 'stock.errMixed';
     case 'not_that_many': return 'stock.errNotThatMany';
     case 'already_taken_off': return 'stock.errAlreadyTaken';
     case 'not_your_thread': return 'stock.errNotYourThread';
+    case 'already_in_stock': return 'stock.errBackAlready';
+    case 'your_own_listing': return 'stock.errYourOwn';
+    case 'waitlist_full': return 'stock.errWaitlistFull';
     default:
       console.warn('[stock]', code || e);
       return 'stock.errFailed';
