@@ -382,7 +382,7 @@ const styles = StyleSheet.create({
 
   row: { paddingHorizontal: 14, paddingVertical: 10, borderBottomWidth: 1, borderBottomColor: colors.line },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 10 },
-  rowNameWrap: { flex: 1 },
+  rowNameWrap: { flex: 1, minWidth: 0 },
   rowName: { fontSize: 14.5, color: colors.ink },
   rowSku: { ...type.tiny, marginTop: 1 },
   minus: {
@@ -411,7 +411,7 @@ const styles = StyleSheet.create({
     backgroundColor: colors.bg, textAlign: 'center', fontSize: 15, color: colors.ink,
   },
   panelBtn: {
-    flex: 1, height: 42, borderRadius: radius.sm, backgroundColor: colors.primary,
+    flex: 1, minWidth: 0, height: 42, borderRadius: radius.sm, backgroundColor: colors.primary,
     alignItems: 'center', justifyContent: 'center',
   },
   panelBtnQuiet: { backgroundColor: colors.bg, borderWidth: 1, borderColor: colors.line },
@@ -426,7 +426,7 @@ const styles = StyleSheet.create({
     borderWidth: 1, borderColor: colors.line, borderRadius: radius.sm,
     backgroundColor: colors.bg, paddingHorizontal: 12, paddingVertical: 8, marginTop: 8,
   },
-  tagName: { flex: 1, fontSize: 14.5, color: colors.ink },
+  tagName: { flex: 1, minWidth: 0, fontSize: 14.5, color: colors.ink },
   tagBusy: { opacity: 0.5 },
   tagPick: { fontSize: 13, fontWeight: '700', color: colors.ink, textDecorationLine: 'underline' },
   tagThumb: { width: 40, height: 40, borderRadius: radius.sm, backgroundColor: colors.card },

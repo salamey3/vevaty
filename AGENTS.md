@@ -504,6 +504,15 @@ everything about `myazar.listing_variants` follows from that.
   that default is the one that matters. Turning it off must SAVE — an
   empty table is what parks the rows, and gating the save on the switch
   instead left the grid hidden while the rows stayed live on the server.
+- **A flex child beside a fixed one needs `minWidth: 0`.** On
+  react-native-web a flex item's `min-width` stays `auto`, so a TextInput
+  or a line of text will not shrink below its own content — the row
+  overflows the card instead of dividing it. Three extras at
+  `flex: 1.4 / 1 / 1` in the stock grid put half the Price field past the
+  edge of a 390px phone and the Low-at field off-screen entirely, with no
+  scrollbar to hint at it. Anything that has to fit a phone gets
+  `flexWrap: 'wrap'` and a `flexBasis` that decides where it breaks, and
+  every `flex: 1` next to a fixed-width sibling gets `minWidth: 0`.
 - **An order is a question, and nothing is reserved.** Vevaty never sees
   the money, so holding stock against an enquiry would take a shirt off
   the site for somebody who never came back. Which means two orders are

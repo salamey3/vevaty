@@ -151,32 +151,38 @@ export default function StockGrid({
                 </View>
                 {showMore && (
                   <View style={[styles.moreRow, mirrorRow(isRTL)]}>
-                    <TextInput
-                      onFocus={onFocus}
-                      value={r.sku ?? ''}
-                      onChangeText={(v) => onChangeRow(r, { sku: v.slice(0, 40) || null })}
-                      placeholder={t('stock.skuPlaceholder')}
-                      placeholderTextColor={colors.inkSoft}
-                      style={[styles.smallInput, styles.skuInput]}
-                    />
-                    <PriceCell
-                      value={r.price}
-                      onChange={(n) => onChangeRow(r, { price: n })}
-                      onFocus={onFocus}
-                      placeholder={t('stock.pricePlaceholder')}
-                    />
-                    <TextInput
-                      onFocus={onFocus}
-                      value={r.lowAt == null ? '' : String(r.lowAt)}
-                      onChangeText={(v) => {
-                        const clean = v.replace(/[^0-9]/g, '');
-                        onChangeRow(r, { lowAt: clean === '' ? null : Math.min(MAX_QTY, Number(clean)) });
-                      }}
-                      keyboardType="numeric"
-                      placeholder={t('stock.lowPlaceholder')}
-                      placeholderTextColor={colors.inkSoft}
-                      style={[styles.smallInput, styles.lowInput]}
-                    />
+                    <View style={[styles.moreCell, styles.moreCellWide]}>
+                      <Text style={styles.moreLabel}>{t('stock.skuLabel')}</Text>
+                      <TextInput
+                        onFocus={onFocus}
+                        value={r.sku ?? ''}
+                        onChangeText={(v) => onChangeRow(r, { sku: v.slice(0, 40) || null })}
+                        placeholderTextColor={colors.inkSoft}
+                        style={styles.smallInput}
+                      />
+                    </View>
+                    <View style={styles.moreCell}>
+                      <Text style={styles.moreLabel}>{t('stock.priceLabel')}</Text>
+                      <PriceCell
+                        value={r.price}
+                        onChange={(n) => onChangeRow(r, { price: n })}
+                        onFocus={onFocus}
+                      />
+                    </View>
+                    <View style={styles.moreCell}>
+                      <Text style={styles.moreLabel}>{t('stock.lowLabel')}</Text>
+                      <TextInput
+                        onFocus={onFocus}
+                        value={r.lowAt == null ? '' : String(r.lowAt)}
+                        onChangeText={(v) => {
+                          const clean = v.replace(/[^0-9]/g, '');
+                          onChangeRow(r, { lowAt: clean === '' ? null : Math.min(MAX_QTY, Number(clean)) });
+                        }}
+                        keyboardType="numeric"
+                        placeholderTextColor={colors.inkSoft}
+                        style={styles.smallInput}
+                      />
+                    </View>
                   </View>
                 )}
               </View>
@@ -207,12 +213,11 @@ export default function StockGrid({
 // So the text is its own state while the seller is in the field, and only
 // a finite number is ever handed upwards.
 function PriceCell({
-  value, onChange, onFocus, placeholder,
+  value, onChange, onFocus,
 }: {
   value: number | null;
   onChange: (n: number | null) => void;
   onFocus?: () => void;
-  placeholder: string;
 }) {
   const [text, setText] = useState(value == null ? '' : String(value));
   const typing = useRef(false);
@@ -233,9 +238,8 @@ function PriceCell({
         onChange(clean === '' || !Number.isFinite(n) ? null : n);
       }}
       keyboardType="decimal-pad"
-      placeholder={placeholder}
       placeholderTextColor={colors.inkSoft}
-      style={[styles.smallInput, styles.priceInput]}
+      style={styles.smallInput}
     />
   );
 }
@@ -270,7 +274,12 @@ const styles = StyleSheet.create({
   headText: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5 },
   gridRow: { paddingHorizontal: 12, paddingVertical: 8, borderBottomWidth: 1, borderBottomColor: colors.line },
   rowTop: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  cellLabel: { flex: 1 },
+  // minWidth 0 everywhere a flex child sits beside a fixed one: on
+  // react-native-web a flex item's min-width stays `auto`, so text or an
+  // input refuses to shrink below its own content and pushes its
+  // neighbour off the screen instead. "Extra Extra Large · Gold or
+  // silver" is a real combination label.
+  cellLabel: { flex: 1, minWidth: 0 },
   cellQty: { width: 78 },
   rowLabel: { fontSize: 14.5, color: colors.ink },
   qtyInput: {
@@ -282,14 +291,28 @@ const styles = StyleSheet.create({
   qtyLow: { color: colors.accentDeep },
   qtyOut: { color: colors.inkSoft },
 
-  moreRow: { flexDirection: 'row', alignItems: 'center', gap: 8, marginTop: 8 },
+  // Wraps, and every cell can shrink. Three inputs at flex 1.4/1/1 used to
+  // run straight off the side of a phone: react-native-web leaves a flex
+  // item's min-width at `auto`, so a TextInput will not shrink below its
+  // own intrinsic width and the row overflows the card instead of
+  // dividing it. On a 390px screen that put half the Price field past the
+  // edge and the Low at field off-screen entirely.
+  //
+  // flexBasis is what decides the shape: two cells fit a phone and the
+  // third drops to its own line, while a wide screen still gets all three
+  // across.
+  moreRow: { flexDirection: 'row', flexWrap: 'wrap', alignItems: 'flex-start', gap: 8, marginTop: 10 },
+  moreCell: { flexGrow: 1, flexShrink: 1, flexBasis: 132, minWidth: 0 },
+  // The code is the long value and gets a line to itself on a phone; the
+  // two numbers pair up under it. On a wide screen all three still fit
+  // across, because 280 + 132 + 132 is nothing to a desktop.
+  moreCellWide: { flexBasis: 280 },
+  moreLabel: { ...type.tiny, marginBottom: 4 },
   smallInput: {
-    height: 36, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
-    backgroundColor: colors.card, paddingHorizontal: 8, fontSize: 13, color: colors.ink,
+    width: '100%',
+    height: 38, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
+    backgroundColor: colors.card, paddingHorizontal: 10, fontSize: 14, color: colors.ink,
   },
-  skuInput: { flex: 1.4 },
-  priceInput: { flex: 1, textAlign: 'center' },
-  lowInput: { flex: 1, textAlign: 'center' },
 
   footNote: { ...type.tiny, paddingHorizontal: 12, paddingTop: 8, lineHeight: 16 },
   moreToggle: { paddingHorizontal: 12, paddingVertical: 10 },

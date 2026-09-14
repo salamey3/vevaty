@@ -140,7 +140,7 @@ export default function VariantChooser({
       {/* What the pick actually means: the price for this exact one, and
           how many of it there are. */}
       <View style={[styles.summary, mirrorRow(isRTL)]}>
-        <View style={{ flex: 1 }}>
+        <View style={{ flex: 1, minWidth: 0 }}>
           {chosen ? (
             <>
               <Text style={styles.summaryPrice}>{money(price * Math.max(1, qty))}</Text>
