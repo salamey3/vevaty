@@ -115,6 +115,12 @@ check('snapshot total', snap?.total, 7710);
 check('snapshot answer', snap?.lines[0].answer, 'Sara');
 check('an unreadable snapshot is null, not a broken card', parseOrderSnapshot({ nope: 1 }), null);
 check('a missing snapshot', parseOrderSnapshot(null), null);
+// Only a SHOP-STOCK order names a variant, and that is what decides
+// whether the seller's card grows a "take one off" button. A
+// made-to-order craft has nothing to take off, so it must stay null.
+check('a made-to-order card has no variant', snap?.variantId, null);
+check('a stock order card names its row',
+  parseOrderSnapshot({ total: '36.00', qty: 2, lines: [], variant_id: 'v1' })?.variantId, 'v1');
 
 // --- money and labels ---------------------------------------------------
 const t = (k) => (k === 'options.onceSuffix' ? 'once' : k);

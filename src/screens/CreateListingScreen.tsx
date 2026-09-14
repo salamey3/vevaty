@@ -31,6 +31,11 @@ import { listingActionMessage } from '../lib/listingActionMessage';
 import { conditionOptionsFor, conditionFieldLabel, conditionStepLabel } from '../lib/conditionModes';
 import OptionsBuilder, { groupsProblem, tidyGroups } from '../components/OptionsBuilder';
 import { OptionGroup, fetchListingOptions, saveListingOptions } from '../lib/listingOptions';
+import {
+  Variant, fetchVariants, gridFor, offeredValues, picksFromRows,
+  MAX_VARIANTS, rememberRow, saveVariants, stockErrorKey, totalOf, variantDimensions,
+  variantLabel,
+} from '../lib/stock';
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { mirrorRow } from '../lib/mirrorRow';
@@ -46,7 +51,7 @@ import CategorySuggestInput from '../components/CategorySuggestInput';
 import CategoryPickerModal from '../components/CategoryPickerModal';
 import ConditionPicker from '../components/ConditionPicker';
 import CategorySpecsForm from '../components/CategorySpecsForm';
-import StockIntakeForm from '../components/StockIntakeForm';
+import StockGrid from '../components/StockGrid';
 import ShopChoiceGate from '../components/ShopChoiceGate';
 import {
   MAX_VIDEO_BYTES,
@@ -173,28 +178,37 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // assembled result before moving on -- see SpinPreviewModal.
   const [spinPreviewOpen, setSpinPreviewOpen] = useState(false);
   const [attrValues, setAttrValues] = useState<Record<string, AttributeValue>>(editingListing?.attributes || {});
-  // Stock/variants -- kept as its own state rather than folded into
-  // attrValues, the same way price/title/district each get their own
-  // state instead of living in a generic bag: the variant attribute's
-  // "value" (the array of in-stock option values) is DERIVED from this,
-  // computed once at submit time (see buildStock in post() below), never
-  // something the seller edits directly or the AI suggestion fills in.
-  // `variantStock` is per-option-value quantity text, keyed by the
-  // variant attribute's option value (e.g. { s: '3', m: '0', l: '5' });
-  // `plainStockQty` is the single quantity field shown instead when the
-  // category is 'multiple' stock mode but defines no is_variant attribute
-  // (e.g. a shop selling one kind of accessory with no size to track).
-  const [variantStock, setVariantStock] = useState<Record<string, string>>(() => {
-    const m: Record<string, string> = {};
-    (editingListing?.variants || []).forEach((v) => {
-      const val = Object.values(v.attributes)[0];
-      if (typeof val === 'string') m[val] = String(v.stockQty);
-    });
-    return m;
-  });
-  const [plainStockQty, setPlainStockQty] = useState<string>(
-    editingListing && !editingListing.variants ? String(editingListing.stockQty ?? '') : ''
-  );
+  // Stock -- kept as its own state rather than folded into attrValues,
+  // the same way price/title/district each get their own state instead of
+  // living in a generic bag: each dimension's "value" (the list of values
+  // the listing offers) is DERIVED from this at submit time (see
+  // buildStock below), never something the seller edits directly or the AI
+  // suggestion fills in.
+  //
+  // `stockPicks` is which values the seller has ticked, keyed by each
+  // dimension's slug ({ size: ['s','m'], colour: ['navy'] }); `stockRows`
+  // is the table those ticks multiply out into, one row per sellable
+  // combination. A row that already exists on the server carries the
+  // server's own quantity and this screen never sends it back -- see
+  // src/lib/stock.ts and StockGrid for why ADD and SET have to stay
+  // different verbs.
+  const [stockPicks, setStockPicks] = useState<Record<string, string[]>>({});
+  // Everything the form knows about, ticked or not. The grid the seller
+  // sees is DERIVED from this and the ticks (stockRows below), which is
+  // what makes unticking non-destructive: untick S and its row leaves the
+  // grid but stays here, so re-ticking brings back the same twelve units
+  // instead of a fresh row at zero next to an editable box whose number
+  // the server would then discard.
+  const [stockAll, setStockAll] = useState<Variant[]>([]);
+  // Whether what is on the Stock step is the listing's real table. Same
+  // guard, for the same reason, as choicesLoaded below: a NEW listing has
+  // nothing to load so it starts true, an edit starts false and flips only
+  // when the fetch lands. save_listing_variants parks every row it is not
+  // sent, so a fetch that failed once -- a flaky connection on opening
+  // Edit -- would otherwise show an empty table, and a seller changing
+  // nothing but the title would retire their whole size run.
+  const [stockLoaded, setStockLoaded] = useState(!isEditMode);
+  const [stockTry, setStockTry] = useState(0);
   // Whether the seller has actually answered the stock question, as
   // opposed to the step merely having been on screen. Both intake fields
   // start empty and Continue never required them, so "untouched" and
@@ -704,9 +718,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // to an ordinary spec writes the identical value (a list of option
   // values under the attribute's own slug), so every filter and spec
   // display reads a shop's listing and an individual's the same way.
-  const variantAttr = useMemo(
-    () => (hasStockStep ? resolvedAttrs.find((a) => a.isVariant) || null : null),
+  const variantDims = useMemo(
+    () => (hasStockStep ? variantDimensions(resolvedAttrs) : []),
     [resolvedAttrs, hasStockStep]
+  );
+  // A category with no dimensions at all -- a shop selling bracelets --
+  // comes back as exactly one row with neither value set, which is why
+  // this is not gated on anything being ticked.
+  const stockRows = useMemo(
+    () => (hasStockStep ? gridFor(variantDims, stockPicks, stockAll) : []),
+    [hasStockStep, variantDims, stockPicks, stockAll]
   );
   // resolveVisibleAttrs additionally drops any attribute whose
   // dependsOnSlug/dependsOnValues isn't currently satisfied (e.g.
@@ -715,10 +736,50 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // (spec lines, AI-suggestion schema, payload, required-field
   // validation, the review-step summary) already reads from this list.
   const specAttrs = useMemo(
-    () => resolveVisibleAttrs(hasStockStep ? resolvedAttrs.filter((a) => !a.isVariant) : resolvedAttrs, attrValues, condition),
+    () => resolveVisibleAttrs(
+      hasStockStep ? resolvedAttrs.filter((a) => !(a.isVariant && a.variantRank)) : resolvedAttrs,
+      attrValues, condition
+    ),
     [resolvedAttrs, attrValues, condition, hasStockStep]
   );
   const hasSpecs = specAttrs.length > 0;
+  // Editing a listing that already has a stock table: load it once. Same
+  // shape as the choices loader below, and gated on stockLoaded for the
+  // same reason.
+  const stockLoadedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!isEditMode || !editListingId || !hasStockStep) return;
+    if (stockLoadedFor.current === editListingId) return;
+    stockLoadedFor.current = editListingId;
+    fetchVariants(editListingId)
+      .then((rows) => {
+        setStockAll(rows);
+        setStockPicks(picksFromRows(variantDims, rows));
+        setStockLoaded(true);
+      })
+      .catch(() => {
+        // Let a later render try again rather than leaving the step
+        // silently empty -- and keep stockLoaded false so that until it
+        // does land, saving writes nothing here.
+        stockLoadedFor.current = null;
+      });
+  }, [isEditMode, editListingId, hasStockStep, variantDims, stockTry]);
+  // Ticking a size rebuilds the table around it. Untouched combinations
+  // keep their rows (and so their server-side numbers); an unticked one
+  // drops out of the table, and the server parks its row rather than
+  // deleting it, so re-ticking it later brings the same row back with the
+  // count it went away with.
+  const reTick = (slug: string, value: string) => {
+    setStockTouched(true);
+    setStockPicks((prev) => {
+      const had = prev[slug] ?? [];
+      return { ...prev, [slug]: had.includes(value) ? had.filter((v) => v !== value) : [...had, value] };
+    });
+  };
+  const editRow = (row: Variant, patch: Partial<Variant>) => {
+    setStockTouched(true);
+    setStockAll((all) => rememberRow(all, { ...row, ...patch }));
+  };
   // Whether there's at least one gallery photo -- the strongest signal the
   // AI vision suggestion (see applyAiSuggestion below) can work from. Kept
   // separate from hasEnoughPhotosForAi below: this one still means "there's
@@ -924,21 +985,34 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // KIND is what is held steady, and the index is recomputed to match it.
   // Stock belongs to a category, because the attribute it is broken down
   // by does. Nothing reset it when the category changed mid-edit, so a
-  // Clothing listing re-filed as Shoes kept { s: '4', m: '2' } behind an
+  // Clothing listing re-filed as Shoes kept its S/M/L rows behind an
   // EU 36-46 table: the seller saw every row blank, and saving either
   // wrote the old sizes under the new slug or, once they typed into one
   // row, mapped every shoe option to a miss and posted the listing at
-  // zero. Keyed off `category` rather than the attribute's slug on
-  // purpose -- the attribute is null for a moment while the category's
-  // rows load, and resetting on that would wipe the values seeded from
-  // the listing being edited.
+  // zero. Keyed off `category` rather than the dimensions' slugs on
+  // purpose -- those are empty for a moment while the category's rows
+  // load, and resetting on that would wipe the table just fetched for the
+  // listing being edited.
   const stockCategoryRef = useRef(category);
   useEffect(() => {
     if (stockCategoryRef.current === category) return;
     stockCategoryRef.current = category;
-    setVariantStock({});
-    setPlainStockQty('');
+    setStockPicks({});
+    setStockAll([]);
     setStockTouched(false);
+    // Once the listing has been moved to a DIFFERENT category, an empty
+    // table is not a table that failed to load -- it is the truth, and
+    // saving it parks the old category's rows, which is exactly right: an
+    // S/M/L run does not follow a listing from Clothing to Shoes. So this
+    // counts as loaded, and Continue is not held.
+    //
+    // Moving back to the category it started in is the other case: there
+    // IS something to load again, so the flag drops and the ref is cleared
+    // so the loader will actually re-run rather than seeing an id it has
+    // already fetched and returning early.
+    const movedAway = isEditMode && !!editingListing && category !== editingListing.cat;
+    setStockLoaded(!isEditMode || movedAway);
+    stockLoadedFor.current = null;
   }, [category]);
 
   const stepKindsRef = useRef(stepKinds);
@@ -1588,9 +1662,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // only a named group with nothing in it, or choices under no name at
     // all, hold Continue -- both of those would post something broken.
     choices: !choicesProblem,
-    // Never blocks Next -- a shop can post with everything at 0 (e.g.
-    // "coming soon"), same "optional, not a gate" treatment as photos/spin.
-    stock: true,
+    // Never blocks Next on the numbers -- a shop can post with everything
+    // at 0 (e.g. "coming soon"), same "optional, not a gate" treatment as
+    // photos/spin. It does block on the two things that would be refused
+    // by the server and then swallowed: more combinations than one item
+    // can hold, and an edit whose existing table never loaded.
+    stock: stockRows.length <= MAX_VARIANTS && (!isEditMode || stockLoaded),
     details: title.trim().length > 0 && pricingValid && hasLocation,
     // Was unconditionally true ("translation is a suggestion, never blocks
     // posting") -- but that let a seller tap through mid-translation and
@@ -1663,50 +1740,36 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     return () => window.removeEventListener('beforeunload', warn);
   }, [video?.status]);
 
-  // Stock/variants -- computed once, here, from the Stock step's own
-  // state (never from attrValues, see that state's doc comment above).
-  // For a variant category, attributes[variantAttr.slug] is always
-  // exactly the list of option values that ended up with stock > 0 --
-  // the single fact that keeps every existing multiselect-based
-  // filter/spec-display path (HomeScreen, StorefrontScreen, ListingCard,
-  // formatAttrValue) working for it with zero special-casing.
-  const buildStock = (): { stockQty: number; variants: ListingVariant[] | null; variantValues: string[] } => {
-    if (!hasStockStep || !stockTouched) {
-      // "Not shown" and "shown but never filled in" both have to mean
-      // "leave it alone", never "reset it". updateListing writes stock_qty
-      // and variants unconditionally, so returning the default here
-      // rewrote a shop's whole size table to a single unit any time the
-      // gate read false -- before myShop finished loading, or permanently
-      // once a storefront's verification lapsed -- and returning zero for
-      // an untouched step did the same thing from the other direction.
-      // Editing a listing to fix a typo is not a request to clear its
-      // stock.
-      // Only while this is still the SAME category. Stock is shaped by the
-      // category's own variant attribute, so once the seller moves a
-      // listing from Clothing to Shoes the stored S/M/L variants describe
-      // an attribute that no longer exists here -- preserving them would
-      // write 's' and 'm' under the shoe size slug and put bogus entries
-      // in the buyer's size filter for Shoes.
+  // What the Stock step contributes to the listing row itself: the values
+  // it OFFERS, written under each dimension's own slug, which is what
+  // every existing size/colour filter already reads.
+  //
+  // The quantities are deliberately NOT here. They live in
+  // myazar.listing_variants and are saved by their own call once the
+  // listing has an id (persistStock below), because a quantity that a form
+  // can post is a quantity that goes stale between opening the form and
+  // pressing Save.
+  const buildStock = (): { attributes: Record<string, string[]>; total: number } => {
+    if (!hasStockStep || !stockTouched || !stockLoaded) {
+      // "Not shown", "shown but never filled in" and "not loaded yet" all
+      // have to mean "leave it alone", never "reset it". Editing a listing
+      // to fix a typo is not a request to retire its stock.
+      //
+      // Only while this is still the SAME category, though. Stock is
+      // shaped by the category's own dimensions, so once the seller moves
+      // a listing from Clothing to Shoes the stored S/M/L rows describe an
+      // attribute that no longer exists here.
       if (editingListing && editingListing.cat === category) {
-        return {
-          stockQty: editingListing.stockQty,
-          variants: editingListing.variants,
-          variantValues: (editingListing.variants ?? []).map((v) => Object.values(v.attributes)[0]).filter(Boolean),
-        };
+        const keep: Record<string, string[]> = {};
+        variantDims.forEach((d) => {
+          const v = editingListing.attributes?.[d.slug];
+          if (Array.isArray(v)) keep[d.slug] = v as string[];
+        });
+        return { attributes: keep, total: editingListing.stockQty };
       }
-      return { stockQty: 1, variants: null, variantValues: [] };
+      return { attributes: {}, total: 1 };
     }
-    if (variantAttr) {
-      const variants: ListingVariant[] = variantAttr.options
-        .map((o) => ({ id: `v-${o.value}`, attributes: { [variantAttr.slug]: o.value }, stockQty: Number(variantStock[o.value]) || 0 }))
-        .filter((v) => v.stockQty > 0);
-      return {
-        stockQty: variants.reduce((sum, v) => sum + v.stockQty, 0),
-        variants,
-        variantValues: variants.map((v) => v.attributes[variantAttr.slug]),
-      };
-    }
-    return { stockQty: Number(plainStockQty) || 0, variants: null, variantValues: [] };
+    return { attributes: offeredValues(variantDims, stockRows), total: totalOf(stockRows) };
   };
 
   // Shared by the real Post/Save submit below and by saveAsDraftAndExit --
@@ -1724,10 +1787,11 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       if (attrHasValue(v)) attributes[a.slug] = v as AttributeValue;
     });
     const stock = buildStock();
-    if (variantAttr) {
-      if (stock.variantValues.length > 0) {
-        attributes[variantAttr.slug] = stock.variantValues;
-      } else if (!stockTouched && attrHasValue(attrValues[variantAttr.slug])) {
+    variantDims.forEach((dim) => {
+      const offered = stock.attributes[dim.slug];
+      if (offered && offered.length > 0) {
+        attributes[dim.slug] = offered;
+      } else if (!stockTouched && attrHasValue(attrValues[dim.slug])) {
         // The stock step is showing but nobody has answered it, and a
         // size is already on file -- entered as a plain spec before the
         // step appeared, or carried in from the listing being edited.
@@ -1738,9 +1802,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         // shop clearing every quantity to retire a line means the sizes
         // are gone, and writing them back would leave the listing at zero
         // stock while still answering a buyer's "Size: M" filter.
-        attributes[variantAttr.slug] = attrValues[variantAttr.slug] as AttributeValue;
+        attributes[dim.slug] = attrValues[dim.slug] as AttributeValue;
       }
-    }
+    });
     const trimmedDistrict = district.trim() || 'Lebanon';
     const derivedCoords = preciseCoords || (resolvedPlace ? { lat: resolvedPlace.lat, lng: resolvedPlace.lng } : null);
     return {
@@ -1807,8 +1871,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         : !myShop && editingListing?.shopId
         ? editingListing.shopId
         : null,
-      stockQty: stock.stockQty,
-      variants: stock.variants,
+      // `stockQty` here is only ever the optimistic local number -- see
+      // stockFromVariants, which keeps it out of the insert/update when
+      // the real total belongs to the variants table.
+      stockQty: stock.total,
+      variants: null,
+      stockFromVariants: hasStockStep,
       ...(opts?.asDraft ? { status: 'draft' as const } : {}),
     };
   };
@@ -1835,11 +1903,13 @@ export default function CreateListingScreen({ navigation, route }: Props) {
         // of the next one. The Save-and-exit paths deliberately do not
         // wait -- backing out is a bail-out, not a commitment.
         await updateListing(editListingId, payload, { waitMedia: true });
+        await persistStock(editListingId);
         await persistChoices(editListingId);
         setPosting(false);
         navigation.navigate('ListingDetail', { listingId: editListingId });
       } else {
         const listing = await addListing(payload);
+        await persistStock(listing.id);
         await persistChoices(listing.id);
         setPosting(false);
         navigation.replace('ListingDetail', { listingId: listing.id });
@@ -1901,8 +1971,14 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       targetDescription,
       contactMethod,
       attachToShop,
-      plainStockQty,
-      variantStock,
+      // Deliberately the FLAG and not the table. The baseline snapshot is
+      // taken on the first render, before the async fetch of an existing
+      // listing's rows has landed, so snapshotting the rows themselves
+      // made every shop listing "changed" the moment it finished loading
+      // -- the seller opened Edit, touched nothing, pressed Back and got
+      // the unsaved-changes dialog every time. This flag only ever flips
+      // on a real edit, so it is immune to when the load arrives.
+      stockTouched,
       // Not read by buildPayload -- the choices are saved by their own
       // call, after the listing exists -- but a seller who opens Edit,
       // changes one choice's price and walks away has made a real change
@@ -1933,6 +2009,30 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // already saved and live; losing the choices is a thing the seller can
   // fix by editing, whereas throwing would leave them on a dead Post
   // button looking at a listing that did in fact go up.
+  // The stock table, saved once the listing has an id. Deliberately after
+  // the listing itself and deliberately not fatal: a listing that saved
+  // but whose table did not is a listing the seller can open and fix,
+  // whereas throwing here would leave them staring at a Post button for a
+  // listing that already exists.
+  //
+  // stockLoaded is the guard that matters. save_listing_variants parks
+  // every combination it is not sent, so calling this with a table that
+  // never loaded would retire a shop's entire size run on an edit that
+  // only touched the title.
+  const persistStock = async (listingId: string) => {
+    if (!hasStockStep || !stockLoaded || !stockTouched) return;
+    try {
+      await saveVariants(listingId, stockRows);
+    } catch (e: any) {
+      // Not fatal -- the listing itself saved, and throwing here would
+      // leave the seller on a Post button for something that already
+      // exists. But not silent either: swallowing this posted an item
+      // showing "1 in stock" over a table the seller had just filled in,
+      // with nothing anywhere to say the numbers had not been taken.
+      Alert.alert(t('stock.notSavedTitle'), t(stockErrorKey(e)));
+    }
+  };
+
   const persistChoices = async (listingId: string) => {
     if (!hasChoicesStep || !choicesLoaded) return;
     try {
@@ -1952,10 +2052,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       const targetId = editListingId || createdDraftIdRef.current;
       if (targetId) {
         await updateListing(targetId, payload);
+        await persistStock(targetId);
         await persistChoices(targetId);
       } else {
         const listing = await addListing(payload);
         createdDraftIdRef.current = listing.id;
+        await persistStock(listing.id);
         await persistChoices(listing.id);
       }
       return true;
@@ -1991,6 +2093,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     }
     try {
       await updateListing(editListingId as string, buildPayload());
+      await persistStock(editListingId as string);
       await persistChoices(editListingId as string);
       return true;
     } catch (e: any) {
@@ -2625,28 +2728,26 @@ export default function CreateListingScreen({ navigation, route }: Props) {
 
         {currentKind === 'stock' && (
           <View>
-            <StockIntakeForm
-              variantAttr={variantAttr}
-              variantStock={variantStock}
-              onChangeVariantStock={(optionValue, qty) => {
-                setStockTouched(true);
-                setVariantStock((prev) => ({ ...prev, [optionValue]: qty }));
-              }}
-              plainStockQty={plainStockQty}
-              onChangePlainStockQty={(qty) => {
-                setStockTouched(true);
-                setPlainStockQty(qty);
-              }}
-              language={language}
-              onFocus={onInputFocus}
-              variantIntro={
-                variantAttr
-                  ? t('createListing.stockVariantIntro', { label: language === 'ar' ? variantAttr.labelAr : variantAttr.labelEn })
-                  : ''
-              }
-              plainIntro={t('createListing.stockPlainIntro')}
-              stockQtyLabel={t('createListing.stockQtyLabel')}
-            />
+            {isEditMode && !stockLoaded ? (
+              <View style={styles.choicesLoading}>
+                <Text style={styles.choicesProblem}>{t('stock.notLoaded')}</Text>
+                <Pressy onPress={() => setStockTry((n) => n + 1)} style={styles.choicesRetry}>
+                  <Text style={styles.choicesRetryText}>{t('common.retry')}</Text>
+                </Pressy>
+              </View>
+            ) : (
+              <StockGrid
+                dims={variantDims}
+                picks={stockPicks}
+                onTogglePick={reTick}
+                rows={stockRows}
+                onChangeRow={editRow}
+                language={language}
+                isRTL={isRTL}
+                t={t}
+                onFocus={onInputFocus}
+              />
+            )}
           </View>
         )}
 
@@ -3054,27 +3155,16 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                   ))}
               </View>
             )}
-            {hasStockStep && (
+            {hasStockStep && stockTouched && stockRows.length > 0 && (
               <View style={styles.specsReview}>
-                {variantAttr
-                  ? Object.entries(variantStock)
-                      .filter(([, q]) => Number(q) > 0)
-                      .map(([val, q]) => {
-                        const opt = variantAttr.options.find((o) => o.value === val);
-                        const label = opt ? (language === 'ar' ? opt.labelAr : opt.labelEn) : val;
-                        return (
-                          <View key={val} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
-                            <Text style={type.soft}>{label}</Text>
-                            <Text style={type.body}>{t('createListing.stockQtyValue', { n: q })}</Text>
-                          </View>
-                        );
-                      })
-                  : (
-                    <View style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
-                      <Text style={type.soft}>{t('createListing.stockQtyLabel')}</Text>
-                      <Text style={type.body}>{plainStockQty || '0'}</Text>
-                    </View>
-                  )}
+                {stockRows.map((r) => (
+                  <View key={r.id} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
+                    <Text style={type.soft}>
+                      {variantDims.length === 0 ? t('stock.plainRowLabel') : variantLabel(r, variantDims, language)}
+                    </Text>
+                    <Text style={type.body}>{t('createListing.stockQtyValue', { n: r.qty })}</Text>
+                  </View>
+                ))}
               </View>
             )}
             {usedDraft && (

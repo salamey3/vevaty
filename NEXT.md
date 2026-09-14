@@ -317,6 +317,62 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**Shop stock, stages 1 and 2 of 4**, 14 Sep 2026. The second kind of shop — the
+one that buys in bulk and sells the same shirt in four sizes and three
+colours — had nowhere to keep a number. It has one now: a size × colour
+table on the posting form, and on the shop's own listing a counter with a
+minus button, "a delivery came" and "I counted them".
+
+Everything about it follows from one fact: **Vevaty never sees the money,
+so nothing can tell the app a sale happened.** A number only moves because
+a person said so, which makes saying so almost free (one tap) and makes
+ADD and SET different verbs that never share a control. See @AGENTS.md,
+"A quantity nobody can post", before touching any of it.
+
+Five migrations, each test-fired in a rolled-back transaction:
+`myazar.listing_variants` and `stock_movements` with `stock_move` /
+`stock_count` / `stock_move_many` (the row is locked, going below zero is
+refused rather than clamped, and every change is filed with who made it);
+a second `variant_rank` so a category can break stock down two ways
+instead of one; and `hold_stock_total`, a trigger that quietly replaces
+any `stock_qty` the app sends with the true sum, so no screen can put a
+stale total on a card. Then, for stage 2: `send_stock_order`, which prices
+the row, refuses more than there are, and freezes the size and colour into
+the message as words in the buyer's own language; and
+`stock_sold_from_order`, the seller's one tap.
+
+**Stage 2 is the buyer's half, and it ships in the same patch.** The buyer
+picks a size and a colour; combinations the shop never made are absent,
+ones it has sold out of are shown and marked, because "M is out until
+Friday" is what they came to find out. Picking a colour moves the gallery
+to that colour's photo — which the shop tags on its own listing, where
+every picture is already hosted, and not in the posting form, where a
+first post's gallery is still on the phone when the listing saves. The
+buyer's pick goes into the chat as an order card naming the exact one
+("Size: M, Colour: Navy"), and the seller gets one tap on that card:
+**Sold — take 2 off**.
+
+That tap is the only thing in the whole system that can tell the app a
+sale happened, which is why it sits next to the conversation where the
+sale was agreed rather than three screens away. It files the movement
+against that exact message, and a unique index means a second tap, a
+double-tap or a second device can only ever move the stock once.
+
+Nothing is reserved when an order is sent — an order is a question, and
+holding stock against a question takes a shirt off the site for somebody
+who never came back. So the listing refuses to send a *second* order for a
+row it has already asked about: two orders are two sales, and no index can
+tell them apart.
+
+Still to come, in order: **Stage 3**, the shop's day — a morning "needs
+you" list, a restock screen, search by code, and "tell me when it's back".
+**Stage 4**, staff accounts: invite by phone, a stock-only role, and
+per-person history (which the `actor_id` column already records).
+
+Nothing in either stage touches the one-of-a-kind shop: a listing with no
+stock table is untouched by all of it, and a private seller never sees any
+of it.
+
 **Saved sets**, 13 Sep 2026. A seller keeps up to twelve named sets of
 choices and drops one into a listing in a tap, instead of retyping Size and
 Add-ons on every item. A set is a template and is COPIED: the stored body

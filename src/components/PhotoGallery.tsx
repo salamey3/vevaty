@@ -50,7 +50,19 @@ type Props = {
 // this component. The photo box is a fixed-size, overflow-hidden frame, so
 // anything rendered in here is necessarily ON the photo -- and arrows
 // belong beside it, not over it. Only the caller knows where "beside" is.
-export type PhotoGalleryHandle = { page: (direction: number) => void };
+export type PhotoGalleryHandle = {
+  page: (direction: number) => void;
+  // Jump straight to one photo. Used when a buyer picks a colour and the
+  // shop has said which picture is the navy one -- the gallery moves to
+  // it rather than being replaced, so the buyer can still swipe through
+  // everything else.
+  //
+  // Returns whether it actually went: false before the gallery has
+  // measured itself, which is the state it is in while the media block is
+  // collapsed or another tab is showing. The caller needs to know, or it
+  // records a jump that never happened and never tries again.
+  goTo: (index: number) => boolean;
+};
 
 function PhotoGalleryInner(
   { photos, fallbackIconName, onIndexChange, allowFullscreen = true }: Props,
@@ -75,7 +87,17 @@ function PhotoGalleryInner(
     scrollRef.current?.scrollTo({ x: next * width, animated: true });
   };
 
-  useImperativeHandle(ref, () => ({ page: pageBy }), [width, index, photos.length]);
+  const goTo = (to: number): boolean => {
+    if (width <= 0) return false;
+    const next = Math.min(photos.length - 1, Math.max(0, to));
+    if (next === index) return true;
+    setIndex(next);
+    onIndexChange?.(next);
+    scrollRef.current?.scrollTo({ x: next * width, animated: true });
+    return true;
+  };
+
+  useImperativeHandle(ref, () => ({ page: pageBy, goTo }), [width, index, photos.length]);
   const onMomentumEnd = (e: NativeSyntheticEvent<NativeScrollEvent>) => {
     if (width <= 0) return;
     const i = Math.round(e.nativeEvent.contentOffset.x / width);

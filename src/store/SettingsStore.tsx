@@ -120,6 +120,11 @@ interface CreateAttributeInput {
   unitAr: string | null;
   required: boolean;
   isVariant: boolean;
+  // Which of the (at most two) stock dimensions this is: 1 or 2, and null
+  // on anything that is not a variant. The database enforces the pairing
+  // and the limit, so sending is_variant without this fails the check
+  // constraint outright -- the admin form always sends the two together.
+  variantRank: 1 | 2 | null;
   // Which slot this takes on a listing card (1 = first), or null for "not
   // on the card". See src/lib/cardSpecs.ts.
   cardPriority: number | null;
@@ -137,6 +142,8 @@ interface UpdateAttributePatch {
   unitAr: string | null;
   required: boolean;
   isVariant: boolean;
+  // See CreateAttributeInput.variantRank.
+  variantRank: 1 | 2 | null;
   // Which slot this takes on a listing card (1 = first), or null for "not
   // on the card". See src/lib/cardSpecs.ts.
   cardPriority: number | null;
@@ -359,6 +366,7 @@ function dbToCategoryAttribute(row: any): CategoryAttribute {
     cardPriority: row.card_priority ?? null,
     icon: typeof row.icon === 'string' && KNOWN_ICON_NAMES.has(row.icon) ? (row.icon as IconName) : null,
     isVariant: !!row.is_variant,
+    variantRank: row.variant_rank === 1 || row.variant_rank === 2 ? row.variant_rank : null,
     dependsOnSlug: row.depends_on_slug || null,
     dependsOnValues: Array.isArray(row.depends_on_values) ? row.depends_on_values : null,
     allowNegative: !!row.allow_negative,
@@ -1122,6 +1130,7 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
         required: input.required,
         sort_order: nextSortOrder,
         is_variant: input.isVariant,
+        variant_rank: input.isVariant ? input.variantRank : null,
         card_priority: input.cardPriority,
         icon: input.icon,
       });
@@ -1141,7 +1150,12 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
       if (patch.unitEn !== undefined) dbPatch.unit_en = patch.unitEn;
       if (patch.unitAr !== undefined) dbPatch.unit_ar = patch.unitAr;
       if (patch.required !== undefined) dbPatch.required = patch.required;
-      if (patch.isVariant !== undefined) dbPatch.is_variant = patch.isVariant;
+      // Always together with is_variant, never on their own: the pair is
+      // one database check constraint, and half of it is a refused write.
+      if (patch.isVariant !== undefined || patch.variantRank !== undefined) {
+        dbPatch.is_variant = patch.isVariant ?? false;
+        dbPatch.variant_rank = dbPatch.is_variant ? patch.variantRank ?? null : null;
+      }
       if (patch.cardPriority !== undefined) dbPatch.card_priority = patch.cardPriority;
       if (patch.icon !== undefined) dbPatch.icon = patch.icon;
 

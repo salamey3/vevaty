@@ -369,9 +369,9 @@ Two rules that are easy to break by accident:
 
 # Stock and sizes belong to shops, not to categories
 
-`categories.stock_mode = 'multiple'` plus one `is_variant` multiselect
-attribute is what turns the create form's Stock step into a per-size
-table (`Listing.variants`, with `stockQty` as their sum). Both are
+`categories.stock_mode = 'multiple'` plus up to two `is_variant`
+multiselect attributes — ranked 1 and 2 by `variant_rank` — is what turns
+the create form's Stock step into a size × colour table. Both are
 properties of the CATEGORY — but the categories that carry stock are also
 the ones private sellers use most, so Clothing set to `multiple` would
 put a stock table in front of someone selling one used jacket to say
@@ -424,6 +424,71 @@ other step:
   seller's single used jacket. `ListingDetailScreen` gates on
   `listing.shopId` as well; anything new that reads `stockQty` should
   too.
+
+# A quantity nobody can post
+
+Vevaty never sees the money, so **nothing can tell the app a sale
+happened**. A stock number only ever moves because a person said so, and
+everything about `myazar.listing_variants` follows from that.
+
+- **ADD and SET are different verbs, and never the same control.** `+12`
+  is right whatever happened while the seller was typing; "there are 7"
+  quietly swallows a sale made in the same minute. One editable box
+  showing the current number invites the second while looking like the
+  first. So the posting form offers a count box only for a combination
+  that does not exist yet — labelled as the OPENING count — and
+  `save_listing_variants` ignores `qty` for every row it already has.
+  Changing a number afterwards happens on the listing (`StockPanel`),
+  where the verbs are "sold one", "a delivery came" and "I counted them".
+- **`listings.stock_qty` is not a field the app may write.** The form
+  reads it when the seller opens the form and saves minutes or hours
+  later; the batch screens re-send a whole cached listing to change one
+  field. Either would put a stale total on the card, which is the only
+  stock figure most buyers ever see. `ListingInput.stockFromVariants`
+  keeps it out of the insert/update, `save_listing_variants` recomputes
+  it on every save, and a BEFORE UPDATE trigger
+  (`myazar.hold_stock_total`) silently replaces any other value with the
+  true sum — corrected rather than refused, because the same statement
+  carries the title and the price.
+- **A row is parked, never deleted.** `save_listing_variants` sets
+  `active = false` on anything it is not sent, so unticking a size and
+  re-ticking it next month brings back the same row with the same count
+  and the same history. Which means an empty or partial payload is
+  DESTRUCTIVE: every screen that saves a table gates on a `stockLoaded`
+  flag that only a landed fetch sets, exactly like `choicesLoaded`.
+- **Unticking must not lose the number.** Both screens keep `stockAll`
+  (every row they have ever seen or built) and DERIVE the visible grid
+  from the ticks with `gridFor`. Deriving the other way round — editing
+  the visible rows in place — meant a mis-tap on a size pill silently
+  reset that size to zero behind a box the server then ignored.
+- **Two dimensions means both halves.** `gridFor` returns nothing until a
+  size AND a colour are ticked. Colour names are what a seller recognises,
+  so ticking only those came first, and it produced real-looking rows with
+  no size that no size filter could ever answer.
+- **The row key joins the two values with U+001F, not "/".** Option values
+  are free text an admin types, and `38/40` is a real EU trouser size.
+  `src/lib/stock.ts` and `save_listing_variants` use the same character.
+- **An order is a question, and nothing is reserved.** Vevaty never sees
+  the money, so holding stock against an enquiry would take a shirt off
+  the site for somebody who never came back. Which means two orders are
+  two sales: `myazar.stock_movements.message_id` is unique, so the seller
+  cannot take the SAME order off twice -- but nothing at the database can
+  tell two separate orders for the same shirt apart. The listing screen
+  therefore refuses to send a second order for a row it has already asked
+  about (`askedFor`), and clearing the picks is not enough on its own,
+  because a category with no size or colour has no pick to clear.
+- **The one whole-table write outside the posting form re-reads first.**
+  `StockPanel`'s colour tagging is the only place the seller's own listing
+  calls `save_listing_variants`, and that call parks every row it is not
+  sent. The panel is mounted for as long as the page is open, so it fetches
+  the live table immediately before building the write -- otherwise tagging
+  a photo retires a size added from another device in the meantime.
+- **`attributes[dim.slug]` is what the listing OFFERS, not what is on the
+  shelf right now.** It used to be the in-stock list, which was honest
+  while quantities only changed in the posting form. A number that moves
+  ten times a day would drag the search index behind it, and a size that
+  sold out at noon would stop answering its own filter. The listing's
+  total reaching zero is what puts SOLD OUT on the card.
 
 # RLS filters rows. It never confers a privilege
 

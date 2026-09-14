@@ -13,6 +13,7 @@ import { supabase } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { ChatMessage } from '../types';
 import { extraLabel, money } from '../lib/listingOptions';
+import { stockErrorKey, stockSoldFromOrder, threadStockTaken } from '../lib/stock';
 import { mirrorRow } from '../lib/mirrorRow';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle } from '../lib/listingText';
@@ -42,7 +43,7 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
   const { threadId } = route.params;
   const { t, language, isRTL } = useLanguage();
   const insets = useSafeAreaInsets();
-  const { profile, listings } = useAppStore();
+  const { profile, listings, applyStockTotal } = useAppStore();
   const { threads, messagesByThread, loadMessages, sendMessage, sendOffer, respondToOffer, subscribeToThread, loadThreads } = useChat();
   const [otherName, setOtherName] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -54,6 +55,14 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
   const [offerSending, setOfferSending] = useState(false);
   const [offerError, setOfferError] = useState<string | null>(null);
   const [offerRespondingId, setOfferRespondingId] = useState<string | null>(null);
+  // Which stock orders in this thread have already been taken off the
+  // shelf, and which one is being taken off right now. Asked of the
+  // server rather than inferred from the messages: the seller may have
+  // pressed it on their other phone, and a button that offers to sell the
+  // same shirt twice is worse than no button.
+  const [taken, setTaken] = useState<Set<string>>(new Set());
+  const [takingId, setTakingId] = useState<string | null>(null);
+  const [takeError, setTakeError] = useState<{ id: string; message: string } | null>(null);
   const listRef = useRef<FlatList>(null);
 
   const thread = threads.find((th) => th.id === threadId);
@@ -75,6 +84,44 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
     return unsubscribe;
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [threadId]);
+
+  // Cheap, and only says something for a thread that has stock orders in
+  // it: an empty answer is the ordinary case and costs one round trip.
+  useEffect(() => {
+    let alive = true;
+    setTaken(new Set());
+    setTakeError(null);
+    threadStockTaken(threadId)
+      .then((ids) => { if (alive) setTaken(ids); })
+      .catch(() => {});
+    return () => { alive = false; };
+  }, [threadId]);
+
+  // The seller's one tap. Not optimistic: the server holds the row, and a
+  // count that flickers to a guess and back is a count nobody believes.
+  // The database refuses a second movement for the same message, so a
+  // double-tap or a second device cannot sell the same shirt twice.
+  const takeOneOff = async (messageId: string) => {
+    if (takingId) return;
+    setTakingId(messageId);
+    setTakeError(null);
+    try {
+      const r = await stockSoldFromOrder(messageId);
+      setTaken((prev) => new Set(prev).add(messageId));
+      // The listing's own total, so the SOLD OUT ribbon and the count on
+      // the card follow the tap. Without it the seller took the last one
+      // off here and their listing went on saying "1 in stock" for the
+      // rest of the session.
+      if (thread) applyStockTotal(thread.listingId, r.listingTotal);
+    } catch (e: any) {
+      setTakeError({ id: messageId, message: t(stockErrorKey(e)) });
+      // Whatever the refusal was, the server's answer about what has
+      // already been taken off is the one that matters now.
+      threadStockTaken(threadId).then(setTaken).catch(() => {});
+    } finally {
+      setTakingId(null);
+    }
+  };
 
   // Extra safety net alongside ChatStore's own resync-on-resubscribe: some
   // mobile browsers throttle/pause JS timers (including the realtime
@@ -285,11 +332,19 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
                           )}
                         </View>
                       ))}
+                      {/* A shop-stock order is priced, not estimated: the
+                          server read the row's own price. Calling it an
+                          estimate sent both of them off negotiating a
+                          number that was never in question. */}
                       <View style={[styles.orderTotalRow, mirrorRow(isRTL)]}>
-                        <Text style={[styles.orderTotalLabel, isRTL && styles.rtlText]}>{t('options.estimate')}</Text>
+                        <Text style={[styles.orderTotalLabel, isRTL && styles.rtlText]}>
+                          {snap.variantId ? t('stock.orderTotal') : t('options.estimate')}
+                        </Text>
                         <Text style={[styles.orderTotalAmount, isRTL && styles.rtlText]}>{money(snap.total)}</Text>
                       </View>
-                      <Text style={[styles.orderNote, isRTL && styles.rtlText]}>{t('chat.orderNote')}</Text>
+                      <Text style={[styles.orderNote, isRTL && styles.rtlText]}>
+                        {snap.variantId ? t('stock.orderNote') : t('chat.orderNote')}
+                      </Text>
                       {/* The seller's one tap. It pre-fills the offer box
                           with the estimate rather than sending it: the
                           whole reason this is an estimate is that the
@@ -313,6 +368,36 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
                         >
                           <Text style={styles.orderPriceBtnText}>{t('chat.orderGivePrice')}</Text>
                         </Pressy>
+                      )}
+                      {/* A shop-stock order, and only for the seller: one
+                          tap takes the ordered quantity off the ordered
+                          row. Vevaty never sees the money, so this tap is
+                          the ONLY thing that can tell the app a sale
+                          happened -- which is why it sits here, next to
+                          the conversation where the sale was agreed,
+                          rather than three screens away in the listing.
+
+                          Once done it stays done and says so: the
+                          database files the movement against this exact
+                          message and refuses a second one, so the button
+                          cannot sell the same shirt twice. */}
+                      {!mine && !!snap.variantId && (
+                        taken.has(item.id) ? (
+                          <Text style={styles.orderTakenText}>{t('stock.takenOff', { n: snap.qty })}</Text>
+                        ) : (
+                          <Pressy
+                            onPress={() => takeOneOff(item.id)}
+                            disabled={!!takingId}
+                            style={[styles.orderSoldBtn, !!takingId && styles.orderSoldBtnBusy]}
+                          >
+                            <Text style={styles.orderSoldBtnText}>
+                              {takingId === item.id ? t('common.loading') : t('stock.markSold', { n: snap.qty })}
+                            </Text>
+                          </Pressy>
+                        )
+                      )}
+                      {takeError?.id === item.id && (
+                        <Text style={styles.orderTakeError}>{takeError.message}</Text>
                       )}
                     </View>
                   </View>
@@ -576,6 +661,18 @@ const styles = StyleSheet.create({
     justifyContent: 'center', backgroundColor: colors.primary,
   },
   orderPriceBtnText: { fontSize: 14, fontWeight: '700', color: colors.white },
+  // Quieter than "Give a price": the price button is the one the seller
+  // presses first and most, and two solid buttons stacked read as a
+  // choice between equals.
+  orderSoldBtn: {
+    marginTop: 6, height: 40, borderRadius: radius.pill, alignItems: 'center',
+    justifyContent: 'center', backgroundColor: colors.card,
+    borderWidth: 1, borderColor: colors.line,
+  },
+  orderSoldBtnBusy: { opacity: 0.55 },
+  orderSoldBtnText: { fontSize: 14, fontWeight: '700', color: colors.ink },
+  orderTakenText: { ...type.tiny, color: colors.success, marginTop: 8, fontWeight: '700' },
+  orderTakeError: { ...type.tiny, color: colors.danger, marginTop: 6 },
   offerStatusPill: {
     alignSelf: 'flex-start', backgroundColor: colors.warnBg, borderRadius: radius.pill,
     paddingHorizontal: 10, height: 22, justifyContent: 'center',

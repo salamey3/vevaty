@@ -240,6 +240,20 @@ export type ListingInput = Omit<
   // (stored as false); unlike batchId, updateListing DOES write this one,
   // since parking/unparking an item is meant to happen after creation.
   batchParked?: boolean;
+  // True when this listing's stock lives in myazar.listing_variants -- a
+  // shop's size x colour table -- rather than in the two columns on the
+  // listing row. Both are then left OUT of the insert/update entirely.
+  //
+  // Not a style choice. The form reads a total when the seller opens it
+  // and saves minutes or hours later; in between, the counter has been
+  // selling. Sending that stale number back with the title would put
+  // Tuesday's stock on the card on Thursday, and the trigger that keeps
+  // the total honest only fires when a variant row actually changes -- so
+  // an edit that touched nothing but the title would leave the wrong
+  // number standing. The form does not own this number; the movements do.
+  // (myazar.save_listing_variants re-computes the total on every save as
+  // the second half of this.)
+  stockFromVariants?: boolean;
 };
 
 interface AppStoreValue {
@@ -314,6 +328,14 @@ interface AppStoreValue {
   // option the seller picked in the confirmation sheet) -- it doesn't
   // change what buyers/sellers see anywhere yet.
   markListingSold: (id: string, soldVia: 'vevaty' | 'elsewhere') => Promise<void>;
+  // The listing's total after a stock movement the server has already
+  // accepted -- so the SOLD OUT ribbon and the count on the card follow
+  // the seller's tap without waiting for the next sync.
+  //
+  // Local only, and deliberately: it writes nothing. myazar.stock_move is
+  // what changed the number, and it is the only thing allowed to. See
+  // ListingInput.stockFromVariants.
+  applyStockTotal: (id: string, total: number) => void;
   // My Listings' "Boost" action -- spends Vevaty Points via
   // myazar.redeem_boost. Throws { code: 'insufficient-points' } or
   // { code: 'boost-failed' } on refusal; see listingActionMessage.
@@ -2023,8 +2045,10 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
           attributes: l.attributes || {},
           contact_method: l.contactMethod || 'both',
           shop_id: l.shopId,
-          stock_qty: l.stockQty ?? 1,
-          variants: l.variants ?? null,
+          // See ListingInput.stockFromVariants -- omitted, not zeroed. The
+          // column keeps its DB default of 1 for the instant between this
+          // insert and the variant save that follows it.
+          ...(l.stockFromVariants ? {} : { stock_qty: l.stockQty ?? 1, variants: l.variants ?? null }),
           batch_id: l.batchId ?? null,
           batch_parked: l.batchParked ?? false,
         })
@@ -2646,8 +2670,8 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
           shop_id: l.shopId,
           attributes: l.attributes || {},
           contact_method: l.contactMethod || 'both',
-          stock_qty: l.stockQty ?? 1,
-          variants: l.variants ?? null,
+          // See ListingInput.stockFromVariants.
+          ...(l.stockFromVariants ? {} : { stock_qty: l.stockQty ?? 1, variants: l.variants ?? null }),
           // Batch listings -- batch_parked IS updatable (BatchDetailsScreen's
           // "save as draft for later" escape hatch). batch_id deliberately
           // is NOT in this UPDATE list -- see Listing.batchId's own doc
@@ -3148,6 +3172,10 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     setListings((prev) => prev.map((it) => (it.id === id ? { ...it, status: 'draft' } : it)));
   }, []);
 
+  const applyStockTotal = useCallback((id: string, total: number) => {
+    setListings((prev) => prev.map((l) => (l.id === id ? { ...l, stockQty: total } : l)));
+  }, []);
+
   const markListingSold = useCallback(async (id: string, soldVia: 'vevaty' | 'elsewhere') => {
     await updateOwnListingRow(id, userIdRef.current, { status: 'sold', sold_via: soldVia }, 'markListingSold', 'sold');
     setListings((prev) => prev.map((it) => (it.id === id ? { ...it, status: 'sold' } : it)));
@@ -3562,6 +3590,7 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       republishListing,
       hideListing,
       markListingSold,
+      applyStockTotal,
       redeemBoost,
       contactPrompts,
       answerContactPrompt,
@@ -3598,6 +3627,7 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       republishListing,
       hideListing,
       markListingSold,
+      applyStockTotal,
       redeemBoost,
       contactPrompts,
       answerContactPrompt,

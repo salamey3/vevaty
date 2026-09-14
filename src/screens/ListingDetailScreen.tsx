@@ -33,6 +33,11 @@ import { useAppStore } from '../store/AppStore';
 import { useChat } from '../store/ChatStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useSettings } from '../store/SettingsStore';
+import StockPanel from '../components/StockPanel';
+import VariantChooser from '../components/VariantChooser';
+import {
+  Variant, fetchVariants, priceOf, rowFor, sendStockOrder, stockErrorKey, variantDimensions,
+} from '../lib/stock';
 import { useCollections } from '../store/CollectionsStore';
 import BannerSlot from '../components/BannerSlot';
 import { cornerBadgeFor } from '../lib/collectionBadge';
@@ -67,7 +72,7 @@ type ReportReason = (typeof REPORT_REASONS)[number];
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
-  const { listings, profile, deleteListing, hideListing, markListingSold, isVerified, contactPrompts } = useAppStore();
+  const { listings, profile, deleteListing, hideListing, markListingSold, applyStockTotal, isVerified, contactPrompts } = useAppStore();
   const { ready: settingsReady, categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory, domainOfCategory, optionsOnForCategory } = useSettings();
   const { collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
   const { getOrCreateThread } = useChat();
@@ -220,6 +225,68 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       listing.condition
     ).filter((a) => attrHasValue(listing.attributes[a.slug]));
   }, [listing, resolveAttributesForCategory]);
+  // The (at most two) dimensions this listing's stock is broken down by,
+  // used to name each row of the seller's own stock panel. Read off the
+  // category rather than off the rows so that "Medium" prints as Medium
+  // and not as "m", in the reader's own language.
+  const stockDims = useMemo(
+    () => (listing ? variantDimensions(resolveAttributesForCategory(listing.cat)) : []),
+    [listing, resolveAttributesForCategory]
+  );
+  // The kind of listing that keeps a stock table: a storefront's, in a
+  // category that sells the same thing more than once. A private seller's
+  // single used jacket is not, and the panel stays quiet for it even when
+  // the network is having a bad day.
+  const couldHaveStock =
+    !!listing?.shopId && categoryById(listing.cat)?.stockMode === 'multiple';
+  // The shop's stock table, for the buyer. Fetched rather than carried on
+  // the listing for the same reason the choices are: a listing row is
+  // loaded in bulk on every browse screen, and most listings have no
+  // table at all.
+  const [variants, setVariants] = useState<Variant[]>([]);
+  const [pickA, setPickA] = useState<string | null>(null);
+  const [pickB, setPickB] = useState<string | null>(null);
+  const [stockQty, setStockQty] = useState(1);
+  const [stockSending, setStockSending] = useState(false);
+  const [stockOrderError, setStockOrderError] = useState<string | null>(null);
+  // Which row this buyer has already asked about. Clearing the picks is
+  // not enough on its own: a category with no size or colour has nothing
+  // to clear, so the button came back live and one tap posted a second
+  // order -- two order cards, two "take one off" buttons, two jars off the
+  // shelf for one sale. Nothing is reserved, so the server cannot tell the
+  // two apart either.
+  const [askedFor, setAskedFor] = useState<{ id: string; threadId: string } | null>(null);
+  const listingIdRef = useRef<string | null>(null);
+  useEffect(() => { listingIdRef.current = listingId ?? null; }, [listingId]);
+  useEffect(() => {
+    // Cleared first. This screen is reused when a buyer taps a related
+    // listing, and for the length of a fetch it would otherwise offer the
+    // PREVIOUS item's sizes over this item's price.
+    setVariants([]);
+    setPickA(null);
+    setPickB(null);
+    setStockQty(1);
+    setStockOrderError(null);
+    setAskedFor(null);
+    if (!listingId || !couldHaveStock) return;
+    let alive = true;
+    fetchVariants(listingId)
+      .then((rows) => { if (alive) setVariants(rows); })
+      .catch(() => { if (alive) setVariants([]); });
+    return () => { alive = false; };
+  }, [listingId, couldHaveStock]);
+  // The picture follows the pick. The shop tags one gallery photo per
+  // colour (StockPanel), so choosing navy moves the gallery to the navy
+  // shot -- moved, not replaced, so the buyer can still swipe through
+  // everything else. Does nothing at all when the shop has tagged none,
+  // which is the ordinary case on day one.
+  const photoForPick = useRef<string | null>(null);
+  const chosenVariant = useMemo(
+    () => (stockDims.length === 0
+      ? variants[0] ?? null
+      : rowFor(variants, pickA, stockDims.length === 2 ? pickB : null)),
+    [variants, stockDims.length, pickA, pickB]
+  );
   // Choices with prices. Fetched rather than carried on the listing: a
   // listing row is loaded in bulk on every browse screen and most listings
   // have no choices at all, so the groups are asked for once, here, on the
@@ -234,6 +301,13 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // takes phone calls only would otherwise hand the buyer a chooser, a
   // running total and no way to pass any of it on.
   const showsChoices = hasChoices && !!listing && listing.contactMethod !== 'phone';
+  // Same rule, same reason: a chooser the buyer has no way to send from is
+  // a dead end. A phone-only shop listing shows its sizes as ordinary
+  // specs instead, and the buyer rings up and asks.
+  const showsVariants = variants.length > 0 && !!listing && listing.contactMethod !== 'phone';
+  // The buyer has already asked about the row they are looking at. Sending
+  // again would post a second order for the same shirt.
+  const alreadyAsked = !!askedFor && !!chosenVariant && askedFor.id === chosenVariant.id;
   useEffect(() => {
     // Cleared synchronously, not when the next fetch resolves. This screen
     // is re-pointed in place by a deep link or a notification hop (see the
@@ -261,6 +335,17 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     [options, picks, qty]
   );
   const blockedGroupId = orderBlock?.kind === 'group' ? orderBlock.groupId : null;
+
+  // The quantity belongs to the row, not to the page. Choosing five of a
+  // size with five left and then switching to one with one left used to
+  // leave the stepper reading 5 next to "1 in stock", with Send lit -- and
+  // the only thing that said otherwise was the server's refusal, a round
+  // trip later.
+  useEffect(() => {
+    const left = chosenVariant?.qty ?? 0;
+    setStockQty((q) => Math.min(Math.max(1, q), Math.max(1, left)));
+  }, [chosenVariant]);
+
 
   const isDesktop = useIsDesktop();
   const isOwner = !!listing && listing.sellerId === profile.id;
@@ -485,6 +570,56 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
     }
   };
 
+  // The buyer's size and colour, sent as the first thing in the
+  // conversation -- the same shape as the made-to-order flow below, and
+  // for the same reason: landing the seller in an empty box that says
+  // "hi" costs both of them four messages working out which one is meant.
+  const sendStockPick = async () => {
+    if (!listing || !chosenVariant || stockSending) return;
+    setStockSending(true);
+    setStockOrderError(null);
+    try {
+      const threadId = await getOrCreateThread(listing.id, listing.sellerId);
+      await sendStockOrder(threadId, chosenVariant.id, stockQty, language);
+      // Cleared on the way out, exactly as sendChoices does below and for
+      // the same reason -- except worse here, because nothing is reserved.
+      // This screen stays mounted behind the chat; a buyer who backs out
+      // and taps again sends a SECOND order, with its own message id, and
+      // the per-message guard that stops the seller taking the same order
+      // off twice cannot help: two orders are two sales, and four shirts
+      // leave the shelf for a sale of two.
+      setPickA(null);
+      setPickB(null);
+      setStockQty(1);
+      setAskedFor({ id: chosenVariant.id, threadId });
+      navigation.navigate('ChatThread', { threadId });
+    } catch (e: any) {
+      // The server re-reads the row rather than trusting this page, which
+      // was loaded a minute ago -- so a refusal usually means the last one
+      // sold while the buyer was deciding. Re-read, and say so.
+      setStockOrderError(t(stockErrorKey(e)));
+      const forListing = listing.id;
+      fetchVariants(forListing)
+        .then((rows) => {
+          // Same stale-answer guard as every other fetch on this screen:
+          // it is reused when a buyer taps a related listing, and one
+          // item's sizes painted over another's is a chooser that cannot
+          // be sent.
+          if (listingIdRef.current !== forListing) return;
+          setVariants(rows);
+          setStockQty(1);
+          // A size that has been retired since this page loaded takes its
+          // pick with it. Left set, it hides the pills behind a heading
+          // with nothing under it and no way to tell what went wrong.
+          setPickA((v) => (v && rows.some((r) => r.a === v) ? v : null));
+          setPickB((v) => (v && rows.some((r) => r.b === v) ? v : null));
+        })
+        .catch(() => {});
+    } finally {
+      setStockSending(false);
+    }
+  };
+
   // The buyer's picks, sent as the first thing in the conversation. It
   // opens the same thread "Message seller" would -- there is only ever one
   // per listing -- and lands them in it with the order already posted,
@@ -591,6 +726,23 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // slot ahead of the feature; it now shows the listing's real video.
   const [mediaTab, setMediaTab] = useState<'photos' | 'spin' | 'video'>('photos');
   const [mediaExpanded, setMediaExpanded] = useState(true);
+
+  useEffect(() => {
+    const url = chosenVariant?.photo ?? null;
+    // Cleared on deselect, so picking the same colour again jumps again.
+    // Holding the last URL for ever meant a buyer who swiped away to read
+    // a label, then re-tapped navy, stayed where they were.
+    if (!url) { photoForPick.current = null; return; }
+    if (url === photoForPick.current) return;
+    const at = listing?.photos.indexOf(url) ?? -1;
+    if (at < 0) return;
+    // Recorded only if it actually went. goTo returns false before the
+    // gallery has measured itself -- which is its state while the media
+    // block is collapsed or the Video tab is showing -- and writing the
+    // URL regardless meant the jump was marked done, never happened, and
+    // could never be retried.
+    if (galleryRef.current?.goTo(at)) photoForPick.current = url;
+  }, [chosenVariant, listing?.photos, mediaTab, mediaExpanded]);
 
   // Only a finished video is playable. RLS already hides anyone else's
   // unfinished video, so a non-ready one here belongs to the seller looking
@@ -921,6 +1073,26 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
       {manageRow}
 
+      {/* The shop's own counter. Renders nothing at all unless this
+          listing actually has a stock table, so a private seller's one
+          jacket never sees it. */}
+      {isOwner && (
+        <StockPanel
+          listingId={listing.id}
+          dims={stockDims}
+          couldHaveStock={couldHaveStock}
+          photos={listing.photos}
+          language={language}
+          isRTL={isRTL}
+          t={t}
+          onTotal={(n) => applyStockTotal(listing.id, n)}
+          // The seller sees the panel AND the buyer's chooser on one page.
+          // Feeding the panel's rows into the chooser keeps the two from
+          // contradicting each other about the same shelf.
+          onRows={setVariants}
+        />
+      )}
+
       {listing.aiGenerated && (
         <View style={[styles.aiTag, isRTL && styles.aiTagRTL]}>
           <Icon name="sparkle" size={12} color={colors.ink} />
@@ -950,6 +1122,30 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           listing should be able to tick through it exactly as a buyer
           would, which is the only way they catch a price they typed
           wrong or a per-order fee they marked per-item. */}
+      {/* Rendered for the owner too, and fully working -- only the CTA
+          below is hidden. A shop checking its own listing should be able
+          to tap through exactly what a buyer sees, which is the only way
+          they notice a colour they forgot to photograph. */}
+      {showsVariants && (
+        <>
+          <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('stock.chooseYours')}</Text>
+          <VariantChooser
+            rows={variants}
+            dims={stockDims}
+            a={pickA}
+            b={pickB}
+            qty={stockQty}
+            onA={setPickA}
+            onB={setPickB}
+            onQty={setStockQty}
+            listingPrice={listing.price}
+            language={language}
+            isRTL={isRTL}
+            t={t}
+          />
+        </>
+      )}
+
       {options.groups.length > 0 && (
         <>
           <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.chooseOptions')}</Text>
@@ -1411,6 +1607,12 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
   // same answer -- a chooser the buyer cannot send is a dead end.
   const showChat = listing.contactMethod !== 'phone';
   const showPhone = listing.contactMethod !== 'chat';
+  // Whether something above already offers a filled button that starts the
+  // conversation -- a size to ask for, or a set of choices to send. When
+  // it does, "Message seller" steps down to the outlined treatment and
+  // becomes "Just ask a question": two filled primaries stacked are two
+  // buttons neither of which reads as the thing to do.
+  const hasOwnSendButton = options.groups.length > 0 || showsVariants;
   const ctaSection = (extraStyle?: any) => {
     if (isOwner) return null;
     return (
@@ -1425,15 +1627,70 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
                 plain button stays underneath, because a buyer with a
                 question ("can you do it in blue?") should not have to
                 invent an order to ask it. */}
-            {showChat && options.groups.length > 0 && (
+            {/* A stock listing's own send. Same reasoning as the
+                made-to-order one below it: with sizes on the listing,
+                naming one IS how the conversation starts, and the plain
+                Message button stays underneath for the buyer whose
+                question is not an order. */}
+            {showChat && showsVariants && (
               <>
+                {/* Already asked about this exact one: the button opens
+                    that conversation instead of starting a second. Nothing
+                    is reserved, so two orders are two sales -- and the
+                    per-message guard that stops the seller taking one
+                    order off twice cannot tell two orders apart. */}
+                {alreadyAsked ? (
+                  <Pressy
+                    onPress={() => navigation.navigate('ChatThread', { threadId: askedFor!.threadId })}
+                    style={styles.askBtn}
+                  >
+                    <Icon name="chat" size={16} color={colors.ink} />
+                    <Text style={styles.askBtnText}>{t('stock.alreadyAsked')}</Text>
+                  </Pressy>
+                ) : (
                 <Pressy
-                  onPress={sendChoices}
-                  disabled={orderSending || !!orderBlock}
-                  style={[styles.messageBtn, (orderSending || !!orderBlock) && styles.contactBtnLoading]}
+                  onPress={sendStockPick}
+                  disabled={stockSending || !chosenVariant || chosenVariant.qty === 0}
+                  style={[
+                    styles.messageBtn,
+                    (stockSending || !chosenVariant || chosenVariant.qty === 0) && styles.contactBtnLoading,
+                  ]}
                 >
                   <Icon name="chat" size={16} color={colors.white} />
                   <Text style={styles.messageBtnText}>
+                    {stockSending
+                      ? t('common.loading')
+                      : stockQty > 1
+                        ? t('stock.askForThese', { n: stockQty })
+                        : t('stock.askForThisOne')}
+                  </Text>
+                </Pressy>
+                )}
+                {!chosenVariant && stockDims.length > 0 && (
+                  <Text style={styles.orderBlockText}>{t('stock.chooseToSeePrice')}</Text>
+                )}
+                {!!chosenVariant && chosenVariant.qty === 0 && (
+                  <Text style={styles.orderBlockText}>{t('stock.thisOneIsOut')}</Text>
+                )}
+                {!!stockOrderError && <Text style={styles.orderBlockText}>{stockOrderError}</Text>}
+              </>
+            )}
+            {showChat && options.groups.length > 0 && (
+              <>
+                {/* Outlined when the stock button is already the filled
+                    one above it. A category can carry both choices and
+                    sizes, and two filled primaries stacked are two buttons
+                    neither of which reads as the thing to do. */}
+                <Pressy
+                  onPress={sendChoices}
+                  disabled={orderSending || !!orderBlock}
+                  style={[
+                    showsVariants ? styles.askBtn : styles.messageBtn,
+                    (orderSending || !!orderBlock) && styles.contactBtnLoading,
+                  ]}
+                >
+                  <Icon name="chat" size={16} color={showsVariants ? colors.ink : colors.white} />
+                  <Text style={showsVariants ? styles.askBtnText : styles.messageBtnText}>
                     {orderSending ? t('common.loading') : t('listingDetail.sendChoices')}
                   </Text>
                 </Pressy>
@@ -1453,15 +1710,15 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
                 onPress={openChat}
                 disabled={chatLoading}
                 style={[
-                  options.groups.length > 0 ? styles.askBtn : styles.messageBtn,
+                  hasOwnSendButton ? styles.askBtn : styles.messageBtn,
                   chatLoading && styles.contactBtnLoading,
                 ]}
               >
-                <Icon name="chat" size={16} color={options.groups.length > 0 ? colors.ink : colors.white} />
-                <Text style={options.groups.length > 0 ? styles.askBtnText : styles.messageBtnText}>
+                <Icon name="chat" size={16} color={hasOwnSendButton ? colors.ink : colors.white} />
+                <Text style={hasOwnSendButton ? styles.askBtnText : styles.messageBtnText}>
                   {chatLoading
                     ? t('common.loading')
-                    : options.groups.length > 0
+                    : hasOwnSendButton
                       ? t('listingDetail.askInstead')
                       : t('listingDetail.messageSeller')}
                 </Text>

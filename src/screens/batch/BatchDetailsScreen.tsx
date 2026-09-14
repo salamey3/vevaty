@@ -7,7 +7,7 @@ import Button from '../../components/Button';
 import Icon from '../../icons/Icon';
 import ActionSheet from '../../components/ActionSheet';
 import CategorySpecsForm from '../../components/CategorySpecsForm';
-import StockIntakeForm from '../../components/StockIntakeForm';
+import StockGrid from '../../components/StockGrid';
 import { colors, radius, type } from '../../theme/theme';
 import { useAppStore } from '../../store/AppStore';
 import { useSettings } from '../../store/SettingsStore';
@@ -20,7 +20,11 @@ import { useAiSpecSuggestion } from '../../hooks/useAiSpecSuggestion';
 import { estimateListingPrice, AiSuggestAttributeSchema } from '../../lib/aiSuggest';
 import { useVerificationPhotosFor } from '../../store/BatchClassifyContext';
 import { RootStackParamList } from '../../navigation/types';
-import { AttributeValue, ListingVariant } from '../../types';
+import { AttributeValue, CategoryAttribute } from '../../types';
+import {
+  Variant, fetchVariants, gridFor, offeredValues, picksFromRows, rememberRow,
+  saveVariants, stockErrorKey, totalOf, variantDimensions,
+} from '../../lib/stock';
 import { resolveVisibleAttrs } from '../../lib/attributeVisibility';
 import { RentPaymentFrequency, RentPeriod, requiresPaymentFrequency } from '../../lib/rentTerms';
 import RentTermsFields from '../../components/RentTermsFields';
@@ -49,7 +53,7 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   const { batchId } = route.params;
   const { listings, updateListing, deleteListing, profile } = useAppStore();
   const { categoryById, resolveAttributesForCategory, categoryMatches, usesOfferTypeCategory } = useSettings();
-  const { t, language } = useLanguage();
+  const { t, language, isRTL } = useLanguage();
 
   const activeItems = useMemo(
     () =>
@@ -87,8 +91,8 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   // last item and the effect above navigating away, which is why every
   // other read in this file is optional too.
   const hasStockStep = cat?.stockMode === 'multiple' && !!listing?.shopId;
-  const variantAttr = useMemo(
-    () => (hasStockStep ? resolvedAttrs.find((a) => a.isVariant) || null : null),
+  const variantDims = useMemo(
+    () => (hasStockStep ? variantDimensions(resolvedAttrs) : []),
     [resolvedAttrs, hasStockStep]
   );
   const isVehicleCategory = listing?.cat ? categoryMatches(listing.cat, 'vehicles') : false;
@@ -107,8 +111,15 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   const [rentPeriod, setRentPeriod] = useState<RentPeriod | null>(null);
   const [rentPaymentFrequency, setRentPaymentFrequency] = useState<RentPaymentFrequency | null>(null);
   const [attrValues, setAttrValues] = useState<Record<string, AttributeValue>>({});
-  const [variantStock, setVariantStock] = useState<Record<string, string>>({});
-  const [plainStockQty, setPlainStockQty] = useState('');
+  // See CreateListingScreen's identical pair for what these are and why
+  // the counts of rows that already exist are never sent back.
+  const [stockPicks, setStockPicks] = useState<Record<string, string[]>>({});
+  const [stockAll, setStockAll] = useState<Variant[]>([]);
+  const [stockLoaded, setStockLoaded] = useState(false);
+  const [stockTouched, setStockTouched] = useState(false);
+  const [stockError, setStockError] = useState<string | null>(null);
+  const [stockFailed, setStockFailed] = useState(false);
+  const [stockTry, setStockTry] = useState(0);
   const [saving, setSaving] = useState(false);
   const [actionSheetOpen, setActionSheetOpen] = useState(false);
 
@@ -118,13 +129,53 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
   const specAttrs = useMemo(
     () =>
       resolveVisibleAttrs(
-        hasStockStep ? resolvedAttrs.filter((a) => !a.isVariant) : resolvedAttrs,
+        hasStockStep ? resolvedAttrs.filter((a) => !(a.isVariant && a.variantRank)) : resolvedAttrs,
         attrValues,
         listing?.condition
       ),
     [resolvedAttrs, attrValues, listing?.condition, hasStockStep]
   );
   const hasSpecs = specAttrs.length > 0;
+  const stockRows = useMemo(
+    () => (hasStockStep ? gridFor(variantDims, stockPicks, stockAll) : []),
+    [hasStockStep, variantDims, stockPicks, stockAll]
+  );
+  // Each item in a batch is a listing that already exists, so its stock
+  // table has to be fetched the same way the single-item edit form fetches
+  // one. Without this, stockLoaded never became true, the save was gated
+  // behind it, and every count a shop typed while walking through a batch
+  // was silently discarded -- twenty listings posted at the default of one
+  // unit each, with no error anywhere.
+  const stockLoadedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!hasStockStep || !listing?.id) {
+      if (!hasStockStep) setStockLoaded(true);
+      return;
+    }
+    if (stockLoadedFor.current === listing.id) return;
+    const forId = listing.id;
+    stockLoadedFor.current = forId;
+    setStockFailed(false);
+    fetchVariants(forId)
+      .then((rows) => {
+        // The same stale-answer guard this screen already uses for the AI
+        // callbacks, and for the same reason: a slow answer for item N
+        // must not land on item N+1. Landing it would put N's real row
+        // ids into the table, and the next Continue would write N's
+        // combinations onto N+1 and park whatever N+1 actually had.
+        if (currentListingIdRef.current !== forId) return;
+        setStockAll(rows);
+        setStockPicks(picksFromRows(variantDims, rows));
+        setStockLoaded(true);
+      })
+      .catch(() => {
+        if (currentListingIdRef.current !== forId) return;
+        // Left false on purpose: saving a table that never loaded would
+        // park every row of it. The seller gets a Try again.
+        stockLoadedFor.current = null;
+        setStockFailed(true);
+      });
+  }, [hasStockStep, listing?.id, variantDims, stockTry]);
 
   // Same money-fields rule as CreateListingScreen's Details step: an item
   // listed for rent has no sale price to give, one listed for sale has no
@@ -166,13 +217,12 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     setRentPeriod(listing.rentPeriod);
     setRentPaymentFrequency(listing.rentPaymentFrequency);
     setAttrValues(listing.attributes || {});
-    const vs: Record<string, string> = {};
-    (listing.variants || []).forEach((v) => {
-      const val = Object.values(v.attributes)[0];
-      if (typeof val === 'string') vs[val] = String(v.stockQty);
-    });
-    setVariantStock(vs);
-    setPlainStockQty(listing.variants ? '' : listing.stockQty ? String(listing.stockQty) : '');
+    setStockPicks({});
+    setStockAll([]);
+    setStockTouched(false);
+    setStockLoaded(false);
+    setStockError(null);
+    setStockFailed(false);
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [listing?.id]);
 
@@ -214,7 +264,7 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     // as the one required field on the screen the model was never asked
     // about and never filled in, while every other spec beside it was.
     const attrsForCat = hasStockStep
-      ? resolveAttributesForCategory(listing.cat).filter((a) => !a.isVariant)
+      ? resolveAttributesForCategory(listing.cat).filter((a) => !(a.isVariant && a.variantRank))
       : resolveAttributesForCategory(listing.cat);
     const categoryName = cat ? (language === 'ar' ? cat.nameAr : cat.nameEn) : '';
     // Already-known specs (from classify or a prior edit) as confirmed
@@ -319,25 +369,31 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
     });
   };
 
-  const buildStock = (): { stockQty: number; variants: ListingVariant[] | null } => {
-    // Preserve rather than reset, matching CreateListingScreen's own
-    // buildStock: the gate here reads listing.shopId and so cannot flip
-    // mid-item, but "the step was not shown" must never be a way to
-    // silently zero a number somebody entered.
-    if (!hasStockStep) return { stockQty: listing?.stockQty ?? 1, variants: listing?.variants ?? null };
-    if (variantAttr) {
-      // Only options with actual stock become a variant row -- matches
-      // CreateListingScreen's own buildStock exactly (see its comment on
-      // why: attributes[variantAttr.slug] below has to be exactly the
-      // in-stock option values for every multiselect-based filter/spec
-      // display (HomeScreen, StorefrontScreen, ListingCard) to keep
-      // working with zero special-casing).
-      const variants: ListingVariant[] = variantAttr.options
-        .map((o) => ({ id: `v-${o.value}`, attributes: { [variantAttr.slug]: o.value }, stockQty: Number(variantStock[o.value]) || 0 }))
-        .filter((v) => v.stockQty > 0);
-      return { stockQty: variants.reduce((s, v) => s + v.stockQty, 0), variants };
+  // Same shape and the same reasoning as CreateListingScreen's own
+  // buildStock: what the item OFFERS goes on the listing row, the counts
+  // go to the variants table by their own call after the update lands.
+  const buildStock = (): { attributes: Record<string, string[]>; total: number } => {
+    if (!hasStockStep || !stockTouched || !stockLoaded) {
+      const keep: Record<string, string[]> = {};
+      variantDims.forEach((d: CategoryAttribute) => {
+        const v = listing?.attributes?.[d.slug];
+        if (Array.isArray(v)) keep[d.slug] = v as string[];
+      });
+      return { attributes: keep, total: listing?.stockQty ?? 1 };
     }
-    return { stockQty: Number(plainStockQty) || 0, variants: null };
+    return { attributes: offeredValues(variantDims, stockRows), total: totalOf(stockRows) };
+  };
+
+  const reTick = (slug: string, value: string) => {
+    setStockTouched(true);
+    setStockPicks((prev) => {
+      const had = prev[slug] ?? [];
+      return { ...prev, [slug]: had.includes(value) ? had.filter((v) => v !== value) : [...had, value] };
+    });
+  };
+  const editRow = (row: Variant, patch: Partial<Variant>) => {
+    setStockTouched(true);
+    setStockAll((all) => rememberRow(all, { ...row, ...patch }));
   };
 
   const specsValid = !hasSpecs || specAttrs.every((a) => !a.required || attrHasValue(attrValues[a.slug]));
@@ -352,9 +408,10 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
       if (attrHasValue(v)) attributes[a.slug] = v as AttributeValue;
     });
     const stock = buildStock();
-    if (variantAttr && stock.variants && stock.variants.length > 0) {
-      attributes[variantAttr.slug] = stock.variants.map((v) => v.attributes[variantAttr.slug]);
-    }
+    variantDims.forEach((d: CategoryAttribute) => {
+      const offered = stock.attributes[d.slug];
+      if (offered && offered.length > 0) attributes[d.slug] = offered;
+    });
     try {
       await updateListing(
         listing.id,
@@ -373,10 +430,29 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
           rentPaymentFrequency:
             showRentFields && requiresPaymentFrequency(rentPeriod) ? rentPaymentFrequency : null,
           attributes,
-          stockQty: stock.stockQty,
-          variants: stock.variants,
+          stockQty: stock.total,
+          variants: null,
+          stockFromVariants: hasStockStep,
         })
       );
+      // After the listing, never before: the table is keyed on the
+      // listing and the update above is what makes the offered sizes
+      // true. Not fatal on its own -- the item is saved, and the seller
+      // can set its table from the review screen.
+      if (hasStockStep && stockLoaded && stockTouched) {
+        try {
+          await saveVariants(listing.id, stockRows);
+          setStockError(null);
+        } catch (e: any) {
+          // Said out loud, and the batch does NOT move on. Everything else
+          // about the item saved, but its counts did not, and walking the
+          // seller to the next item leaves them no way back to the numbers
+          // they just typed.
+          setStockError(t(stockErrorKey(e)));
+          setSaving(false);
+          return;
+        }
+      }
       setIndex((i) => i + 1);
     } catch (e: any) {
       // Deliberately does NOT advance. This screen's whole job is one
@@ -462,21 +538,33 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
         {hasStockStep && (
           <>
             <Text style={styles.sectionLabel}>{t('createListing.stepStock')}</Text>
-            <StockIntakeForm
-              variantAttr={variantAttr}
-              variantStock={variantStock}
-              onChangeVariantStock={(optionValue, qty) => setVariantStock((prev) => ({ ...prev, [optionValue]: qty }))}
-              plainStockQty={plainStockQty}
-              onChangePlainStockQty={setPlainStockQty}
-              language={language}
-              variantIntro={
-                variantAttr
-                  ? t('createListing.stockVariantIntro', { label: language === 'ar' ? variantAttr.labelAr : variantAttr.labelEn })
-                  : ''
-              }
-              plainIntro={t('createListing.stockPlainIntro')}
-              stockQtyLabel={t('createListing.stockQtyLabel')}
-            />
+            {hasStockStep && !stockLoaded ? (
+              <View>
+                {/* Loading and failed are not the same sentence. Before
+                    this, every item in a batch asserted "your stock table
+                    did not load" for as long as it was in fact loading. */}
+                <Text style={styles.rowSub}>
+                  {stockFailed ? t('stock.notLoaded') : t('stock.loading')}
+                </Text>
+                {stockFailed && (
+                  <Pressy onPress={() => setStockTry((n) => n + 1)} style={styles.stockRetry}>
+                    <Text style={styles.stockRetryText}>{t('common.retry')}</Text>
+                  </Pressy>
+                )}
+              </View>
+            ) : (
+              <StockGrid
+                dims={variantDims}
+                picks={stockPicks}
+                onTogglePick={reTick}
+                rows={stockRows}
+                onChangeRow={editRow}
+                language={language}
+                isRTL={isRTL}
+                t={t}
+              />
+            )}
+            {!!stockError && <Text style={styles.stockError}>{stockError}</Text>}
           </>
         )}
 
@@ -554,6 +642,13 @@ export default function BatchDetailsScreen({ navigation, route }: Props) {
 }
 
 const styles = StyleSheet.create({
+  rowSub: { ...type.soft, marginTop: 4 },
+  stockError: { ...type.tiny, color: colors.danger, marginTop: 6 },
+  stockRetry: {
+    alignSelf: 'flex-start', marginTop: 8, paddingHorizontal: 16, height: 36,
+    borderRadius: radius.pill, backgroundColor: colors.primary, justifyContent: 'center',
+  },
+  stockRetryText: { fontSize: 13, fontWeight: '700', color: colors.white },
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
   scroll: { paddingHorizontal: 18, paddingBottom: 40 },

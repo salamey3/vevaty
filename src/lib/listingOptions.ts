@@ -366,6 +366,11 @@ export interface OrderSnapshot {
   perOrder: number;
   total: number;
   lines: OrderLine[];
+  // Set only on a SHOP-STOCK order (myazar.send_stock_order): which exact
+  // row -- this size in this colour -- the buyer asked for. It is what the
+  // seller's one tap on the card takes the quantity off, and it is null on
+  // every made-to-order craft order, where there is no stock to move.
+  variantId: string | null;
 }
 
 // The frozen card on a chat message. Same defensive shape as the parser
@@ -381,6 +386,7 @@ export function parseOrderSnapshot(raw: any): OrderSnapshot | null {
     perItem: toNumber(raw.per_item),
     perOrder: toNumber(raw.per_order),
     total,
+    variantId: raw.variant_id ? String(raw.variant_id) : null,
     lines: Array.isArray(raw.lines)
       ? raw.lines.map((l: any): OrderLine => ({
           group: String(l?.group ?? ''),

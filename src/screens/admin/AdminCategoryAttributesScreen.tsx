@@ -33,6 +33,7 @@ type FormState = {
   unitAr: string;
   required: boolean;
   isVariant: boolean;
+  variantRank: 1 | 2 | null;
   // '' = not on the card. Kept as text rather than a number so the field can
   // be emptied while typing without snapping back to 0.
   cardPriority: string;
@@ -48,7 +49,7 @@ type FormState = {
 function blankForm(): FormState {
   return {
     slug: '', labelEn: '', labelAr: '', type: 'text', optionsText: '', unitEn: '', unitAr: '',
-    required: false, isVariant: false, cardPriority: '', icon: null, loadedCardPriority: '',
+    required: false, isVariant: false, variantRank: null, cardPriority: '', icon: null, loadedCardPriority: '',
   };
 }
 
@@ -79,6 +80,11 @@ function formFor(a: CategoryAttribute): FormState {
     unitAr: a.unitAr || '',
     required: a.required,
     isVariant: a.isVariant,
+    // Never null while the switch is on: the pair is one database check
+    // constraint, so a row that somehow arrived unranked would refuse to
+    // save at all -- with a raw Postgres error -- the next time an admin
+    // opened it to change its label.
+    variantRank: a.isVariant ? a.variantRank ?? 1 : null,
     cardPriority: a.cardPriority === null ? '' : String(a.cardPriority),
     icon: a.icon,
     loadedCardPriority: a.cardPriority === null ? '' : String(a.cardPriority),
@@ -195,14 +201,22 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
   const [form, setForm] = useState<FormState>(blankForm());
   const [saving, setSaving] = useState(false);
 
-  // At most one is_variant attribute per category (DB-enforced, see the
-  // one_variant_per_category index) -- this is what the "is variant"
-  // switch below disables against when a DIFFERENT attribute already has
-  // it on, rather than letting the save fail and surfacing a DB error.
-  const otherVariantAttr = useMemo(
-    () => ownAttributes.find((a) => a.isVariant && a.id !== editingId) || null,
-    [ownAttributes, editingId]
+  // Which ranks are already taken. Two dimensions is the limit -- a third
+  // is sixty combinations nobody keeps accurate -- and the database
+  // enforces both that and the is_variant/rank pairing WITHIN a category.
+  //
+  // Read off the resolved chain, not just this category's own rows. The
+  // unique index cannot see an inherited attribute, so a parent holding
+  // "Colour" at rank 1 and a child adding "Size" at rank 1 both save
+  // happily -- and a shop in that child then gets Colour twice over and
+  // never sees the size, because only one attribute can hold each rank.
+  const takenRanks = useMemo(
+    () => resolveAttributesForCategory(categoryId)
+      .filter((a) => a.isVariant && a.id !== editingId && a.variantRank)
+      .map((a) => a.variantRank as 1 | 2),
+    [resolveAttributesForCategory, categoryId, editingId]
   );
+  const freeRank = ([1, 2] as const).find((r) => !takenRanks.includes(r)) ?? null;
 
   // The slug of the attribute currently open for editing, read off the saved
   // row so it cannot drift from what is actually stored. Null while creating,
@@ -386,6 +400,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
           unitAr: form.unitAr.trim() || null,
           required: form.required,
           isVariant: form.type === 'multiselect' && form.isVariant,
+          variantRank: form.type === 'multiselect' && form.isVariant ? form.variantRank ?? 1 : null,
           cardPriority: parsedCardPriority,
           // An icon with no card slot behind it would never render, and
           // leaving one set is how a stale glyph reappears the day someone
@@ -402,6 +417,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
           unitAr: form.unitAr.trim() || null,
           required: form.required,
           isVariant: form.type === 'multiselect' && form.isVariant,
+          variantRank: form.type === 'multiselect' && form.isVariant ? form.variantRank ?? 1 : null,
           cardPriority: parsedCardPriority,
           icon: parsedCardPriority === null ? null : form.icon,
         });
@@ -538,19 +554,54 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
         <>
           <View style={styles.switchRow}>
             <View style={{ flex: 1, paddingRight: 12 }}>
-              <Text style={styles.fieldLabel}>Stock variant (e.g. "Size")</Text>
+              <Text style={styles.fieldLabel}>Stock dimension (e.g. "Size", "Colour")</Text>
               <Text style={styles.rowSub}>
-                {otherVariantAttr
-                  ? `"${otherVariantAttr.labelEn}" is already this category's variant attribute -- turn that one off first.`
-                  : 'Lets a "multiple" stock-mode listing track separate stock per option (e.g. per size) instead of one total quantity. Only one attribute per category can be the variant.'}
+                {takenRanks.length >= 2 && !form.isVariant
+                  ? `This category already breaks stock down two ways (${ownAttributes
+                      .filter((a) => a.isVariant && a.id !== editingId)
+                      .map((a) => `"${a.labelEn}"`)
+                      .join(' and ')}). Two is the limit -- turn one of those off first.`
+                  : 'Breaks a "multiple" stock-mode listing into one count per combination, instead of one total. A category can have up to two: with Size and Colour on, a shop keeps a separate number for every size in every colour.'}
               </Text>
             </View>
             <Switch
               value={form.isVariant}
-              onValueChange={(v) => setForm((f) => ({ ...f, isVariant: v }))}
-              disabled={!!otherVariantAttr}
+              onValueChange={(v) =>
+                setForm((f) => ({ ...f, isVariant: v, variantRank: v ? f.variantRank ?? freeRank : null }))
+              }
+              disabled={!form.isVariant && freeRank === null}
             />
           </View>
+          {form.isVariant && (
+            <View style={{ marginTop: 10 }}>
+              <Text style={styles.fieldLabel}>Which one is it?</Text>
+              <Text style={styles.rowSub}>
+                First is the one a seller picks first and the rows are grouped by -- Size on clothing, Colour
+                on bags. Second is the one photographed once and repeated across the first.
+              </Text>
+              <View style={{ flexDirection: 'row', gap: 8, marginTop: 8 }}>
+                {([1, 2] as const).map((r) => {
+                  const taken = takenRanks.includes(r);
+                  return (
+                    <Pressy
+                      key={r}
+                      onPress={() => !taken && setForm((f) => ({ ...f, variantRank: r }))}
+                      style={[
+                        styles.rankPill,
+                        form.variantRank === r && styles.rankPillOn,
+                        taken && styles.rankPillOff,
+                      ]}
+                    >
+                      <Text style={[styles.rankPillText, form.variantRank === r && styles.rankPillTextOn]}>
+                        {r === 1 ? 'First' : 'Second'}
+                        {taken ? ' (taken)' : ''}
+                      </Text>
+                    </Pressy>
+                  );
+                })}
+              </View>
+            </View>
+          )}
         </>
       )}
 
@@ -790,7 +841,7 @@ export default function AdminCategoryAttributesScreen({ navigation, route }: Pro
                 <Text style={styles.rowSub}>
                   {a.labelAr} · {TYPE_OPTIONS.find((t) => t.value === a.type)?.label}
                   {a.unitEn ? ` · ${a.unitEn}` : ''}
-                  {a.isVariant ? ' · Stock variant' : ''}
+                  {a.isVariant ? ` · Stock dimension ${a.variantRank === 2 ? '2' : '1'}` : ''}
                   {/* Visible without opening each field in turn, because
                       curating a card is a comparison across the whole list
                       -- "which three of these" -- not a decision about one
@@ -849,6 +900,14 @@ const styles = StyleSheet.create({
   row: { flexDirection: 'row', alignItems: 'center', gap: 12, padding: 14 },
   rowTitle: { ...type.h3 },
   rowSub: { ...type.soft, marginTop: 2 },
+  rankPill: {
+    paddingHorizontal: 16, height: 38, borderRadius: radius.pill, borderWidth: 1,
+    borderColor: colors.line, backgroundColor: colors.card, alignItems: 'center', justifyContent: 'center',
+  },
+  rankPillOn: { backgroundColor: colors.primary, borderColor: colors.ink },
+  rankPillOff: { opacity: 0.45 },
+  rankPillText: { fontSize: 13, fontWeight: '600', color: colors.ink },
+  rankPillTextOn: { color: colors.white },
   rowControls: { flexDirection: 'row', alignItems: 'center', gap: 6 },
   smallBtn: { width: 28, height: 28, borderRadius: 14, alignItems: 'center', justifyContent: 'center', backgroundColor: colors.surface },
   smallBtnText: { fontSize: 13, fontWeight: '700', color: colors.ink },

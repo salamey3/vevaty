@@ -309,6 +309,14 @@ export interface CategoryAttribute {
   // every existing multiselect-based filter/spec-display path already
   // works for it with no special-casing.
   isVariant: boolean;
+  // Which of the (at most two) stock dimensions this attribute is: 1 fills
+  // a variant's first column, 2 its second. Null on every attribute that
+  // is not a variant, and the database enforces both that pairing and the
+  // limit of two -- a third dimension is sixty combinations nobody keeps
+  // accurate. Read the pair through variantAttrsForCategory, in rank
+  // order, never by guessing from a slug: rank 1 is "size" on clothing and
+  // "colour" on bags.
+  variantRank: 1 | 2 | null;
   // Field-level conditional visibility: this attribute only applies (is
   // rendered, required, and offered to/accepted from AI suggestion) when
   // another attribute on the same category, identified by slug, currently
