@@ -527,11 +527,17 @@ Inherit takes whatever the category above says, and is right for almost every ro
 
       <View style={styles.switchRow}>
         <View style={{ flex: 1 }}>
-          <Text style={styles.fieldLabel}>Shops carry stock (vs. one-of-a-kind)</Text>
+          <Text style={styles.fieldLabel}>Can a shop have more than one of this?</Text>
           <Text style={styles.fieldHint}>
-            On: posting a listing in this category (or its subcategories) shows a Stock step -- per-size quantities if
-            the category has a "Stock variant" attribute (see its Attributes screen), otherwise a single quantity
-            field. Off (default): every listing is one specific item, same as today.
+            On for almost everything -- a shop can have twelve cribs, twelve jars of honey, twelve phone cases.
+            Off only where that is impossible: one apartment, one car with that mileage, one dog, a job, a service,
+            a phone number. This does NOT decide whether a particular listing has twelve; the seller answers that
+            on the listing, and it starts at 1.
+            {'\n\n'}
+            When on, a shop's listing here gets a Stock step: a size x colour table if the category defines stock
+            dimensions (see its Attributes screen), otherwise a single count. Private sellers never see it either
+            way -- the step is gated on a verified storefront. In a made-to-order category the seller is asked
+            first whether they keep any ready.
           </Text>
         </View>
         <Switch

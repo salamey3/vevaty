@@ -338,6 +338,18 @@ check('the mixed-rows refusal has its own sentence',
   check('three of them', unit * 3, 55.5);
 }
 
+// --- one is the answer for a shop with one sofa -------------------------
+// A category with no size or colour opens at 1, not 0: a shop posting a
+// sofa has one sofa, and requiring a tap on the box meant the listing
+// saved with no stock row at all and never got its sold-out mark. A new
+// size x colour row still opens at 0 -- twelve combinations pre-filled
+// with 1 is twelve units the shop never said it had.
+check('a plain listing starts at one', gridFor([], {}, [])[0].qty, 1);
+check('but a new combination starts at nothing',
+  gridFor([SIZE], { size: ['s'] }, [])[0].qty, 0);
+check('and a saved plain row keeps its own number, whatever it is',
+  gridFor([], {}, parseVariants([{ id: 'p1', size: null, colour: null, qty: 0 }]))[0].qty, 0);
+
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? ` -- ${r.detail}` : ''}`);
 console.log(`\n${results.length - failed.length}/${results.length} passed`);

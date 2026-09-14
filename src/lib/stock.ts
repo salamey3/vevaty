@@ -155,7 +155,13 @@ export function gridFor(
 ): Variant[] {
   if (dims.length === 0) {
     const had = existing.find((v) => !v.a && !v.b);
-    return [had ?? { id: `new:${keyOf(null, null)}`, a: null, b: null, sku: null, price: null, photo: null, qty: 0, lowAt: null }];
+    // ONE, not zero. A shop posting a sofa has one sofa, and that is the
+    // answer for the overwhelming majority of listings outside clothing --
+    // so the box is already right and the seller reads it rather than
+    // filling it in. A brand-new size x colour row still starts at zero,
+    // because twelve combinations pre-filled with 1 is twelve units the
+    // shop never said it had.
+    return [had ?? { id: `new:${keyOf(null, null)}`, a: null, b: null, sku: null, price: null, photo: null, qty: 1, lowAt: null }];
   }
   const ordered = (d: CategoryAttribute | undefined) => {
     if (!d) return [];

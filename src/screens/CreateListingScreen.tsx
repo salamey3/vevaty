@@ -1,5 +1,5 @@
 import React, { useEffect, useMemo, useRef, useState } from 'react';
-import { BackHandler, Platform, StyleSheet, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
+import { BackHandler, Platform, StyleSheet, Switch, Text, View, TextInput, ScrollView, Image, ActivityIndicator, Linking } from 'react-native';
 import * as ImagePicker from 'expo-image-picker';
 import * as Location from 'expo-location';
 import { Alert } from '../lib/alertShim';
@@ -755,6 +755,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       .then((rows) => {
         setStockAll(rows);
         setStockPicks(picksFromRows(variantDims, rows));
+        // Rows on the server ARE the answer to "do you keep any ready" --
+        // the seller said yes once, and the tick reads back off that
+        // rather than resetting to no and quietly retiring the table.
+        // Set to MATCH, never latched on: a listing whose rows have all
+        // been parked answers no.
+        setStockKept(rows.length > 0);
         setStockLoaded(true);
       })
       .catch(() => {
@@ -818,6 +824,27 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // apartment cannot.
   const usesOfferType = category ? usesOfferTypeCategory(category) : false;
   const conditionMode: ConditionMode = category ? conditionModeForCategory(category) : 'new_used';
+  // Made to order: the thing does not exist until somebody asks for it, so
+  // there is nothing on a shelf to count. But a candle maker with a shop
+  // really does have twelve on a shelf, and she is in the same category as
+  // the woman casting a baby's hands to order -- the category cannot tell
+  // them apart, so the listing is asked instead.
+  //
+  // Off by default, and that default is the one that matters: handing a
+  // made-to-order listing a count means the maker sells one, taps minus,
+  // and her listing reads SOLD OUT for something she can make again
+  // tomorrow.
+  const stockIsOptional = conditionMode === 'made_to_order';
+  const [stockKept, setStockKept] = useState(false);
+  // The listing has been re-filed into a different category during this
+  // edit. Until the seller actually answers the Stock step, nothing here
+  // is written -- see stockWorthWriting.
+  const [stockMoved, setStockMoved] = useState(false);
+  // Whether the count is being asked for on this listing at all. Always,
+  // except in a made-to-order category where the seller has not said they
+  // keep any ready.
+  const stockAsked = !stockIsOptional || stockKept;
+
   // A service has no condition -- nobody sells a used dog groom. The
   // picker is not rendered for one, and Continue does not wait for an
   // answer to a question that was never asked. This became reachable the
@@ -1012,6 +1039,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
     // already fetched and returning early.
     const movedAway = isEditMode && !!editingListing && category !== editingListing.cat;
     setStockLoaded(!isEditMode || movedAway);
+    setStockMoved(isEditMode);
+    // H3: and the made-to-order tick with them. It is set from the rows
+    // the fetch returned, in whatever category that was -- so carrying it
+    // across a move would render the switch already ON in a category the
+    // seller has never answered for, asserting a claim they never made.
+    setStockKept(false);
     stockLoadedFor.current = null;
   }, [category]);
 
@@ -1749,8 +1782,38 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // listing has an id (persistStock below), because a quantity that a form
   // can post is a quantity that goes stale between opening the form and
   // pressing Save.
+  // Whether what is on the Stock step is worth writing.
+  //
+  // It used to be `stockTouched` alone, which was right while every box
+  // started empty: untouched meant "no answer", and writing one would have
+  // invented a number. It is wrong now that a category with no size or
+  // colour opens with 1 already in the box -- that IS the answer for a
+  // shop posting one sofa, and requiring a tap on it meant the listing
+  // saved with no stock row and never got its sold-out mark.
+  //
+  // So: a table with rows in it is written. An EMPTY table is written only
+  // when the seller emptied it themselves -- otherwise a step that never
+  // loaded, or one on a listing whose rows have not arrived yet, would
+  // park every row the shop has.
+  //
+  // What is sent, which is NOT always what is on screen: a seller who
+  // turns "do you keep any ready made" back off is asking for the rows to
+  // go away, and the only thing that parks a row is being left out of a
+  // save. ANDing the switch into the gate instead meant the grid vanished,
+  // the review step stopped showing it, and the rows stayed live on the
+  // server with the sold-out machinery still armed.
+  const stockRowsToSave = stockAsked ? stockRows : [];
+  //
+  // And a mid-edit category change does not count as an answer. The reset
+  // empties the table, and for a category with no size or colour gridFor
+  // then hands back one row at 1 -- so a shop that had twelve would land
+  // on one, written before the seller could even have seen the step.
+  const stockWorthWriting =
+    hasStockStep && stockLoaded &&
+    (stockTouched || (stockRowsToSave.length > 0 && !stockMoved));
+
   const buildStock = (): { attributes: Record<string, string[]>; total: number } => {
-    if (!hasStockStep || !stockTouched || !stockLoaded) {
+    if (!stockWorthWriting) {
       // "Not shown", "shown but never filled in" and "not loaded yet" all
       // have to mean "leave it alone", never "reset it". Editing a listing
       // to fix a typo is not a request to retire its stock.
@@ -1769,7 +1832,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       }
       return { attributes: {}, total: 1 };
     }
-    return { attributes: offeredValues(variantDims, stockRows), total: totalOf(stockRows) };
+    return {
+      attributes: offeredValues(variantDims, stockRowsToSave),
+      // An empty table is "not counted", not "none left" -- the server
+      // says the same thing (see myazar.save_listing_variants).
+      total: stockRowsToSave.length > 0 ? totalOf(stockRowsToSave) : 1,
+    };
   };
 
   // Shared by the real Post/Save submit below and by saveAsDraftAndExit --
@@ -1876,7 +1944,12 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // the real total belongs to the variants table.
       stockQty: stock.total,
       variants: null,
-      stockFromVariants: hasStockStep,
+      // Only when a table is actually being written. `hasStockStep` was
+      // too coarse: a listing that declined to be counted had stock_qty
+      // left out AND no rows to compute it from, so it kept the column
+      // default of 1 and advertised "1 in stock" against the switch the
+      // seller had just turned off.
+      stockFromVariants: stockWorthWriting,
       ...(opts?.asDraft ? { status: 'draft' as const } : {}),
     };
   };
@@ -1979,6 +2052,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
       // the unsaved-changes dialog every time. This flag only ever flips
       // on a real edit, so it is immune to when the load arrives.
       stockTouched,
+      stockKept,
       // Not read by buildPayload -- the choices are saved by their own
       // call, after the listing exists -- but a seller who opens Edit,
       // changes one choice's price and walks away has made a real change
@@ -2020,9 +2094,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
   // never loaded would retire a shop's entire size run on an edit that
   // only touched the title.
   const persistStock = async (listingId: string) => {
-    if (!hasStockStep || !stockLoaded || !stockTouched) return;
+    if (!stockWorthWriting) return;
     try {
-      await saveVariants(listingId, stockRows);
+      await saveVariants(listingId, stockRowsToSave);
     } catch (e: any) {
       // Not fatal -- the listing itself saved, and throwing here would
       // leave the seller on a Post button for something that already
@@ -2736,6 +2810,23 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 </Pressy>
               </View>
             ) : (
+              <>
+                {/* Made to order. Off by default: a maker handed a count
+                    sells one, taps minus, and her listing reads SOLD OUT
+                    for something she can make again tomorrow. */}
+                {stockIsOptional && (
+                  <View style={[styles.keptRow, mirrorRow(isRTL)]}>
+                    <View style={{ flex: 1, paddingEnd: 12 }}>
+                      <Text style={styles.fieldLabel}>{t('stock.keptReadyLabel')}</Text>
+                      <Text style={type.soft}>{t('stock.keptReadyHint')}</Text>
+                    </View>
+                    <Switch
+                      value={stockKept}
+                      onValueChange={(v: boolean) => { setStockKept(v); setStockTouched(true); }}
+                    />
+                  </View>
+                )}
+                {stockAsked && (
               <StockGrid
                 dims={variantDims}
                 picks={stockPicks}
@@ -2747,6 +2838,8 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 t={t}
                 onFocus={onInputFocus}
               />
+                )}
+              </>
             )}
           </View>
         )}
@@ -3155,9 +3248,9 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                   ))}
               </View>
             )}
-            {hasStockStep && stockTouched && stockRows.length > 0 && (
+            {stockWorthWriting && stockRowsToSave.length > 0 && (
               <View style={styles.specsReview}>
-                {stockRows.map((r) => (
+                {stockRowsToSave.map((r) => (
                   <View key={r.id} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
                     <Text style={type.soft}>
                       {variantDims.length === 0 ? t('stock.plainRowLabel') : variantLabel(r, variantDims, language)}
@@ -3440,6 +3533,7 @@ const SCROLL_BOTTOM_PAD = 20;
 
 const styles = StyleSheet.create({
   choicesProblem: { ...type.soft, color: colors.danger, marginTop: 10 },
+  keptRow: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', marginBottom: 4 },
   choicesLoading: { alignItems: 'center', gap: 12, paddingVertical: 24 },
   choicesRetry: {
     paddingHorizontal: 18, paddingVertical: 10, borderRadius: radius.pill,

@@ -468,6 +468,42 @@ everything about `myazar.listing_variants` follows from that.
 - **The row key joins the two values with U+001F, not "/".** Option values
   are free text an admin types, and `38/40` is a real EU trouser size.
   `src/lib/stock.ts` and `save_listing_variants` use the same character.
+- **`stock_mode` means "countable", not "clothing".** It was set on eight
+  categories, all of them clothing, and that answered the wrong question:
+  whether a thing comes in multiples belongs to the CATEGORY, but whether
+  THIS seller has twelve belongs to the LISTING — and one flag was
+  deciding both, so a shop importing twelve cribs got nothing. It is now
+  on for 93 of 115 rows and off only where a shop cannot have twelve:
+  properties, vehicles, jobs, services, live animals, phone numbers,
+  number plates, business liquidations. Anything new defaults to countable
+  unless it is one of those.
+- **A category with no size or colour opens at 1, and that IS the answer.**
+  A shop posting one sofa has one sofa. The old gate was `stockTouched`
+  alone, which was right while every box started empty and wrong the
+  moment one was pre-filled: the listing saved with no row and never got
+  its sold-out mark. The rule is now `stockWorthWriting` — write a table
+  that has rows; write an EMPTY one only when the seller emptied it
+  themselves; and never write on a mid-edit category change until they
+  have answered the step, because the reset would otherwise land a shop
+  that had twelve on one.
+- **"Not counted" and "sold out" are different, and both are zero rows.**
+  A made-to-order maker turning the count off parks every row, and the
+  total used to go to 0 — which reads SOLD OUT, so her listing became
+  unbuyable for something she can make again tomorrow. A listing with rows
+  but none ACTIVE now reads 1: available, not counted. Genuinely selling
+  out is different — those rows stay active at zero — and still reads 0.
+  All three writers of `listings.stock_qty` (`save_listing_variants`,
+  `sync_listing_stock`, `hold_stock_total`) have to agree on that rule, or
+  whichever runs last wins; the trigger only intervenes when the value
+  CHANGES, so a function writing 0 over an existing 0 slips straight past
+  it.
+- **Made to order is asked per LISTING, not per category.** A candle maker
+  really does keep twelve on a shelf, and she is in the same category as
+  the woman casting a baby's hands to order. So a category whose resolved
+  condition mode is `made_to_order` shows a switch, off by default, and
+  that default is the one that matters. Turning it off must SAVE — an
+  empty table is what parks the rows, and gating the save on the switch
+  instead left the grid hidden while the rows stayed live on the server.
 - **An order is a question, and nothing is reserved.** Vevaty never sees
   the money, so holding stock against an enquiry would take a shirt off
   the site for somebody who never came back. Which means two orders are

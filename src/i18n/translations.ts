@@ -689,6 +689,9 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'stock.pickFirst': 'Tick the ones you carry and a row appears for each.',
     'stock.pickBoth': 'Tick a {first} and a {second} — a row appears for every combination of the two.',
     'stock.plainIntro': 'How many do you have right now?',
+    'stock.keptReadyLabel': 'Do you keep any of these ready made?',
+    'stock.keptReadyHint':
+      'Leave this off for anything you make once it is ordered — a count would sell your listing out for something you can make again.',
     'stock.plainRowLabel': 'In stock',
     'stock.openingCountFor': 'Starting count for {what}',
     'stock.existingCountsNote':
@@ -2155,6 +2158,9 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'stock.pickFirst': 'اختر ما يتوفر لديك ويظهر سطر لكل واحد.',
     'stock.pickBoth': 'اختر {first} و{second} — يظهر سطر لكل تركيبة منهما.',
     'stock.plainIntro': 'كم لديك الآن؟',
+    'stock.keptReadyLabel': 'هل تحتفظ بكمية جاهزة من هذا؟',
+    'stock.keptReadyHint':
+      'اتركه مقفلًا لما تصنعه عند الطلب — العدد سينفد ويخفي إعلانك عن شيء يمكنك صنعه مجددًا.',
     'stock.plainRowLabel': 'المتوفر',
     'stock.openingCountFor': 'الكمية الأولى لـ {what}',
     'stock.existingCountsNote':

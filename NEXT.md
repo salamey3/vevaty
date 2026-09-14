@@ -373,6 +373,35 @@ Nothing in either stage touches the one-of-a-kind shop: a listing with no
 stock table is untouched by all of it, and a private seller never sees any
 of it.
 
+**Shop stock reaches every countable category**, 14 Sep 2026. The first
+cut gated the whole thing on `categories.stock_mode`, which was set on
+eight categories, all of them clothing. Yousif posted a sofa into his
+storefront and got no count — and he was right that the gate was wrong.
+Whether a thing comes in multiples belongs to the category; whether THIS
+seller has twelve belongs to the listing. One flag was answering both, so
+a shop importing twelve cribs got nothing.
+
+Stock is now on for 93 of 115 category rows and off only where a shop
+genuinely cannot have twelve: properties, vehicles, jobs, services, live
+animals, phone numbers, number plates, business liquidations. A category
+with no size or colour opens the count at **1** — a shop posting one sofa
+has one sofa — and selling the last one retires the listing by itself,
+which replaces "Item Sold" for shops.
+
+Made-to-order crafts are the one case the category cannot answer: a candle
+maker keeps twelve on a shelf, the woman casting a baby's hands does not,
+and they are in the same category. So those eight ask the LISTING, with a
+switch that is off by default — handing a made-to-order listing a count
+means the maker sells one and reads SOLD OUT for something she can make
+again tomorrow.
+
+That last point turned up a gap worth naming: **"not counted" and "sold
+out" were the same state.** Turning the count off parks every row, the
+total went to zero, and zero means sold out. A listing with rows but none
+active now reads 1 — available, not counted — while genuinely selling out
+keeps its rows active at zero and still reads 0. All three writers of
+`listings.stock_qty` had to be taught the same rule.
+
 **Saved sets**, 13 Sep 2026. A seller keeps up to twelve named sets of
 choices and drops one into a listing in a tap, instead of retyping Size and
 Add-ons on every item. A set is a template and is COPIED: the stored body
