@@ -109,6 +109,91 @@ html = html.replace(
     RESET_STYLE_END
 );
 
+// --- Boot screen -------------------------------------------------------
+//
+// The site is ONE 4 MB document with the whole bundle inlined, and the
+// response is sent `no-store`, so every visit downloads all of it before a
+// single pixel can be painted. Measured from Beirut on 15 Sep 2026: time to
+// first byte 85ms (the server is fine), document download 24.7 SECONDS,
+// first contentful paint 25.0 seconds. A second, cache-busting fetch took
+// 19.2s -- this is not a first-visit cost, it is every visit.
+//
+// For all of that time the viewport was BLACK, because of the html/body
+// rule added above: it exists so the bottom system strip is the right
+// colour on first paint, and the side effect nobody had measured was that
+// it makes the entire loading period look like a crash rather than a wait.
+//
+// This does not make the site faster. It makes the wait legible, which is
+// the difference between a tester thinking "slow" and thinking "broken" --
+// and it costs about 1.5 KB placed ahead of the bundle. It goes BEFORE
+// <div id="root"> because the browser paints what it has parsed so far:
+// these bytes arrive in the first few hundred milliseconds while the
+// remaining megabytes are still in flight.
+//
+// It removes itself when React puts its first child into #root -- an
+// actual signal that the app is up, not a timer guessing at one. The
+// 40-second fallback exists only so a boot that never completes does not
+// leave the screen covered forever.
+//
+// The "still loading" line appears at 6 seconds and only then: on a fast
+// connection nobody ever sees it, and on a slow one it answers the
+// question the person is already asking.
+// The markup goes BEFORE #root and the script goes AFTER it, and that
+// split is load-bearing rather than tidy: the script looks #root up by id
+// at parse time, so placing it ahead of #root -- as the first version of
+// this did -- found null, returned early, and left the boot screen
+// covering the app forever. Anchored on the whole empty element so both
+// halves land on either side of it.
+const BOOT_ROOT_RE = /<div id="root">\s*<\/div>/;
+const bootRootMatch = html.match(BOOT_ROOT_RE);
+if (!bootRootMatch) {
+  throw new Error('could not find an empty <div id="root"></div> in dist/index.html to place the boot screen around');
+}
+const BOOT_ROOT = bootRootMatch[0];
+const bootMarkup =
+  '<div id="vevaty-boot" role="status" aria-live="polite">' +
+    '<div id="vevaty-boot-mark">vevaty</div>' +
+    '<div id="vevaty-boot-bar"><i></i></div>' +
+    '<p id="vevaty-boot-slow">Still loading — the first visit takes a moment on a slow connection.</p>' +
+  '</div>' +
+  '<style>' +
+    '#vevaty-boot{position:fixed;inset:0;z-index:2147483000;background:#F4F3EE;' +
+      'display:flex;flex-direction:column;align-items:center;justify-content:center;gap:22px;' +
+      'font-family:system-ui,-apple-system,"Segoe UI",Roboto,sans-serif;padding:24px;text-align:center}' +
+    '#vevaty-boot-mark{font-size:30px;font-weight:600;letter-spacing:-.02em;color:' + BRAND_PRIMARY + '}' +
+    '#vevaty-boot-bar{width:168px;max-width:60vw;height:3px;border-radius:2px;background:#E4E2DA;overflow:hidden}' +
+    '#vevaty-boot-bar i{display:block;width:40%;height:100%;border-radius:2px;background:#D9A441;' +
+      'animation:vevaty-boot-sweep 1.15s ease-in-out infinite}' +
+    '@keyframes vevaty-boot-sweep{0%{transform:translateX(-100%)}100%{transform:translateX(320%)}}' +
+    '#vevaty-boot-slow{margin:0;max-width:32ch;font-size:13px;line-height:1.5;color:#626A67;' +
+      'opacity:0;transition:opacity .4s ease}' +
+    '#vevaty-boot.is-slow #vevaty-boot-slow{opacity:1}' +
+    '@media (prefers-reduced-motion:reduce){#vevaty-boot-bar i{animation:none;width:100%;opacity:.55}' +
+      '#vevaty-boot-slow{transition:none}}' +
+  '</style>';
+
+const bootScript =
+  '<script>(function(){' +
+    'var b=document.getElementById("vevaty-boot"),r=document.getElementById("root");' +
+    'if(!b||!r)return;' +
+    'var slow=setTimeout(function(){b.classList.add("is-slow");},6000);' +
+    'var done=false;' +
+    'function clear(){if(done)return;done=true;clearTimeout(slow);' +
+      'if(ob)ob.disconnect();' +
+      'b.style.transition="opacity .25s ease";b.style.opacity="0";' +
+      'setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b);},260);}' +
+    'var ob=new MutationObserver(function(){if(r.firstElementChild)clear();});' +
+    'ob.observe(r,{childList:true});' +
+    'if(r.firstElementChild)clear();' +
+    'setTimeout(clear,40000);' +
+  '})();<\/script>';
+
+html = html.split(BOOT_ROOT).join(bootMarkup + BOOT_ROOT + bootScript);
+console.log(
+  `Added the boot screen (${bootMarkup.length} bytes ahead of #root, ` +
+  `${bootScript.length} bytes of wiring after it)`
+);
+
 // Expo doesn't always emit exactly one web bundle. Alongside the entry
 // bundle it code-splits dynamically-imported modules into their own chunks --
 // right now that's expo-camera's ZXing barcode scanner, which nothing in
