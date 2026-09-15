@@ -216,7 +216,16 @@ function uploadAtomically(cfg, port, files, label, required = []) {
   const ordered = [...present.filter((f) => f !== 'index.html'), ...present.filter((f) => f === 'index.html')];
   const moves = ordered.map((f) => `mv -f '${tmpDir}/${f}' '${remoteDir}/${f}'`).join(' && ');
   const chmods = ordered.map((f) => `'${tmpDir}/${f}'`).join(' ');
-  sh(cfg, port, `chmod 644 ${chmods} && ${moves} && rm -rf '${tmpDir}'`);
+  // Directories need 755, files 644, and the distinction is not academic:
+  // the four levels of _expo/static/js/web are CREATED by this deploy, so
+  // they take the receiving sshd's umask. A directory that lands 750 makes
+  // every chunk inside it 403 while every file in it is perfectly correct
+  // -- the 2026-08-21 failure one level up. deployShareSnippets below has
+  // always done this for its own tree; this is the same rule.
+  const dirChmods = subdirs.length
+    ? subdirs.map((d) => `chmod 755 '${remoteDir}/${d}'`).join(' && ') + ' && '
+    : '';
+  sh(cfg, port, `chmod 644 ${chmods} && ${moves} && ${dirChmods}rm -rf '${tmpDir}'`);
 
   return present;
 }
@@ -316,11 +325,36 @@ export async function deployWeb() {
   // system-ui rather than breaking the page -- but they are cached for a
   // month, so a bad one is a month of wrong typography, which is exactly
   // what the atomic rename above is for.
-  const assets = [...ASSETS, alreadyThere ? null : manifest.bundle, manifest.shareImage, ...(manifest.fonts || [])].filter(Boolean);
+  // Lazily-loaded chunks go up with everything else index.html's app can
+  // ask for. They are not needed to paint the first screen -- one chunk per
+  // control-room page -- but they ARE referenced by absolute paths baked
+  // into the bundle, so a deploy that shipped the bundle without them would
+  // give the admin a screen that cannot load. Phase 1, before index.html.
+  const assets = [
+    ...ASSETS,
+    alreadyThere ? null : manifest.bundle,
+    manifest.shareImage,
+    ...(manifest.fonts || []),
+    ...(manifest.chunks || []),
+  ].filter(Boolean);
   if (alreadyThere) console.log(`  ${manifest.bundle} is already on the server and matches -- not re-uploading`);
   uploadAtomically(cfg, port, assets, 'uploading assets', ASSETS);
 
   await verifyUploaded(origin, manifest.bundle, manifest.bundleSha256, 'the bundle');
+
+  // Every chunk, fetched back and hashed, not just the bundle.
+  //
+  // These are the one file class on the site that can fail in total
+  // silence. A missing bundle is a blank page somebody notices in seconds;
+  // a missing chunk is a control room that says "This screen didn't load"
+  // to the one person who would have to diagnose it, while the deploy,
+  // verify:web and the whole public site all report success. They are also
+  // the first files this project has ever put in a directory it created
+  // itself, which is exactly where a permissions failure hides.
+  for (const chunk of manifest.chunks || []) {
+    const localChunk = readFileSync(`dist/${chunk}`);
+    await verifyUploaded(origin, chunk, createHash('sha256').update(localChunk).digest('hex'), `chunk ${chunk.split('/').pop()}`);
+  }
 
   // The share card is not worth failing a deploy over -- a blank link
   // preview is recoverable, a site that will not load is not. The read is
@@ -348,7 +382,7 @@ export async function deployWeb() {
   await verifyUploaded(origin, 'index.html', createHash('sha256').update(readFileSync('dist/index.html')).digest('hex'), 'index.html', {
     onFail:
       'THE LIVE SITE MAY BE BROKEN RIGHT NOW. index.html was replaced and what came\n' +
-      '  back is not what was built. Fastest recovery, one file, needs nothing else:\n\n' +
+      '  back is not what was built. Fastest recovery, one file:\n\n' +
       '    scp dist/vevaty-standalone.html <user>@<host>:<remoteDir>/index.html\n\n' +
       '  (or upload it through cPanel File Manager and rename it to index.html).',
   });
@@ -356,7 +390,9 @@ export async function deployWeb() {
   console.log(`\n  live bundle: ${manifest.bundle} (${(manifest.bundleBytes / 1024 / 1024).toFixed(2)} MB, cached for a year)`);
   console.log(`  live shell:  index.html (${(manifest.shellBytes / 1024).toFixed(1)} KB, never cached)`);
   console.log('  rollback:    upload dist/vevaty-standalone.html as index.html -- it carries');
-  console.log('               the whole bundle inline and needs nothing else on the server.');
+  console.log('               the eager bundle inline, so the public site needs nothing else.');
+  console.log('               (The control room still loads its screens from _expo/, which');
+  console.log('                phase 1 has already put there and never removes.)');
 
   deployShareSnippets(cfg, port);
 }

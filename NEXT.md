@@ -372,6 +372,40 @@ What is left of this thread, in order of what it would buy:
 - **Both languages of every string, 63 KB**, of which about half is ever
   used by a given visitor. Low payoff and `t()` is synchronous everywhere,
   so this is the worst risk-to-reward of the three.
+
+**The fonts left the code, and the control room loads on demand**, 15 Sep
+2026. Two changes in one night, measured at every step:
+
+- 215 KB of base64 Inter and Almarai moved out of `src/theme/fonts.ts` into
+  six real `.woff2` files in `public/`, cached a month, preloaded from the
+  shell for the two weights the landing screen actually renders in (400 and
+  600 — measured by driving a browser at the built site and reading
+  `document.fonts` back, not guessed).
+- The 18 control-room screens are registered through `lazyAdminScreen()`
+  and fetched the first time they are rendered. The gate is what makes it
+  safe: `adminOnly()` returns the sign-in without rendering the page, so a
+  member who types `/control-room/branding` never causes the code to be
+  requested at all. 17 chunks come out, not 18 — `AdminAuctionsScreen`
+  exports something `AdminAuctionLotsScreen` imports, so Metro hoisted it
+  into the eager shared chunk. It works; it just still ships to everyone.
+
+First visit over the wire, English: **1,078,657 -> 905,086**, a 16% cut,
+about four seconds on the connection this was measured on. The bundle
+alone is 221 KB smaller, so every future release costs a returning visitor
+that much less too.
+
+Deliberately admin-only. The auction and batch screens are the obvious
+next candidates and are NOT done, because those are screens testers are
+about to use on Lebanese mobile connections, where a failed chunk is a
+broken screen rather than an inconvenience for the one person who can fix
+it. The pattern is proven now; widening it is a decision, not a chore.
+
+One thing was NOT exercisable in the sandbox: an actual signed-in admin
+rendering one of those lazy screens, since that needs the admin password.
+Everything around it was — the chunks are valid JS, every path baked into
+the bundle is in the manifest the deploy uploads, and a control-room URL
+renders the gate without fetching anything. **Open the control room once
+after shipping this.**
 - **A missing bundle shows the boot screen for 40 s and then a blank
   page.** Measured, not guessed. The deploy now makes that nearly
   impossible, but an honest error after the fallback fires would be better

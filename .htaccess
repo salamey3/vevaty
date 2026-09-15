@@ -75,6 +75,16 @@
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
 
+  # Metro's lazily-loaded chunks, under /_expo/static/js/web/. Named
+  # <Screen>-<32 hex>.js by Metro itself from their own contents, so the
+  # same reasoning as app.<hash>.js applies: the name changes whenever the
+  # code does, which means a cached one can never be stale. Matched on the
+  # hash suffix rather than on the directory, because FilesMatch sees the
+  # basename only.
+  <FilesMatch "-[0-9a-f]{32}\.js$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
   # Fonts. A month, not a year, and deliberately not immutable: the names
   # are stable (inter-400.woff2), so a replaced file at the same URL would
   # otherwise be invisible to anyone who had been here before. A month

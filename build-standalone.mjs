@@ -274,33 +274,65 @@ console.log(
   `${bootScript.length} bytes of wiring after it)`
 );
 
-// Expo doesn't always emit exactly one web bundle. Alongside the entry
-// bundle it code-splits dynamically-imported modules into their own chunks --
-// right now that's expo-camera's ZXing barcode scanner, which nothing in
-// src/ ever invokes (the camera is used for photo capture only). An earlier
-// version asserted there was exactly one .js file here, so the mere
-// appearance of such a chunk broke the website build outright.
+// Expo emits SEVERAL files now, and the difference between them matters.
 //
-// Pick the *entry* bundle the way the browser does -- by reading the
-// <script src> out of index.html -- rather than assuming the directory holds
-// a single file, and report any remaining chunks instead of dying on them.
-const entryMatch = html.match(/<script src="(\/_expo\/static\/js\/web\/[^"]+)"[^>]*><\/script>/);
-if (!entryMatch) throw new Error('could not find the entry <script src> in dist/index.html');
-const jsPath = path.join(DIST, entryMatch[1].replace(/^\//, ''));
+// EAGER: the <script src> tags in index.html -- since code splitting was
+// turned on for the control room that is three of them (Metro's runtime, a
+// shared common chunk, and the entry), where it used to be one. They are
+// read in document order and concatenated into the single app.<hash>.js
+// this build has always produced, because that is exactly what the browser
+// would do with them anyway and it keeps the deploy's one-file gate intact.
+// Joined with a `;` between them: a file whose last statement has no
+// semicolon followed by one that opens with `(` would otherwise be parsed
+// as a call.
+//
+// LAZY: everything else in that directory -- one chunk per admin screen,
+// fetched only when someone actually opens it. These are NOT concatenated;
+// the whole point is that they do not arrive up front. They are listed in
+// the manifest so deploy-web.mjs uploads them, and they are referenced by
+// ABSOLUTE paths baked into the entry ("/_expo/static/js/web/X.js",
+// verified by reading them out of the built bundle), not derived from the
+// script tag's own src -- which is the property that makes concatenating
+// the eager files safe.
+const eagerTags = [...html.matchAll(/<script src="(\/_expo\/static\/js\/web\/[^"]+)"[^>]*><\/script>/g)];
+if (!eagerTags.length) throw new Error('could not find any entry <script src> in dist/index.html');
 
 const jsDir = path.join(DIST, '_expo', 'static', 'js', 'web');
-const extraChunks = fs.existsSync(jsDir)
-  ? fs.readdirSync(jsDir).filter((f) => f.endsWith('.js')).map((f) => path.join(jsDir, f)).sort()
-      .filter((p) => path.resolve(p) !== path.resolve(jsPath))
+const eagerNames = new Set(eagerTags.map((m) => path.basename(m[1])));
+const lazyChunks = fs.existsSync(jsDir)
+  ? fs.readdirSync(jsDir).filter((f) => f.endsWith('.js') && !eagerNames.has(f)).sort()
   : [];
-if (extraChunks.length) {
-  console.log(`NOTE: ${extraChunks.length} lazily-loaded chunk(s) are not inlined into the single-file build:`);
-  for (const p of extraChunks) console.log(`  - ${path.basename(p)} (${fs.statSync(p).size} bytes)`);
-  console.log('  They are only fetched if the app dynamically imports them at runtime.');
-  console.log('  Nothing in src/ does today. If that ever changes, upload dist/_expo/ next to index.html.');
+
+console.log(`Eager scripts (concatenated into one bundle): ${[...eagerNames].join(', ')}`);
+if (lazyChunks.length) {
+  const bytes = lazyChunks.reduce((n, f) => n + fs.statSync(path.join(jsDir, f)).size, 0);
+  console.log(`Lazily-loaded chunks kept separate: ${lazyChunks.length} (${(bytes / 1024).toFixed(0)} KB total)`);
+} else {
+  console.log('No lazily-loaded chunks in this build.');
 }
 
-let js = fs.readFileSync(jsPath, 'utf8');
+let js = eagerTags.map((m) => fs.readFileSync(path.join(DIST, m[1].replace(/^\//, '')), 'utf8')).join('\n;\n');
+
+// A lazily-loaded chunk must not reference /assets/... .
+//
+// The inlining below only runs over the EAGER bundle, and nothing uploads
+// dist/assets/, so such a reference would survive as a plain URL inside a
+// chunk, 404 against the asset rule in .htaccess, and show up as a broken
+// image on one admin screen -- the kind of thing found months later. No
+// chunk does this today; this is here so the first one that tries says so
+// at build time rather than in production.
+for (const chunk of lazyChunks) {
+  const body = fs.readFileSync(path.join(jsDir, chunk), 'utf8');
+  const refs = [...new Set(body.match(/\/assets\/[^"'\\]+/g) || [])];
+  if (refs.length) {
+    throw new Error(
+      `${chunk} references ${refs.length} asset(s) that would never be uploaded:\n` +
+        refs.slice(0, 5).map((r) => `  ${r}`).join('\n') +
+        '\nEither import it from an eagerly-loaded module, or teach this script and\n' +
+        'deploy-web.mjs to carry dist/assets/ as well.'
+    );
+  }
+}
 
 // Inline every /assets/... reference found in the JS bundle as a data: URI.
 const assetRefs = [...new Set(js.match(/\/assets\/[^"'\\]+/g) || [])].sort();
@@ -335,8 +367,10 @@ if (fs.existsSync(faviconPath)) {
 // entire remainder of the string" and bloated the output by ~41KB. Caught by
 // diffing this against the Python implementation it replaced -- both outputs
 // must be byte-identical.
-const scriptTag = html.match(/<script src="\/_expo\/static\/js\/web\/[^"]+" defer><\/script>/);
-if (!scriptTag) throw new Error('could not find script tag to inline');
+// The first eager tag becomes the one bundle; the rest are removed, since
+// their contents are now inside it.
+const scriptTag = [eagerTags[0][0]];
+const extraEagerTags = eagerTags.slice(1).map((m) => m[0]);
 
 // --- Two outputs from here, and they are deliberately different --------
 //
@@ -393,14 +427,16 @@ console.log(`Wrote ${DIST}/${bundleName} (${fs.statSync(path.join(DIST, bundleNa
 // expands to "the entire remainder of the string" and bloated the output
 // by ~41 KB. Caught by diffing this against the Python implementation it
 // replaced -- both outputs had to be byte-identical.
-const standaloneHtml = html
+const stripExtraEager = (h) => extraEagerTags.reduce((acc, tag) => acc.split(tag).join(''), h);
+
+const standaloneHtml = stripExtraEager(html)
   .split(scriptTag[0]).join(`<script>${js}</script>`)
   .split(OG_IMAGE_TOKEN).join(shareDataUri ?? '');
 const outPath = process.env.STANDALONE_OUT || path.join(DIST, 'vevaty-standalone.html');
 fs.writeFileSync(outPath, standaloneHtml, 'utf8');
 console.log(`Wrote ${outPath} (${fs.statSync(outPath).size} bytes) -- the single-file copy, and the rollback`);
 
-const shellHtml = html
+const shellHtml = stripExtraEager(html)
   .split(scriptTag[0]).join(`<script src="/${bundleName}" defer></script>`)
   .split(OG_IMAGE_TOKEN).join(`${SITE_ORIGIN}/${SHARE_IMAGE_NAME}`);
 fs.writeFileSync(htmlPath, shellHtml, 'utf8');
@@ -423,6 +459,7 @@ const manifest = {
   bundleBytes: fs.statSync(path.join(DIST, bundleName)).size,
   shareImage: shareDataUri ? SHARE_IMAGE_NAME : null,
   fonts: fontFiles.map((f) => `fonts/${f}`),
+  chunks: lazyChunks.map((f) => `_expo/static/js/web/${f}`),
   shellBytes: fs.statSync(htmlPath).size,
   builtAt: new Date().toISOString(),
 };

@@ -202,6 +202,15 @@ Two things stop it, and both matter:
    `index.html`, so if one ever does go missing the failure is visible in
    the network tab at a glance rather than being a silent blank page.
 
+The site is more than two files now. `dist/` also carries
+`fonts/*.woff2` and, since the control room was code-split,
+`_expo/static/js/web/*.js` — one chunk per admin screen, referenced by
+absolute paths baked into the bundle. All of them ride in phase 1, before
+`index.html`, and `asset-manifest.json` is what tells the deploy they
+exist: the build writes the list, the upload reads it, nothing is globbed
+for. `node scripts/test/deploy-guards.test.mjs` checks that every chunk
+path the bundle actually names is one the manifest carries.
+
 A third thing matters and is easy to miss: **every file lands via a
 rename**, never written over in place. scp truncates and refills, so a
 request arriving mid-upload gets a partial file with an ordinary 200 --
@@ -238,9 +247,17 @@ missing, and the browser would say `ERR_TOO_MANY_REDIRECTS` -- loud, not
 silent.
 
 **Rollback**, if a deploy ever does go wrong: upload
-`dist/vevaty-standalone.html` as `index.html`. It carries the whole bundle
-inline and needs nothing else on the server, so it restores exactly the
-behaviour this replaced.
+`dist/vevaty-standalone.html` as `index.html`. It carries the eager bundle
+inline, so the whole public site — browse, search, listings, auctions,
+chat, posting — works with nothing else on the server.
+
+One honest caveat since the control room was code-split: that file does
+**not** contain the admin screens, which are still fetched from
+`/_expo/static/js/web/`. After any normal deploy those are already on the
+server and never removed, so the control room keeps working too. On a doc
+root where phase 1 has never run — a fresh host, a purely manual upload —
+the public site is fine and every control-room page shows its retry
+screen.
 
 ## Notes
 
@@ -250,10 +267,12 @@ behaviour this replaced.
   matching `dist/index.html` shell plus `dist/asset-manifest.json` naming
   it. It also still writes `dist/vevaty-standalone.html`, the older
   everything-in-one-file form, which is the manual upload and the rollback.
-- Expo may emit extra lazily-loaded chunks (currently expo-camera's barcode
-  scanner). They are **not** inlined. Nothing in `src/` imports them at
-  runtime today; the build prints a NOTE listing any it finds. If the app
-  ever does dynamically import one, upload `dist/_expo/` alongside
-  `index.html` too.
+- Lazily-loaded chunks under `dist/_expo/static/js/web/` are **not**
+  inlined, on purpose — one per control-room screen (see "Why the site is
+  two files" above), plus expo-camera's barcode scanner. The build lists
+  them in `asset-manifest.json` and `deploy-web.mjs` uploads and verifies
+  every one in phase 1, so there is nothing to do by hand. A chunk that
+  referenced anything in `dist/assets/` would fail the build, because that
+  directory is not uploaded.
 - The EAS free plan caps Android builds per month. Batch changes rather than
   building per fix.

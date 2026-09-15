@@ -99,8 +99,9 @@ if (localHash === liveHash) {
 // is worse than saying nothing. Recognise it and say what it is.
 if (existsSync(STANDALONE) && sha256(readFileSync(STANDALONE)) === liveHash) {
   console.log('  The site is serving the SINGLE-FILE rollback build of this same commit.');
-  console.log('  That is the whole app in one document -- correct, just slower for');
-  console.log('  visitors (no caching, the whole bundle on every visit).\n');
+  console.log('  That is the public site in one document -- correct, just slower for');
+  console.log('  visitors (no caching, the whole bundle on every visit). The control');
+  console.log('  room still loads its screens from /_expo/, which is already there.\n');
   console.log('  To go back to the fast split version: npm run deploy:web\n');
   process.exit(1);
 }

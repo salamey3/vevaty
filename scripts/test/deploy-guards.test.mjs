@@ -57,6 +57,38 @@ console.log('\nWhat the build produced\n');
   check('the shell is small enough to send uncached every time', shell.length < 200_000, `${(shell.length / 1024).toFixed(1)} KB`);
 }
 
+// Since the control room is code-split, index.html naming the bundle is no
+// longer the whole story: the bundle names chunks of its own, by absolute
+// path, and a chunk the deploy does not know about is an admin screen that
+// cannot load. The bundle is the source of truth for what it will ask for.
+//
+// Worth being straight about what this does NOT prove. `manifest.chunks` is
+// written by listing the same directory Metro just wrote, so this check is
+// close to tautological -- it catches a build that went wrong, not a chunk
+// that never reached the server. THAT is caught at deploy time, where every
+// chunk is fetched back over HTTPS and hashed (deploy-web.mjs), which is
+// the check that matters. This one is here because a build whose bundle
+// names a file the manifest has never heard of is a class of mistake worth
+// failing loudly on, cheaply, before anything is uploaded.
+{
+  const src = fs.readFileSync(bundlePath, 'utf8');
+  const baked = [...new Set([...src.matchAll(/"(\/_expo\/static\/js\/web\/[^"]+\.js)"/g)].map((m) => m[1].replace(/^\//, '')))];
+  const listed = manifest.chunks || [];
+  const missing = baked.filter((b) => !listed.includes(b));
+  check(`every chunk the bundle names is one the deploy will send (${baked.length})`,
+    missing.length === 0, missing.join(', ') || 'none missing');
+  check('every listed chunk exists and is JavaScript, not HTML',
+    listed.every((c) => {
+      const t = fs.existsSync(path.join(DIST, c)) ? fs.readFileSync(path.join(DIST, c), 'utf8').trimStart() : '';
+      return t && !t.startsWith('<');
+    }));
+  const scriptTags = [...shell.toString('utf8').matchAll(/<script src="[^"]+"/g)].length;
+  check('the shell loads exactly one script', scriptTags === 1, `${scriptTags} <script src> tag(s)`);
+  const fonts = manifest.fonts || [];
+  check(`the fonts are built and listed (${fonts.length})`,
+    fonts.length > 0 && fonts.every((f) => fs.existsSync(path.join(DIST, f))));
+}
+
 console.log('\nWhat the upload refuses\n');
 
 async function serving(handler) {
