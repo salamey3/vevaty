@@ -18,24 +18,70 @@
   RewriteCond %{REQUEST_FILENAME} -f [OR]
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
+
+  # A MISSING ASSET MUST 404, not quietly turn into index.html.
+  #
+  # Everything below this point is a request for a file that is not on the
+  # server. For a route like /profile that is exactly right -- the SPA
+  # fallback on the last line hands back index.html and the app routes it
+  # client-side. For app.<hash>.js it is a catastrophe, and it is the
+  # mechanism behind every blank-page incident this project has had: the
+  # browser asks for a script, gets a 200 carrying HTML, and dies on
+  # "Unexpected token '<'" with nothing on screen and nothing in the
+  # server log to show for it.
+  #
+  # Anything that looks like an asset is answered with a real 404 instead.
+  # The page is still broken if the bundle is missing -- but it is broken
+  # loudly, in the network tab, in one glance. deploy-web.mjs is built so
+  # this can't happen (the bundle is uploaded and fetched back before
+  # index.html is allowed to name it), and this is the second line.
+  RewriteCond %{REQUEST_URI} \.(js|mjs|css|map|json|png|jpe?g|gif|svg|ico|webp|woff2?|ttf|otf)$
+  RewriteRule ^ - [R=404,L]
+
   RewriteRule ^ index.html [L]
 </IfModule>
 
-# This is a single-file SPA deploy: index.html is regenerated and
-# re-uploaded on every release, and every route (via the rewrite above)
-# resolves to it. If any layer between the server and a visitor's browser
-# -- the browser's own HTTP cache, or an intermediary/proxy cache -- ever
-# serves a STALE index.html from a previous release, the visitor can load
-# a page whose inline bundle references data/behavior that no longer
-# matches the backend, and in the worst case (as happened once already,
-# when a stale copy referenced a JS chunk that was never part of a
-# single-file deploy) the page renders fully blank with no visible error.
-# Forcing every HTML file to always revalidate with the origin eliminates
-# that whole class of "works for me, blank for them" bugs.
+# Two policies, because there are now two kinds of file and they want
+# opposite things.
+#
+# HTML must never be cached. index.html is regenerated and re-uploaded on
+# every release and every route resolves to it, so a stale copy served by
+# a browser or an intermediary proxy is a visitor running a build that no
+# longer matches the backend -- and in the worst case (which has happened)
+# a fully blank page with no visible error. It is a few KB now, so this
+# costs almost nothing.
+#
+# The bundle is the opposite: 4 MB, and named after a SHA-256 of its own
+# contents, so app.<hash>.js is immutable by construction -- a release
+# that changes one byte produces a different filename, which the new
+# index.html names, and that index.html is never cached. Nobody can be
+# served a stale bundle, so there is no reason to make anyone download the
+# same 4 MB twice. Before this, `no-store` on the single 4 MB document
+# meant EVERY visit and EVERY refresh re-fetched the whole thing: 24.7 s
+# on a measured Lebanese mobile connection, and 19.2 s again immediately
+# afterwards.
 <IfModule mod_headers.c>
   <FilesMatch "\.html$">
     Header set Cache-Control "no-cache, no-store, must-revalidate"
     Header set Pragma "no-cache"
     Header set Expires "0"
+  </FilesMatch>
+
+  # Content-hashed, therefore safe to keep forever. Deliberately anchored
+  # on the hashed NAME rather than on "\.js$" -- an unhashed script added
+  # here later would be frozen in every visitor's browser for a year with
+  # no way to recall it.
+  <FilesMatch "^app\.[0-9a-f]+\.js$">
+    Header set Cache-Control "public, max-age=31536000, immutable"
+  </FilesMatch>
+
+  # The share card: a stable name, so not immutable -- a day is long
+  # enough to stop it being re-fetched on every visit and short enough
+  # that replacing it takes effect the same day. favicon.ico is
+  # deliberately NOT listed: it is inlined into the shell as a data: URI
+  # and never uploaded, so a rule for it would only ever apply to a
+  # leftover from some old manual upload.
+  <FilesMatch "^share-image\.png$">
+    Header set Cache-Control "public, max-age=86400"
   </FilesMatch>
 </IfModule>

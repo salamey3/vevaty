@@ -1,6 +1,8 @@
-// Turns Expo's `dist/` export into ONE self-contained index.html: the JS
-// bundle, every asset it references, and the favicon are all inlined as
-// data: URIs, so deploying the website is a single-file upload.
+// Turns Expo's `dist/` export into a website that can actually be cached:
+// a small dist/index.html shell plus dist/app.<hash>.js holding the whole
+// bundle, with every asset the bundle references and the favicon inlined
+// as data: URIs. Also writes dist/vevaty-standalone.html, the older
+// everything-in-one-file form, which is still the rollback.
 //
 // Ported from the original build_standalone.py. Node instead of Python
 // purely so the project needs one runtime rather than two: Node is already
@@ -11,6 +13,7 @@
 // what the Python version produced; that was verified by diffing both
 // against the same dist/ before the .py was deleted.
 import { Buffer } from 'node:buffer';
+import { createHash } from 'node:crypto';
 import fs from 'node:fs';
 import path from 'node:path';
 
@@ -64,18 +67,38 @@ if (!viewportMatch[2].includes('viewport-fit')) {
 // without having to out-specify them.
 // --- brand: theme colour + share card ---------------------------------
 //
-// The site deploys as ONE index.html, so the share image has to be inlined
-// as a data: URI like everything else -- an <meta og:image> pointing at a
-// file that is never uploaded would leave every WhatsApp and Facebook
-// preview blank, which is the most-seen brand surface this app has
-// (BRANDING.md part 7).
+// The share card is the most-seen brand surface this app has
+// (BRANDING.md part 7), so where it lives is decided below rather than
+// assumed.
 const BRAND_PRIMARY = '#0F3D2E';
-const shareImagePath = path.join('assets', 'brand', 'share-image.png');
+// Same value as build-og.mjs's SITE_ORIGIN. Crawlers need an ABSOLUTE
+// og:image URL -- a relative one is ignored by most of them.
+const SITE_ORIGIN = 'https://vevaty.com';
+const SHARE_IMAGE_NAME = 'share-image.png';
+
+// Resolved differently by each of the two outputs this script writes, so
+// the tag is built once with a placeholder rather than twice by hand.
+//
+// dist/index.html now points at a real uploaded file. That is 67 KB --
+// two thirds of the shell -- that no longer has to arrive before the page
+// can paint, on a connection where 67 KB is a second and a half. It was
+// inlined because the site used to deploy as ONE file and an og:image
+// pointing at something never uploaded leaves every WhatsApp and Facebook
+// preview blank (BRANDING.md part 7); now that the bundle is uploaded
+// alongside it, one more file costs nothing. It is also how link previews
+// are supposed to work -- several crawlers ignore a data: URI outright,
+// so this should make previews more reliable, not less.
+//
+// dist/vevaty-standalone.html keeps the data: URI, because that file's
+// entire purpose is to work with nothing next to it.
+const OG_IMAGE_TOKEN = '__VEVATY_OG_IMAGE__';
+const shareImagePath = path.join('assets', 'brand', SHARE_IMAGE_NAME);
 let shareMeta = '';
+let shareDataUri = null;
 if (fs.existsSync(shareImagePath)) {
-  const shareUri = `data:image/png;base64,${fs.readFileSync(shareImagePath).toString('base64')}`;
+  shareDataUri = `data:image/png;base64,${fs.readFileSync(shareImagePath).toString('base64')}`;
   shareMeta =
-    `\n    <meta property="og:image" content="${shareUri}"/>` +
+    `\n    <meta property="og:image" content="${OG_IMAGE_TOKEN}"/>` +
     `\n    <meta property="og:image:width" content="1200"/>` +
     `\n    <meta property="og:image:height" content="630"/>` +
     `\n    <meta name="twitter:card" content="summary_large_image"/>`;
@@ -111,7 +134,10 @@ html = html.replace(
 
 // --- Boot screen -------------------------------------------------------
 //
-// The site is ONE 4 MB document with the whole bundle inlined, and the
+// The bundle is still ~4 MB, and on a first visit (or any visit whose
+// cache has been cleared) it all has to arrive before a single pixel of
+// the app can appear. The shell paints immediately now, so this fills
+// that gap rather than an empty page. Previously the whole document was
 // response is sent `no-store`, so every visit downloads all of it before a
 // single pixel can be painted. Measured from Beirut on 15 Sep 2026: time to
 // first byte 85ms (the server is fine), document download 24.7 SECONDS,
@@ -257,27 +283,95 @@ if (fs.existsSync(faviconPath)) {
 // must be byte-identical.
 const scriptTag = html.match(/<script src="\/_expo\/static\/js\/web\/[^"]+" defer><\/script>/);
 if (!scriptTag) throw new Error('could not find script tag to inline');
-html = html.split(scriptTag[0]).join(`<script>${js}</script>`);
 
-// Repo-relative, not /tmp: Termux has no writable /tmp, which made an
-// earlier hardcoded /tmp path kill this script on the phone. dist/ is
-// gitignored, so nothing here is ever committed. Override with
-// STANDALONE_OUT=/some/path to put the copy elsewhere.
+// --- Two outputs from here, and they are deliberately different --------
+//
+// dist/index.html used to BE the bundle: one 4.2 MB document, sent
+// `no-store, no-cache, must-revalidate` with no etag, so every visit and
+// every refresh downloaded all of it again. Measured on a real Lebanese
+// mobile connection: 24.7 s to download, 25.0 s to first paint, and 19.2 s
+// AGAIN on the very next fetch. Nothing was cached because nothing could
+// be -- the only file was the one that has to stay fresh.
+//
+// Splitting them lets each have the cache policy it actually wants. The
+// shell stays uncached and is now a few tens of KB, so every visitor still
+// gets the newest HTML on every visit, in well under a second. The bundle
+// is named by a hash of its own contents and cached for a year as
+// immutable -- fetched once, then never again, and a release that changes
+// one byte changes the name, so nobody is ever served a stale one. That
+// keeps the "everyone gets the new build immediately" property the
+// no-store was there to protect, which is why .htaccess can now cache
+// aggressively without reopening the blank-page bug its comment describes.
+//
+// Honest about what this does NOT fix: a FIRST visit still has to fetch
+// the whole bundle, so it is as slow as it was. What changes is every
+// visit after it. Shrinking the bundle itself -- most of those 4.2 MB are
+// assets inlined into the JS as data: URIs a few lines above -- is a
+// separate and much larger job.
+//
+// dist/vevaty-standalone.html is unchanged: still everything inline,
+// still one file that works with nothing beside it. It is also the
+// rollback. If a shell deploy ever goes wrong, uploading that file as
+// index.html restores exactly the behaviour this replaced.
+const bundleHash = createHash('sha256').update(js).digest('hex').slice(0, 16);
+const bundleName = `app.${bundleHash}.js`;
+
+// Previous builds' bundles are cleared out of dist/ so the folder holds
+// exactly one, and deploy-web.mjs can never pick up an older neighbour.
+// (On the SERVER the opposite is true -- old bundles are left in place, so
+// a browser mid-navigation on the previous shell still finds what it
+// asked for. See deploy-web.mjs.)
+for (const f of fs.readdirSync(DIST)) {
+  if (/^app\.[0-9a-f]+\.js$/.test(f) && f !== bundleName) {
+    fs.unlinkSync(path.join(DIST, f));
+    console.log(`Removed a previous build's ${f}`);
+  }
+}
+fs.writeFileSync(path.join(DIST, bundleName), js, 'utf8');
+console.log(`Wrote ${DIST}/${bundleName} (${fs.statSync(path.join(DIST, bundleName)).size} bytes)`);
+
+// split/join, NOT html.replace(), for both of these. String.replace()
+// interprets $$, $&, $` and $' inside the REPLACEMENT text as substitution
+// patterns, and a 4 MB JS bundle contains those sequences for real: the
+// Expo runtime defines `$$require_external`, which replace() silently
+// rewrites to `$require_external` (breaking the bundle), while any $'
+// expands to "the entire remainder of the string" and bloated the output
+// by ~41 KB. Caught by diffing this against the Python implementation it
+// replaced -- both outputs had to be byte-identical.
+const standaloneHtml = html
+  .split(scriptTag[0]).join(`<script>${js}</script>`)
+  .split(OG_IMAGE_TOKEN).join(shareDataUri ?? '');
 const outPath = process.env.STANDALONE_OUT || path.join(DIST, 'vevaty-standalone.html');
-fs.writeFileSync(outPath, html, 'utf8');
-console.log(`Wrote ${outPath} (${fs.statSync(outPath).size} bytes)`);
+fs.writeFileSync(outPath, standaloneHtml, 'utf8');
+console.log(`Wrote ${outPath} (${fs.statSync(outPath).size} bytes) -- the single-file copy, and the rollback`);
 
-// IMPORTANT: also overwrite dist/index.html with this same fully self-contained
-// bundle. The raw dist/index.html that `expo export` produces references an
-// external script (/_expo/static/js/web/index-*.js) that is NOT part of our
-// single-file cPanel deploy. If that raw shell ever gets uploaded as
-// index.html, every request -- including plain "/" -- serves a page whose
-// script 404s, the SPA-fallback .htaccess rewrites that 404 to index.html's
-// *HTML*, and the resulting "Unexpected token '<'" leaves a blank white page.
-// Making dist/index.html identical to the standalone build means whichever of
-// the two is uploaded as index.html, it just works.
-fs.writeFileSync(htmlPath, html, 'utf8');
-console.log(`Overwrote ${htmlPath} with the self-contained bundle (${fs.statSync(htmlPath).size} bytes)`);
+const shellHtml = html
+  .split(scriptTag[0]).join(`<script src="/${bundleName}" defer></script>`)
+  .split(OG_IMAGE_TOKEN).join(`${SITE_ORIGIN}/${SHARE_IMAGE_NAME}`);
+fs.writeFileSync(htmlPath, shellHtml, 'utf8');
+console.log(`Wrote ${htmlPath} (${fs.statSync(htmlPath).size} bytes) -- the shell that loads ${bundleName}`);
+
+if (shareDataUri) {
+  fs.copyFileSync(shareImagePath, path.join(DIST, SHARE_IMAGE_NAME));
+  console.log(`Copied ${shareImagePath} -> ${DIST}/${SHARE_IMAGE_NAME} (og:image now points at the file)`);
+}
+
+// What deploy-web.mjs uploads instead of guessing. The bundle's name
+// changes every build, and the one thing that must never happen is an
+// index.html on the server naming a file that is not there -- so the name
+// is written down by the build that made it rather than globbed for at
+// upload time, and the hash is carried along so the upload can prove the
+// file that landed is the file that was built.
+const manifest = {
+  bundle: bundleName,
+  bundleSha256: createHash('sha256').update(fs.readFileSync(path.join(DIST, bundleName))).digest('hex'),
+  bundleBytes: fs.statSync(path.join(DIST, bundleName)).size,
+  shareImage: shareDataUri ? SHARE_IMAGE_NAME : null,
+  shellBytes: fs.statSync(htmlPath).size,
+  builtAt: new Date().toISOString(),
+};
+fs.writeFileSync(path.join(DIST, 'asset-manifest.json'), `${JSON.stringify(manifest, null, 2)}\n`, 'utf8');
+console.log(`Wrote ${DIST}/asset-manifest.json`);
 
 // Carry the SPA-fallback .htaccess into dist/ on every build, so uploading
 // dist/'s contents always includes it -- without it Apache 404s on any

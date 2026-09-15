@@ -77,13 +77,25 @@ try {
 step('Building the website');
 loud('npm', ['run', 'build:web']);
 const fingerprint = createHash('sha256').update(readFileSync('dist/index.html')).digest('hex');
+// Named here only so the manual-upload instructions at the bottom can print
+// it -- the real name is recorded by the build in dist/asset-manifest.json,
+// which is what deploy-web.mjs reads.
+let bundleName = null;
+let bundleHash = null;
+try {
+  const m = JSON.parse(readFileSync('dist/asset-manifest.json', 'utf8'));
+  bundleName = m.bundle;
+  bundleHash = m.bundleSha256;
+} catch {
+  // Not fatal here: deploy-web.mjs refuses loudly if the manifest is missing.
+}
 
 // --- upload the website, and confirm it took ----------------------------
 let websiteDone = false;
 if (auto) {
   step('Uploading the website');
   try {
-    deployWeb();
+    await deployWeb();
     loud('npm', ['run', 'verify:web']);
     websiteDone = true;
   } catch {
@@ -197,14 +209,25 @@ console.log('  App      done -- force stop the app on the phone, open it, force'
 console.log('           stop again, open it. First open downloads, second runs.');
 
 if (!websiteDone) {
+  // By hand, the SINGLE-FILE build is the one to reach for. dist/index.html
+  // is a shell that names dist/app.<hash>.js, so uploading it alone points
+  // the site at a file that is not there -- and by hand there is nothing
+  // enforcing the order the way deploy-web.mjs does.
   console.log('\n  The website is still on the old code. Upload it by hand:');
   console.log('    1. cPanel -> File Manager');
   console.log('    2. open the vevaty.com folder (NOT public_html)');
   console.log('    3. tick "Overwrite existing files" BEFORE choosing the file');
-  console.log('    4. upload dist/index.html');
-  console.log('    5. npm run verify:web');
-  console.log(`\n  It should report this fingerprint:`);
-  console.log(`    ${fingerprint}`);
+  console.log('    4. upload dist/vevaty-standalone.html, then RENAME it to index.html');
+  console.log('       (one self-contained file -- slower for visitors, but it cannot');
+  console.log('        half-work. Do NOT upload dist/index.html on its own: it names a');
+  console.log('        separate app.<hash>.js file that would not be there.)');
+  console.log('\n  Or, to get the fast split version up by hand, in this order:');
+  console.log(`    a. upload dist/${bundleName || 'app.<hash>.js'} and dist/.htaccess`);
+  console.log('    b. open it in a browser -- it must be the SCRIPT, not a page');
+  console.log('    c. only then upload dist/index.html');
+  console.log('    d. npm run verify:web  (checks both files, by hash)');
+  console.log(`\n  index.html should hash to:\n    ${fingerprint}`);
+  if (bundleHash) console.log(`  ${bundleName} should hash to:\n    ${bundleHash}`);
   console.log('\n  To stop doing this by hand, see "Automatic website upload"');
   console.log('  in WORKFLOW.md -- it is a one-time setup.');
 }

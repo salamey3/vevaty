@@ -1,7 +1,8 @@
 # Vevaty — sync & release
 
 Two shipping targets, **one source tree**: the Android app (EAS Build) and
-the website at vevaty.com (a single self-contained HTML file). They only stay
+the website at vevaty.com (a small HTML shell plus one content-hashed JS
+bundle -- see "Why the site is two files" below). They only stay
 in sync because both are built from the same commit — nothing enforces that
 automatically, so the checklist below is what keeps them together.
 
@@ -101,7 +102,7 @@ Always in this order, from a clean tree:
 cd ~/vevaty-app
 git pull origin main          # make sure you're on the latest
 npm run verify                # typecheck — never ship without this passing
-npm run build:web             # -> dist/index.html (self-contained, ~2.6MB)
+npm run build:web             # -> dist/index.html (~23KB shell) + dist/app.<hash>.js (~4MB)
 ```
 
 Then upload to cPanel (File Manager). The document root for vevaty.com is
@@ -109,8 +110,14 @@ Then upload to cPanel (File Manager). The document root for vevaty.com is
 belongs to a different site on the same account. Tick **Overwrite existing
 files** before selecting the file:
 
-- `dist/index.html` — the entire site, one file, all JS and assets inlined
-- `dist/.htaccess` — SPA fallback; without it any deep link 404s on refresh
+By hand, upload **`dist/vevaty-standalone.html` renamed to `index.html`** --
+one self-contained file that needs nothing beside it. Do NOT hand-upload
+`dist/index.html` on its own: it names a separate `app.<hash>.js` that would
+not be there, and the page would be blank. `npm run deploy:web` handles the
+fast two-file version properly, in the right order, with verification.
+
+- `dist/.htaccess` — SPA fallback and the cache rules; without it any deep
+  link 404s on refresh, and the bundle is re-downloaded on every visit
 
 Finally, the Android build:
 
@@ -150,12 +157,98 @@ behind the remote. The recovery is `git pull --ff-only origin main`, not a
 re-apply of the patch. Read which side of the push you are on before
 running an undo.
 
+## Why the site is two files
+
+The site used to be ONE `index.html` with the whole 4 MB bundle inlined,
+sent `no-store, no-cache, must-revalidate` with no etag. Measured on a real
+Lebanese mobile connection in September 2026: **24.7 s to download, 25.0 s
+to first paint, and 19.2 s again on the very next fetch.** Nothing was
+cached because nothing could be -- the only file was the one that has to
+stay fresh on every release.
+
+They are split so each can have the cache policy it wants:
+
+- **`index.html`** — a ~23 KB shell (~3.4 KB over the wire). Still
+  `no-store`, so every visitor gets the newest HTML on every visit, now in
+  a fraction of a second instead of twenty-five.
+- **`app.<sha256>.js`** — the bundle, named after a hash of its own
+  contents and sent `max-age=31536000, immutable`. Fetched once, then
+  never again. A release that changes one byte changes the filename, which
+  the never-cached shell names, so nobody can be served a stale bundle.
+  That is the property the old `no-store` was protecting, kept intact.
+
+A first visit still has to fetch the whole bundle, so it is as slow as it
+ever was -- the boot screen is what covers that. What changed is every
+visit after it. Shrinking the bundle itself (most of those 4 MB are assets
+inlined into the JS as data: URIs) is a separate and much larger job.
+
+### The rule that keeps this safe
+
+`index.html` now NAMES a file instead of containing it, which is a new way
+for a deploy to half-work -- and it is the oldest failure this project has:
+a page whose script is missing 404s, the SPA fallback used to answer that
+404 with `index.html`'s HTML, and the browser dies on `Unexpected token '<'`
+with a blank page and nothing in any log.
+
+Two things stop it, and both matter:
+
+1. **`deploy-web.mjs` uploads in two phases.** The bundle, the share image
+   and `.htaccess` go up first; the bundle is then fetched back over HTTPS
+   and its SHA-256 compared with what was built. Only if that passes is
+   `index.html` replaced. A failed deploy leaves the previous release
+   serving, whole -- it is a no-op, not an outage.
+2. **`.htaccess` 404s a missing asset** instead of falling back to
+   `index.html`, so if one ever does go missing the failure is visible in
+   the network tab at a glance rather than being a silent blank page.
+
+A third thing matters and is easy to miss: **every file lands via a
+rename**, never written over in place. scp truncates and refills, so a
+request arriving mid-upload gets a partial file with an ordinary 200 --
+survivable for a `no-store` document, fatal for a bundle sent `immutable`
+for a year, because the browser caches the broken copy and a reload asks
+for the same URL. Files go to a temp directory and are moved in; a rename
+within one filesystem is atomic.
+
+Run the guard test after any change to the build or deploy scripts:
+
+```sh
+node scripts/test/deploy-guards.test.mjs
+```
+
+It fires the verification against the real failure modes -- HTML served in
+its place, a 403 from wrong permissions, a 404, a truncated transfer --
+and asserts it refuses each one, then checks against the source that the
+gate is still in front of `index.html`. Run it directly, never as an npm
+script: adding to `package.json`'s `scripts` block changes the Expo
+runtime fingerprint and silently orphans every OTA update.
+
+After the first deploy, confirm the host honours the new rules once:
+
+```sh
+curl -sI https://vevaty.com/app.nosuchfile.js | head -1   # want: 404
+curl -sI https://vevaty.com/index.html | grep -i cache    # want: no-store
+curl -sI "https://vevaty.com/$(node -p "require('./dist/asset-manifest.json').bundle")" | grep -i cache   # want: immutable
+```
+
+`[R=404,L]` is documented Apache behaviour and LiteSpeed emulates
+mod_rewrite, but the host is LiteSpeed and this is worth seeing once. If
+it ever redirected instead, it would only affect URLs that are already
+missing, and the browser would say `ERR_TOO_MANY_REDIRECTS` -- loud, not
+silent.
+
+**Rollback**, if a deploy ever does go wrong: upload
+`dist/vevaty-standalone.html` as `index.html`. It carries the whole bundle
+inline and needs nothing else on the server, so it restores exactly the
+behaviour this replaced.
+
 ## Notes
 
 - `dist/` is gitignored. Build output is never committed.
-- `build-standalone.mjs` inlines the entry JS bundle and all assets as data
-  URIs, then overwrites `dist/index.html` with the result, so whichever of
-  the two files gets uploaded as `index.html` works identically.
+- `build-standalone.mjs` inlines every asset the bundle references as a
+  data: URI, writes the bundle to `dist/app.<sha256>.js`, and writes a
+  matching `dist/index.html` shell plus `dist/asset-manifest.json` naming
+  it. It also still writes `dist/vevaty-standalone.html`, the older
+  everything-in-one-file form, which is the manual upload and the rollback.
 - Expo may emit extra lazily-loaded chunks (currently expo-camera's barcode
   scanner). They are **not** inlined. Nothing in `src/` imports them at
   runtime today; the build prints a NOTE listing any it finds. If the app

@@ -317,6 +317,71 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**The website stopped re-downloading itself**, 15 Sep 2026. vevaty.com was
+ONE `index.html` with the whole 4 MB bundle inlined, sent `no-store` with
+no etag. Measured on a real Lebanese mobile connection: 24.7 s to
+download, 25.0 s to first paint, and **19.2 s again on the very next
+fetch** -- nothing was cached because nothing could be. It is now a 23 KB
+shell (3.4 KB over the wire) plus `app.<sha256>.js` cached for a year as
+immutable. The shell stays `no-store`, so everyone still gets the newest
+HTML on every visit; the bundle's name changes whenever its contents do,
+so nobody can be served a stale one. See "Why the site is two files" in
+@DEPLOY.md.
+
+Said plainly because it matters for the tester round: **a FIRST visit is
+exactly as slow as it was.** The bundle still has to arrive once. What
+changed is every visit after it, which is most of them. The 67 KB share
+image also moved out of the HTML into a real file, which is two thirds of
+what the shell used to weigh.
+
+The risky part was never the split, it was the deploy: `index.html` NAMES
+a file now, and a page whose script is missing is a blank screen with
+nothing in any log -- the same failure as the interrupted build and the
+2026-08-21 permissions incident. So `deploy-web.mjs` uploads the bundle
+first, **fetches it back over HTTPS and compares its SHA-256** with what
+was built, and only then replaces `index.html`; a failed deploy leaves the
+previous release serving, whole. `.htaccess` 404s a missing asset instead
+of answering it with `index.html`, so the failure is loud if it ever
+happens. Every file also lands via a RENAME rather than being written over in
+place -- scp truncates and refills, and a bundle sent `immutable` cannot
+survive a visitor caching half of one. `scripts/test/deploy-guards.test.mjs`
+fires the verification against HTML-in-its-place, a 403, a 404 and a
+truncated transfer, asserts it refuses all four, and checks against the
+source that the gate is still in front of `index.html` -- that last one was
+mutation-tested by committing the regression and watching it fail.
+
+What is left of this thread, in order of what it would buy:
+
+- **The bundle itself is 4 MB, and most of it is assets inlined as data:
+  URIs** by `build-standalone.mjs`. Moving them out to real hashed files
+  would shrink the first visit -- the one a tester experiences -- and let
+  images cache separately. Bigger job: it changes runtime behaviour from
+  "already in memory" to "fetch it", so it needs real thought about
+  placeholders and offline.
+- **A missing bundle shows the boot screen for 40 s and then a blank
+  page.** Measured, not guessed. The deploy now makes that nearly
+  impossible, but an honest error after the fallback fires would be better
+  than nothing.
+- **`build-og.mjs` still points at the wrong Supabase project**
+  (`ueqfkxvvfrhppdsnsfpx`, the older one) while the app runs on
+  `ajrrmropskvutjizulkb`. Collection share previews are built from the
+  wrong database.
+
+**The public site depended on a session it does not need**, 15 Sep 2026.
+Anonymous sign-ins were switched off at the Supabase project some time
+around 13 Sep, and `ensureSession()` throws when `signInAnonymously` is
+refused. Two things sat behind that throw: the browsable-listings fetch
+(inside `syncFromSupabase(uid)`, which only runs `if (uid)`) and
+`SettingsStore.refreshFromSupabase`, whose `await ensureSession()` is the
+first line in its try -- so categories, domains, attributes and
+`site_settings` were all abandoned with it, silently. A logged-out visitor
+got the bundled `DEFAULT_CATEGORIES` and no listings at all. The toggle is
+back on, but **the fragility is still there**: RLS already lets the `anon`
+role read active listings and categories, so the public browse should not
+be gated on holding a session. Worth a patch so the failure mode is
+"favourites don't work" rather than "there is no marketplace".
+
+
 **Shop stock, stages 1 and 2 of 4**, 14 Sep 2026. The second kind of shop — the
 one that buys in bulk and sells the same shirt in four sizes and three
 colours — had nowhere to keep a number. It has one now: a size × colour
