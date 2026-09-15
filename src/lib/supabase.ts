@@ -263,6 +263,31 @@ export async function getOwnAuthIdentity(): Promise<{ uid: string; phone: string
   return { uid: user.id, phone: raw.startsWith('+') ? raw : `+${raw}` };
 }
 
+// Clears a TOTP challenge on the CURRENT session, raising it to aal2.
+//
+// This is not an extra hoop invented for the password screen. GoTrue
+// refuses PUT /user with 401 insufficient_aal ("AAL2 session is required
+// to update email or password when MFA is enabled") whenever the account
+// has any verified factor and the session is only aal1.
+//
+// The cruel part, and the reason the step-up has to happen AFTER the phone
+// OTP and never before: a phone OTP sign-in always produces an aal1
+// session. An admin who had already cleared TOTP minutes earlier, and
+// whose session was therefore aal2, is DOWNGRADED by the very OTP this app
+// sends to confirm the password change. Verifying made it strictly worse,
+// and the 401 came back on a screen that had just said "Confirmed". A
+// step-up done first would simply be thrown away by the OTP.
+//
+// WHICH factor to challenge is deliberately not decided here -- that is
+// SettingsStore's getVerifiedTotpFactorId, which prefers a PINNED factor
+// over "the first verified one" precisely because an intruder who added
+// their own would otherwise be the one the owner's code is checked
+// against. One rule, one place; this file only spends the answer.
+export async function verifyTotpStepUp(factorId: string, code: string) {
+  const { error } = await supabase.auth.mfa.challengeAndVerify({ factorId, code });
+  if (error) throw error;
+}
+
 // Attaches/replaces a password on the CURRENT session's own account.
 // Reused for two different moments in AuthScreen: right after a brand-new
 // signup's phone OTP verifies (setting a password for the first time), and

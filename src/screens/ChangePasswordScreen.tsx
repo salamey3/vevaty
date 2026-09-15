@@ -13,14 +13,16 @@ import {
   sendPhoneOtp,
   verifyPhoneOtp,
   setAccountPassword,
+  verifyTotpStepUp,
 } from '../lib/supabase';
 import { mirrorRow } from '../lib/mirrorRow';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
+import { useSettings } from '../store/SettingsStore';
 
 type Props = NativeStackScreenProps<RootStackParamList, 'ChangePassword'>;
 
-type Step = 'choose' | 'otp' | 'newPassword';
+type Step = 'choose' | 'otp' | 'mfa' | 'newPassword';
 type Channel = 'sms' | 'whatsapp';
 
 // Two whole minutes, not the thirty seconds a resend button usually gets.
@@ -56,6 +58,11 @@ let lastOtpChannel: Channel = 'whatsapp';
 // legitimate reason to be here: someone who has forgotten it.
 export default function ChangePasswordScreen({ navigation }: Props) {
   const { t, isRTL } = useLanguage();
+  // The repo's ONE rule for picking which authenticator to challenge --
+  // pinned factor first, because "the first verified one" could be an
+  // intruder's. Borrowed rather than re-derived: a second copy of that
+  // choice is exactly the kind of drift this codebase has paid for before.
+  const { getVerifiedTotpFactorId } = useSettings();
   const [step, setStep] = useState<Step>('choose');
   // Read once on mount, from auth.users and never from profiles -- see
   // getOwnAuthIdentity's comment for why that distinction is the whole
@@ -70,6 +77,17 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   // exist.
   const [identityFailed, setIdentityFailed] = useState<'noPhone' | 'lookup' | null>(null);
   const [otp, setOtp] = useState('');
+  // Set only when the account has a verified authenticator and the session
+  // the OTP just minted is therefore too weak to change a password with.
+  const [totpFactorId, setTotpFactorId] = useState<string | null>(null);
+  const [totpCode, setTotpCode] = useState('');
+  // The server's own sentence, kept beside the translated one whenever
+  // nothing above matched it. Three password attempts were spent against a
+  // bare "Could not save the new password" that named neither the rule that
+  // refused them nor the fact that the refusal was a 401 about two-factor
+  // and had nothing to do with the password at all. A handler that cannot
+  // classify an error must not also hide it.
+  const [serverDetail, setServerDetail] = useState<string | null>(null);
   const [newPassword, setNewPassword] = useState('');
   const [newPasswordConfirm, setNewPasswordConfirm] = useState('');
   const [revealPassword, setRevealPassword] = useState(false);
@@ -167,7 +185,20 @@ export default function ChangePasswordScreen({ navigation }: Props) {
         setError(t('changePassword.accountMismatch'));
         return;
       }
-      setStep('newPassword');
+      // Straight to the password fields for everyone with no second
+      // factor, which is every ordinary member -- nothing in this app
+      // enrols one outside the admin panel. Gated on a verified factor
+      // EXISTING rather than on the session's cached nextLevel, which is
+      // read from the stored JWT and would silently answer "no step-up
+      // needed" for any session that arrived without its factor list.
+      const factorId = await getVerifiedTotpFactorId().catch(() => null);
+      if (factorId) {
+        setTotpFactorId(factorId);
+        setTotpCode('');
+        setStep('mfa');
+      } else {
+        setStep('newPassword');
+      }
     } catch (e: any) {
       setError(t('auth.verifyFailed'));
     } finally {
@@ -175,7 +206,32 @@ export default function ChangePasswordScreen({ navigation }: Props) {
     }
   };
 
+  const submitTotp = async () => {
+    if (!totpFactorId || totpCode.trim().length < 6) return;
+    setLoading(true);
+    setError(null);
+    try {
+      await verifyTotpStepUp(totpFactorId, totpCode.trim());
+      setStep('newPassword');
+    } catch (e: any) {
+      // Cleared, not left sitting in the field. The input is maxLength 6
+      // and already holds six digits, so every further keystroke is
+      // ignored -- the message says "check the current one and try again"
+      // over a box that refuses to be typed into, and the enabled Verify
+      // button resubmits the same expired code forever.
+      setTotpCode('');
+      setError(t('changePassword.totpFailed'));
+    } finally {
+      setLoading(false);
+    }
+  };
+
   const submit = async () => {
+    // Cleared here, ahead of the two client-side returns below. Left until
+    // after them, a server sentence from the PREVIOUS attempt stayed on
+    // screen underneath "Password must be at least 6 characters" -- an
+    // unrelated refusal presented as the detail of a length check.
+    setServerDetail(null);
     if (newPassword.length < 6) {
       setError(t('auth.passwordTooShort'));
       return;
@@ -195,22 +251,60 @@ export default function ChangePasswordScreen({ navigation }: Props) {
       setOtp('');
       setDone(true);
     } catch (e: any) {
-      // Branch on the typed error, NOT on its message. GoTrue returns the
-      // same code (`weak_password`) whether the password was too short,
-      // missing a character class, or found in HaveIBeenPwned -- the only
-      // thing that separates them is the `reasons` array, and the word
-      // "pwned" appears there and nowhere in the human-readable text. A
-      // message regex looking for "leaked"/"breach" therefore matches
-      // nothing ever, and everyone whose password is in the breach corpus
-      // gets told to make it longer, which does not help and cannot.
+      const msg: string = e?.message || '';
+      const code: string = e?.code || '';
+      // The server's own sentence, kept alongside whatever this handler
+      // decides to say. Set on EVERY branch that guesses from message
+      // text, and withheld only where the error was typed and therefore
+      // actually known -- a regex that matches the wrong rule would
+      // otherwise produce a confident, wrong instruction with the one
+      // accurate sentence thrown away, which is the exact failure this
+      // whole block exists to stop. Capped because auth-js falls back to
+      // JSON.stringify for an unexpected body shape.
+      const detail = msg ? msg.slice(0, 300) : null;
+
+      // The 401 that has nothing to do with the password. Reachable even
+      // with the mfa step in place: the factor lookup after the OTP is
+      // allowed to fail soft, and a step-up can expire. Routed BACK to the
+      // step that fixes it rather than told to start over -- starting over
+      // means closing a modal whose send buttons are inside a two-minute
+      // cooldown, holding an OTP that has already been spent.
+      if (code === 'insufficient_aal' || /aal2|assurance level/i.test(msg)) {
+        const factorId = totpFactorId ?? (await getVerifiedTotpFactorId().catch(() => null));
+        if (factorId) {
+          setTotpFactorId(factorId);
+          setTotpCode('');
+          setError(null);
+          setStep('mfa');
+        } else {
+          setError(t('changePassword.needsMfa'));
+          setServerDetail(detail);
+        }
+        return;
+      }
+      // The typed error FIRST. GoTrue returns the same code
+      // (`weak_password`) whether the password was too short, missing a
+      // character class, or found in HaveIBeenPwned -- the only thing that
+      // separates them is the `reasons` array, and the word "pwned"
+      // appears there and nowhere in the human-readable text.
       if (isAuthWeakPasswordError(e)) {
         if (e.reasons?.includes('pwned')) setError(t('changePassword.leakedPassword'));
         else if (e.reasons?.includes('characters')) setError(t('changePassword.needsCharacters'));
         else setError(t('changePassword.weakPassword'));
         return;
       }
-      const msg: string = e?.message || '';
-      if (/same|different from the old|should be different/i.test(msg)) setError(t('changePassword.samePassword'));
+      // ...and the message SECOND, because the typed error is not
+      // guaranteed. The required-characters refusal observed in this
+      // project's own auth log came back as a bare 422 carrying only a
+      // sentence, with no code for the client to key off, so
+      // isAuthWeakPasswordError was false and it fell through everything.
+      // Every branch below is a guess, so every branch below keeps the
+      // sentence it guessed from.
+      setServerDetail(detail);
+      if (/pwned|leaked|breach|known to be weak/i.test(msg)) setError(t('changePassword.leakedPassword'));
+      else if (/at least one character|character of each/i.test(msg)) setError(t('changePassword.needsCharacters'));
+      else if (/at least \d+ characters|too short/i.test(msg)) setError(t('changePassword.weakPassword'));
+      else if (/different from the old|should be different/i.test(msg)) setError(t('changePassword.samePassword'));
       else setError(t('changePassword.saveFailed'));
     } finally {
       setLoading(false);
@@ -266,13 +360,13 @@ export default function ChangePasswordScreen({ navigation }: Props) {
   return (
     <Screen maxWidth={480}>
       <KeyboardAvoidingView behavior="padding" style={{ flex: 1 }}>
-        {/* No way back from 'newPassword'. The code that got here has
-            already been spent, so a back arrow would land on an OTP field
-            that can only ever reject what is typed into it -- a dead end
-            dressed up as a step. From there the only honest exits are
-            Save and Close. */}
+        {/* No way back from 'mfa' or 'newPassword'. The code that got here
+            has already been spent, so a back arrow would land on an OTP
+            field that can only ever reject what is typed into it -- a dead
+            end dressed up as a step. From there the only honest exits are
+            forward and Close. */}
         {topBar(
-          step === 'newPassword' ? (
+          step === 'newPassword' || step === 'mfa' ? (
             <View style={styles.iconBtn} />
           ) : (
             <Pressy
@@ -357,6 +451,36 @@ export default function ChangePasswordScreen({ navigation }: Props) {
             </>
           )}
 
+          {/* Only ever seen by an account with an authenticator enrolled,
+              which today means the admin. It is not an extra hoop invented
+              here: without it Supabase refuses the password change outright
+              with a 401 that names two-factor and says nothing about the
+              password. */}
+          {step === 'mfa' && (
+            <>
+              <Text style={styles.subtitle}>{t('changePassword.mfaSubtitle')}</Text>
+              <Text style={styles.fieldLabel}>{t('changePassword.mfaLabel')}</Text>
+              <TextInput
+                value={totpCode}
+                onChangeText={setTotpCode}
+                editable={!loading}
+                placeholder={t('auth.otpPlaceholder')}
+                placeholderTextColor={colors.inkSoft}
+                keyboardType="number-pad"
+                maxLength={6}
+                style={styles.input}
+              />
+              {!!error && <Text style={styles.error}>{error}</Text>}
+              <Button
+                label={t('auth.verify')}
+                onPress={submitTotp}
+                loading={loading}
+                disabled={totpCode.trim().length < 6}
+                style={{ marginTop: 18 }}
+              />
+            </>
+          )}
+
           {step === 'newPassword' && (
             <>
               <Text style={styles.subtitle}>{t('changePassword.newPasswordSubtitle')}</Text>
@@ -397,6 +521,7 @@ export default function ChangePasswordScreen({ navigation }: Props) {
               </View>
 
               {!!error && <Text style={styles.error}>{error}</Text>}
+              {!!serverDetail && <Text style={styles.serverDetail}>{serverDetail}</Text>}
               <Button
                 label={t('changePassword.saveCta')}
                 onPress={submit}
@@ -443,6 +568,9 @@ const styles = StyleSheet.create({
   // the outside of the icon and none between it and the text.
   revealBtn: { paddingHorizontal: 8, paddingVertical: 8 },
   error: { color: colors.danger, fontSize: 12.5, marginTop: 10 },
+  // Untranslated on purpose: it is the server's own sentence, and
+  // paraphrasing it is exactly what hid the real refusal for three tries.
+  serverDetail: { color: colors.inkSoft, fontSize: 11.5, marginTop: 6, lineHeight: 16 },
   cooldown: { ...type.tiny, color: colors.inkSoft, textAlign: 'center', marginTop: 14 },
   linkBtn: { alignSelf: 'center', marginTop: 12, padding: 8 },
   linkText: { color: colors.inkSoft, fontSize: 13, fontWeight: '600' },
