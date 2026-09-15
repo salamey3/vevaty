@@ -268,8 +268,19 @@ export default function BrowseGateScreen() {
       <ScrollView contentContainerStyle={styles.content}>
         <View style={[styles.header, isDesktop && styles.headerDesktop]}>
           <View style={styles.headerText}>
-            <Text style={type.soft}>
-              {profile.name && profile.name !== 'You' ? t('home.greeting') : ''}
+            {/* The name goes INLINE here, unlike HomeScreen where the same
+                eyebrow sits above a line that renders the name itself. This
+                markup was copied from there, and the line it was introducing
+                was replaced by the gate's own heading -- so "Good to see
+                you," was followed by "What are you looking for?" and the
+                comma dangled on the first screen every returning visitor
+                sees. Joined into one sentence rather than restoring
+                HomeScreen's two-line shape, because the big heading is this
+                page's actual question and should keep the emphasis.
+                numberOfLines guards a long name the way the mobile copy in
+                HomeScreen already does. */}
+            <Text style={type.soft} numberOfLines={1}>
+              {profile.name && profile.name !== 'You' ? `${t('home.greeting')} ${profile.name}` : ''}
             </Text>
             <Text style={[styles.title, isDesktop && styles.titleDesktop]}>{t('home.gate.title')}</Text>
           </View>
