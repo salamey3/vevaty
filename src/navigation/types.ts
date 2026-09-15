@@ -65,6 +65,12 @@ export type RootStackParamList = {
   // history -- distinct from Auth above, which signs in/up. No params:
   // always operates on the current session, never someone else's.
   ChangePhone: undefined;
+  // The logged-in half of the password story, whose logged-out half lives
+  // on AuthScreen's forgot-password path. Same "always the current
+  // session" shape as ChangePhone: the number the confirming code goes to
+  // is read off auth.users, never passed in, so there is no param that
+  // could point this at somebody else's account.
+  ChangePassword: undefined;
   // ProfileScreen's "Edit your profile" menu -- same "always operates on
   // the current session" shape as ChangePhone above, just for the two
   // profile fields that don't need OTP re-verification.

@@ -234,6 +234,35 @@ export async function signInWithPhonePassword(phone: string, password: string) {
   return data.session;
 }
 
+// The number an OTP may safely be sent to when re-confirming the person
+// already signed in (ChangePasswordScreen). Read from the SESSION's
+// auth.users row and from nowhere else -- deliberately NOT from
+// profiles.phone, which ChangePhoneScreen documents as a denormalized
+// copy that can and does fail to keep up with a number change.
+//
+// That distinction is the whole security of this call. The re-confirm
+// step sends through sendPhoneOtp, i.e. signInWithOtp, which signs in as
+// whichever account owns the number it was given (see sendPhoneChangeOtp
+// above). Given this account's own number that is a no-op -- same uid
+// before and after. Given a STALE number that has since been registered
+// by somebody else, it would sign the caller into that stranger's
+// account, and the password they then set would be the stranger's. So
+// the number has to come from the one row that cannot be stale, and the
+// uid is returned alongside it so the caller can assert afterwards that
+// verification landed on the same account it started on.
+//
+// Supabase stores auth.users.phone without the leading '+'; every other
+// phone in this app carries one, so it is put back here rather than in
+// each caller.
+export async function getOwnAuthIdentity(): Promise<{ uid: string; phone: string } | null> {
+  const { data, error } = await supabase.auth.getUser();
+  if (error) throw error;
+  const user = data.user;
+  if (!user || user.is_anonymous || !user.phone) return null;
+  const raw = user.phone.replace(/[\s-]/g, '');
+  return { uid: user.id, phone: raw.startsWith('+') ? raw : `+${raw}` };
+}
+
 // Attaches/replaces a password on the CURRENT session's own account.
 // Reused for two different moments in AuthScreen: right after a brand-new
 // signup's phone OTP verifies (setting a password for the first time), and

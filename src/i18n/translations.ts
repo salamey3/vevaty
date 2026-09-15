@@ -164,6 +164,39 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     // change that already happened.
     'changePhone.profileNotUpdated': 'Your number was changed, but the number buyers see was not updated. Start the change again with this same number, and if it still fails, contact support.',
 
+    // ChangePasswordScreen -- changing the password from inside a signed-in
+    // session, which is a different moment from AuthScreen's forgot-password
+    // path even though both end at setAccountPassword. Kept as its own
+    // namespace rather than borrowed from auth.*, because the reason for
+    // the code is different and the wording has to say so: on AuthScreen
+    // the code IS the way back in, here it is proof that the person
+    // holding an old session is still the person who owns the number.
+    'changePassword.title': 'Change your password',
+    'changePassword.subtitle': 'Before you set a new password, we’ll send a code to {phone} to confirm it’s you.',
+    'changePassword.cooldown': 'You can ask for another code in {n}s.',
+    'changePassword.resend': 'Send a new code',
+    'changePassword.haveCode': 'I already have a code',
+    'changePassword.otherChannel': 'Send it another way',
+    'changePassword.needsCharacters': 'That password needs a wider mix — include at least one of each character type the rules ask for (letters, digits, symbols).',
+    'changePassword.lookupFailed': 'We couldn’t reach your account details just now. Check your connection and try again.',
+    'changePassword.tooSoon': 'A code was just sent. Please wait a moment before asking for another.',
+    'changePassword.newPasswordSubtitle': 'Confirmed. Choose your new password.',
+    'changePassword.saveCta': 'Save new password',
+    'changePassword.successTitle': 'Password changed',
+    'changePassword.successBody': 'Use your new password the next time you sign in.',
+    // Cannot happen while the number is read off auth.users, which is the
+    // point -- if it ever shows up, a premise broke, and the honest thing
+    // to say is that nothing was changed.
+    'changePassword.accountMismatch': 'That code signed in to a different account, so nothing was changed. Please sign out, sign in again, and try once more.',
+    'changePassword.noPhone': 'This account has no verified phone number, so there’s nowhere to send a confirmation code. Add your number first, then come back here.',
+    // Supabase rejects these server-side (Auth › Attack Protection). Each
+    // gets its own line because "couldn’t save" would send someone back to
+    // try the very same password again.
+    'changePassword.leakedPassword': 'That password has appeared in a known data breach, so it isn’t safe to use. Please choose a different one.',
+    'changePassword.weakPassword': 'That password doesn’t meet the minimum requirements. Try a longer one, or add numbers and symbols.',
+    'changePassword.samePassword': 'That’s already your password. Choose a different one.',
+    'changePassword.saveFailed': 'Could not save the new password. Please try again.',
+
     // Media write failures the seller has to hear about. These were three
     // hardcoded English strings in an app that is half Arabic -- see
     // AppStore's tRef.
@@ -1066,6 +1099,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.editProfile': 'Edit your profile',
     'profile.editProfileChangeName': 'Change your name',
     'profile.editProfileChangePhone': 'Change your phone number',
+    'profile.editProfileChangePassword': 'Change your password',
     'profile.editProfileChangeLocation': 'Change your location',
     'profile.editProfileContactDetails': 'Email & WhatsApp',
     'editContact.title': 'Email & WhatsApp',
@@ -1809,6 +1843,26 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'changePhone.successBody': 'حسابك مرتبط الآن برقم {phone}.',
     'changePhone.rowLabel': 'تغيير رقم الهاتف',
     'changePhone.profileNotUpdated': 'تم تغيير رقمك، بس الرقم يلي بيشوفه المشترين ما تحدّث. أعد عملية التغيير بنفس الرقم، وإذا ضلّت ما زبطت تواصل مع الدعم.',
+
+    'changePassword.title': 'تغيير كلمة المرور',
+    'changePassword.subtitle': 'قبل ما تعيّن كلمة مرور جديدة، رح نبعتلك رمز على {phone} للتأكد إنك إنت.',
+    'changePassword.cooldown': 'فيك تطلب رمز جديد بعد {n} ثانية.',
+    'changePassword.resend': 'إرسال رمز جديد',
+    'changePassword.haveCode': 'معي الرمز أصلًا',
+    'changePassword.otherChannel': 'إرسال الرمز بطريقة تانية',
+    'changePassword.needsCharacters': 'كلمة المرور بدها تنويع أكتر — ضيف على الأقل حرف من كل نوع مطلوب (أحرف، أرقام، رموز).',
+    'changePassword.lookupFailed': 'ما قدرنا نوصل لتفاصيل حسابك هلق. تأكد من اتصالك وحاول مرة تانية.',
+    'changePassword.tooSoon': 'تم إرسال رمز للتو. انتظر شوي قبل ما تطلب واحد جديد.',
+    'changePassword.newPasswordSubtitle': 'تم التأكد. اختر كلمة المرور الجديدة.',
+    'changePassword.saveCta': 'حفظ كلمة المرور الجديدة',
+    'changePassword.successTitle': 'تم تغيير كلمة المرور',
+    'changePassword.successBody': 'استخدم كلمة المرور الجديدة بالمرة الجاية يلي بتسجّل فيها دخول.',
+    'changePassword.accountMismatch': 'الرمز سجّل دخول على حساب تاني، فما تغيّر شي. سجّل خروج، سجّل دخول من جديد، وحاول مرة تانية.',
+    'changePassword.noPhone': 'ما في رقم هاتف مؤكّد على هذا الحساب، فما في مطرح نبعت عليه رمز التأكيد. ضيف رقمك أولًا وبعدين ارجع لهون.',
+    'changePassword.leakedPassword': 'كلمة المرور هيدي ظهرت بتسريب بيانات معروف، فما بتنفع. اختر وحدة تانية.',
+    'changePassword.weakPassword': 'كلمة المرور ما بتحقق الحد الأدنى المطلوب. جرّب وحدة أطول، أو ضيف أرقام ورموز.',
+    'changePassword.samePassword': 'هيدي أصلًا كلمة مرورك. اختر وحدة تانية.',
+    'changePassword.saveFailed': 'تعذّر حفظ كلمة المرور الجديدة. يرجى المحاولة مرة أخرى.',
 
     'media.photosDidNotUploadTitle': 'الصور ما انرفعت',
     'media.photosDidNotUploadBody': 'تم حفظ الإعلان بس بعده مش على الموقع، لأن صوره ما خلّصت رفع. افتحه من إعلاناتي، اضغط تعديل وأضفها من جديد — بينشر أول ما توصل.',
@@ -2615,6 +2669,7 @@ export const STRINGS: Record<Language, Record<string, string>> = {
     'profile.editProfile': 'تعديل ملفك الشخصي',
     'profile.editProfileChangeName': 'تغيير اسمك',
     'profile.editProfileChangePhone': 'تغيير رقم هاتفك',
+    'profile.editProfileChangePassword': 'تغيير كلمة المرور',
     'profile.editProfileChangeLocation': 'تغيير موقعك',
     'profile.editProfileContactDetails': 'البريد الإلكتروني وواتساب',
     'editContact.title': 'البريد الإلكتروني وواتساب',

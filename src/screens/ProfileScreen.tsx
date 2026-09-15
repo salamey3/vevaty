@@ -132,11 +132,11 @@ export default function ProfileScreen() {
   const [deleteConfirmOpen, setDeleteConfirmOpen] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [deleteError, setDeleteError] = useState('');
-  // "Edit your profile" reveals the three things a verified user can
-  // change about themselves -- name and location update in place here,
-  // phone number still goes through ChangePhoneScreen's own OTP flow
-  // (kept as its own screen rather than folded in here, since it needs a
-  // send-code/verify step this menu has no room for).
+  // "Edit your profile" reveals what a verified user can change about
+  // themselves -- name, location and contact details update in place
+  // here; phone number and password each go through their own screen
+  // (ChangePhoneScreen, ChangePasswordScreen), because both need a
+  // send-code/verify step this menu has no room for.
   const [editMenuOpen, setEditMenuOpen] = useState(false);
 
   // useFocusEffect rather than a plain mount-only effect: this screen stays
@@ -560,6 +560,14 @@ export default function ProfileScreen() {
             onPress: () => {
               setEditMenuOpen(false);
               navigation.navigate('ChangePhone');
+            },
+          },
+          {
+            label: t('profile.editProfileChangePassword'),
+            icon: 'lock',
+            onPress: () => {
+              setEditMenuOpen(false);
+              navigation.navigate('ChangePassword');
             },
           },
           {
