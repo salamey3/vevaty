@@ -179,8 +179,9 @@ They are split so each can have the cache policy it wants:
 
 A first visit still has to fetch the whole bundle, so it is as slow as it
 ever was -- the boot screen is what covers that. What changed is every
-visit after it. Shrinking the bundle itself (most of those 4 MB are assets
-inlined into the JS as data: URIs) is a separate and much larger job.
+visit after it. Shrinking the bundle itself is a separate job; the
+measured breakdown is in @NEXT.md (it is almost entirely code -- images are
+3 KB of it, which is not what an earlier version of this paragraph said).
 
 ### The rule that keeps this safe
 

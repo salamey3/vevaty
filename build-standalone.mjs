@@ -118,6 +118,60 @@ html = html.replace(
   `\n    <title>`
 );
 
+// --- fonts -------------------------------------------------------------
+//
+// public/fonts/*.woff2, which Expo copies into dist/ verbatim. They used to
+// be base64 strings inside src/theme/fonts.ts and therefore inside the JS
+// bundle -- 162 KB COMPRESSED on every single first visit, 15% of the whole
+// download, uncacheable because the bundle it lived in changes every
+// release. As real files a browser fetches each weight only if the page
+// uses it and keeps it for a month.
+//
+// The <link rel="preload"> is the part that matters for how this LOOKS.
+// src/theme/fonts.ts only injects its @font-face rules once the bundle has
+// run, so without a preload the font request would not even start until
+// several megabytes of JavaScript had arrived, and the first text painted
+// would be system-ui swapping to Inter a beat later. Preloaded from the
+// shell, the fonts are fetched in parallel with the bundle and have landed
+// long before React can paint.
+//
+// WHICH weights are preloaded is measured, not assumed. A preload forces
+// the fetch whether or not the page uses that weight, so preloading all
+// four Latin weights hands every visitor 97 KB when the first screen
+// renders in two of them. Driving a real browser at the built site and
+// reading document.fonts back says the landing screen loads 400 and 600
+// and leaves 500 and 700 untouched -- so those two are preloaded and the
+// other two arrive normally, on demand, while someone is already reading.
+// 48 KB before anything can paint rather than 97 KB.
+//
+// The Arabic font is never preloaded: it carries a unicode-range, so a
+// browser fetches it only when Arabic is actually on the page, and
+// preloading it would hand every English visitor 65 KB they will never
+// use. An Arabic visitor pays for it once and keeps it for a month.
+//
+// `crossorigin` is required on a font preload even same-origin -- without
+// it the browser fetches the file a second time and the preload is worse
+// than useless.
+const PRELOAD_WEIGHTS = [400, 600];
+const fontDir = path.join(DIST, 'fonts');
+const fontFiles = fs.existsSync(fontDir)
+  ? fs.readdirSync(fontDir).filter((f) => f.endsWith('.woff2')).sort()
+  : [];
+if (!fontFiles.length) {
+  // Loud, not silent: the app would still work, in system-ui, and nobody
+  // would notice until someone looked at the site on a phone.
+  throw new Error(
+    'dist/fonts/ has no .woff2 files. public/fonts/ should hold them and Expo copies public/ into dist/.\n' +
+      'Without them every page renders in the system font.'
+  );
+}
+const preloadLinks = fontFiles
+  .filter((f) => PRELOAD_WEIGHTS.some((w) => f === `inter-${w}.woff2`))
+  .map((f) => `\n    <link rel="preload" as="font" type="font/woff2" crossorigin href="/fonts/${f}"/>`)
+  .join('');
+html = html.replace('<title>', `${preloadLinks}\n    <title>`);
+console.log(`Found ${fontFiles.length} font file(s); preloaded ${preloadLinks ? preloadLinks.split('<link').length - 1 : 0} Latin weight(s)`);
+
 const RESET_STYLE_END = '\n    </style>';
 if (!html.includes(RESET_STYLE_END)) {
   throw new Error('could not find the end of the #expo-reset <style> block in dist/index.html');
@@ -305,9 +359,10 @@ if (!scriptTag) throw new Error('could not find script tag to inline');
 //
 // Honest about what this does NOT fix: a FIRST visit still has to fetch
 // the whole bundle, so it is as slow as it was. What changes is every
-// visit after it. Shrinking the bundle itself -- most of those 4.2 MB are
-// assets inlined into the JS as data: URIs a few lines above -- is a
-// separate and much larger job.
+// visit after it. Shrinking the bundle itself is a separate job -- and it
+// is almost entirely CODE, not the assets inlined a few lines above, which
+// come to 3 KB. An earlier version of this comment said the opposite; it
+// was measured afterwards and was wrong. See NEXT.md for the breakdown.
 //
 // dist/vevaty-standalone.html is unchanged: still everything inline,
 // still one file that works with nothing beside it. It is also the
@@ -367,6 +422,7 @@ const manifest = {
   bundleSha256: createHash('sha256').update(fs.readFileSync(path.join(DIST, bundleName))).digest('hex'),
   bundleBytes: fs.statSync(path.join(DIST, bundleName)).size,
   shareImage: shareDataUri ? SHARE_IMAGE_NAME : null,
+  fonts: fontFiles.map((f) => `fonts/${f}`),
   shellBytes: fs.statSync(htmlPath).size,
   builtAt: new Date().toISOString(),
 };

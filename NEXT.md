@@ -352,12 +352,26 @@ mutation-tested by committing the regression and watching it fail.
 
 What is left of this thread, in order of what it would buy:
 
-- **The bundle itself is 4 MB, and most of it is assets inlined as data:
-  URIs** by `build-standalone.mjs`. Moving them out to real hashed files
-  would shrink the first visit -- the one a tester experiences -- and let
-  images cache separately. Bigger job: it changes runtime behaviour from
-  "already in memory" to "fetch it", so it needs real thought about
-  placeholders and offline.
+- **CORRECTION, 15 Sep 2026:** the line that used to sit here said most of
+  the 4 MB was images inlined as data: URIs. That was wrong, and measuring
+  rather than assuming is the only reason it did not send the next person
+  chasing the wrong thing. Images are **3 KB** of it. Measured breakdown of
+  a first visitor's ~1.05 MB (gzipped): fonts 162 KB, the Lebanon gazetteer
+  133 KB, both languages of every string 63 KB, and ~716 KB of app code and
+  libraries. The fonts are done (below). What is left:
+
+- **The Lebanon gazetteer, 133 KB.** `src/data/lebanonPlacesData.ts`, 3,712
+  towns, needed only when someone is choosing a location -- but used
+  SYNCHRONOUSLY while listing cards render, in eight files, with lookup
+  maps built at module load. Note for whoever picks this up: compacting the
+  data is not the answer. Re-encoding it as positional arrays with interned
+  governorate/caza names saves 383 KB raw and **15 KB gzipped**, because
+  gzip already eats the repetition. It has to be genuinely deferred to be
+  worth anything.
+
+- **Both languages of every string, 63 KB**, of which about half is ever
+  used by a given visitor. Low payoff and `t()` is synchronous everywhere,
+  so this is the worst risk-to-reward of the three.
 - **A missing bundle shows the boot screen for 40 s and then a blank
   page.** Measured, not guessed. The deploy now makes that nearly
   impossible, but an honest error after the fallback fires would be better

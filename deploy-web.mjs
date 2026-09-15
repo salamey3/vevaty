@@ -17,7 +17,7 @@ import { Buffer } from 'node:buffer';
 import { execFileSync } from 'node:child_process';
 import { createHash } from 'node:crypto';
 import { existsSync, readFileSync } from 'node:fs';
-import { basename } from 'node:path';
+import { dirname } from 'node:path';
 
 const CONFIG = 'deploy.config.json';
 
@@ -167,18 +167,38 @@ function uploadAtomically(cfg, port, files, label, required = []) {
   const sources = present.map((f) => `dist/${f}`);
   console.log(`  ${label}: ${present.join(', ')}`);
 
-  sh(cfg, port, `rm -rf '${tmpDir}' && mkdir -p '${tmpDir}'`);
+  // Entries may carry a directory component (fonts/inter-400.woff2), so the
+  // temp tree mirrors the real one and every destination directory is
+  // created before anything is moved into it. scp is given each file's own
+  // temp destination rather than one shared directory, which is also what
+  // keeps two files with the same basename in different folders apart.
+  const subdirs = [...new Set(present.map((f) => dirname(f)).filter((d) => d !== '.'))];
+  sh(cfg, port, [
+    `rm -rf '${tmpDir}'`,
+    `mkdir -p '${tmpDir}'`,
+    ...subdirs.map((d) => `mkdir -p '${tmpDir}/${d}' '${remoteDir}/${d}'`),
+  ].join(' && '));
 
   // -O forces the old scp protocol. Several shared hosts (cPanel included)
   // still don't run the SFTP subsystem that newer scp defaults to, and the
   // failure is an opaque "subsystem request failed". Fall back automatically
   // rather than making that someone's evening.
-  const target = `${cfg.user}@${cfg.host}:${tmpDir}/`;
-  try {
-    execFileSync('scp', ['-P', port, ...sources, target], { stdio: 'inherit' });
-  } catch {
-    console.log('  retrying with the legacy scp protocol...');
-    execFileSync('scp', ['-O', '-P', port, ...sources, target], { stdio: 'inherit' });
+  // Grouped by destination directory so the common case (everything at the
+  // root) is still a single scp, and only a subdirectory costs an extra one.
+  const byDir = new Map();
+  for (const f of present) {
+    const d = dirname(f) === '.' ? '' : dirname(f);
+    if (!byDir.has(d)) byDir.set(d, []);
+    byDir.get(d).push(`dist/${f}`);
+  }
+  for (const [d, files] of byDir) {
+    const target = `${cfg.user}@${cfg.host}:${tmpDir}${d ? `/${d}` : ''}/`;
+    try {
+      execFileSync('scp', ['-P', port, ...files, target], { stdio: 'inherit' });
+    } catch {
+      console.log('  retrying with the legacy scp protocol...');
+      execFileSync('scp', ['-O', '-P', port, ...files, target], { stdio: 'inherit' });
+    }
   }
 
   // chmod BEFORE the move, so a file is never briefly live with the wrong
@@ -194,9 +214,9 @@ function uploadAtomically(cfg, port, files, label, required = []) {
   // index.html is moved LAST, so it is never the page naming a file that
   // has not landed yet.
   const ordered = [...present.filter((f) => f !== 'index.html'), ...present.filter((f) => f === 'index.html')];
-  const moves = ordered.map((f) => `mv -f '${tmpDir}/${basename(f)}' '${remoteDir}/${basename(f)}'`).join(' && ');
-  const chmods = ordered.map((f) => `'${tmpDir}/${basename(f)}'`).join(' ');
-  sh(cfg, port, `chmod 644 ${chmods} && ${moves} && rmdir '${tmpDir}'`);
+  const moves = ordered.map((f) => `mv -f '${tmpDir}/${f}' '${remoteDir}/${f}'`).join(' && ');
+  const chmods = ordered.map((f) => `'${tmpDir}/${f}'`).join(' ');
+  sh(cfg, port, `chmod 644 ${chmods} && ${moves} && rm -rf '${tmpDir}'`);
 
   return present;
 }
@@ -291,7 +311,12 @@ export async function deployWeb() {
   // year. If the server already has this exact bundle there is nothing to
   // do and nothing to risk.
   const alreadyThere = await isAlreadyServed(origin, manifest.bundle, manifest.bundleSha256);
-  const assets = [...ASSETS, alreadyThere ? null : manifest.bundle, manifest.shareImage].filter(Boolean);
+  // Fonts ride in phase 1 with everything else index.html's app depends on.
+  // They are not fatal the way the bundle is -- a missing font falls back to
+  // system-ui rather than breaking the page -- but they are cached for a
+  // month, so a bad one is a month of wrong typography, which is exactly
+  // what the atomic rename above is for.
+  const assets = [...ASSETS, alreadyThere ? null : manifest.bundle, manifest.shareImage, ...(manifest.fonts || [])].filter(Boolean);
   if (alreadyThere) console.log(`  ${manifest.bundle} is already on the server and matches -- not re-uploading`);
   uploadAtomically(cfg, port, assets, 'uploading assets', ASSETS);
 

@@ -75,6 +75,15 @@
     Header set Cache-Control "public, max-age=31536000, immutable"
   </FilesMatch>
 
+  # Fonts. A month, not a year, and deliberately not immutable: the names
+  # are stable (inter-400.woff2), so a replaced file at the same URL would
+  # otherwise be invisible to anyone who had been here before. A month
+  # covers any normal return visit while leaving a way to change one. See
+  # the note at the top of src/theme/fonts.ts about renaming.
+  <FilesMatch "\.woff2$">
+    Header set Cache-Control "public, max-age=2592000"
+  </FilesMatch>
+
   # The share card: a stable name, so not immutable -- a day is long
   # enough to stop it being re-fetched on every visit and short enough
   # that replacing it takes effect the same day. favicon.ico is
