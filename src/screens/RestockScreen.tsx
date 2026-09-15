@@ -1,7 +1,5 @@
 import React, { useCallback, useEffect, useMemo, useState } from 'react';
 import { ActivityIndicator, ScrollView, StyleSheet, Text, TextInput, View } from 'react-native';
-import { useNavigation } from '@react-navigation/native';
-import type { NativeStackNavigationProp } from '@react-navigation/native-stack';
 import Screen from '../components/Screen';
 import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
@@ -11,9 +9,9 @@ import { useLanguage } from '../i18n/LanguageContext';
 import { useSettings } from '../store/SettingsStore';
 import { Alert } from '../lib/alertShim';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
-import { RootStackParamList } from '../navigation/types';
 import {
-  MAX_QTY, ShopRow, fetchShopRows, moveStockMany, shopRowLabel, stockErrorKey, variantDimensions,
+  MAX_QTY, ShopRow, StockGroup, fetchShopRows, groupByListing, moveStockMany, narrowGroups,
+  shopRowLabel, stockErrorKey, variantDimensions,
 } from '../lib/stock';
 
 // A delivery arrives: twenty things across eight listings.
@@ -22,6 +20,14 @@ import {
 // does not get done -- the box goes on the shelf and the numbers on the
 // site quietly stop being true. This is the whole shop in one list with a
 // box against each row, and ONE save.
+//
+// One line per ITEM, not per row. A shop selling three sizes in four
+// colours has twelve rows carrying the same title, and twelve identical
+// lines is a wall, not a list -- you cannot find the thing the delivery
+// actually contained. So each item is one line with what it holds
+// altogether, and opens on a tap onto its own sizes and colours. Anything
+// with a single row -- a crib, a sofa -- skips the fold and shows its box
+// straight away.
 //
 // All of it or none of it. moveStockMany is a single call for exactly this
 // reason: half a box booked in because the connection dropped is worse
@@ -32,10 +38,7 @@ import {
 // number to what you just counted is the SET verb and lives on the listing,
 // where it is one row at a time and harder to do by accident.
 
-type Nav = NativeStackNavigationProp<RootStackParamList>;
-
 export default function RestockScreen() {
-  const navigation = useNavigation<Nav>();
   const { t, language, isRTL } = useLanguage();
   const { resolveAttributesForCategory } = useSettings();
   // The one screen in the app made entirely of number boxes in a long
@@ -50,6 +53,19 @@ export default function RestockScreen() {
   const [query, setQuery] = useState('');
   const [adds, setAdds] = useState<Record<string, string>>({});
   const [saving, setSaving] = useState(false);
+  // Which items the shop has opened or shut BY HAND, by listing. Collapsed
+  // is the resting state: a shop opens this holding one box and wants to
+  // find one item in it. Anything not in here follows whatever the search
+  // box decides -- and it is emptied on every change to the search, so a
+  // tap made while browsing cannot go on overruling searches for the rest
+  // of the session (shut an item once, and every later search for it would
+  // come back folded, with no box to type in).
+  const [open, setOpen] = useState<Record<string, boolean>>({});
+
+  const changeQuery = (v: string) => {
+    setQuery(v);
+    setOpen({});
+  };
 
   // Fetched once, whole. The filter runs here rather than on the server:
   // three hundred rows is nothing to hold, and a shop typing a code wants
@@ -58,27 +74,56 @@ export default function RestockScreen() {
     setFailed(false);
     setLoading(true);
     fetchShopRows()
-      .then(setRows)
+      .then((fresh) => {
+        setRows(fresh);
+        // A row somebody unticked while this screen was open has no box to
+        // type into any more, so a number still held against it can never
+        // be booked in -- it fails the whole save, every time, with nothing
+        // on screen the shop can clear. Dropping it is the only way out;
+        // the alert that sent us back here has already said what happened.
+        const live = new Set(fresh.map((r) => r.id));
+        setAdds((prev) => {
+          const next: Record<string, string> = {};
+          for (const [id, v] of Object.entries(prev)) if (live.has(id)) next[id] = v;
+          return Object.keys(next).length === Object.keys(prev).length ? prev : next;
+        });
+      })
       .catch(() => setFailed(true))
       .finally(() => setLoading(false));
   }, []);
   useEffect(() => { load(); }, [load]);
 
-  const named = useMemo(
-    () =>
-      rows.map((r) => {
-        const dims = variantDimensions(resolveAttributesForCategory(r.categoryId as any));
-        const what = shopRowLabel(r, dims, language);
-        const title = language === 'ar' ? r.titleAr || r.titleEn : r.titleEn || r.titleAr;
-        return { row: r, title, what, hay: `${title} ${what} ${r.sku ?? ''}`.toLowerCase() };
-      }),
-    [rows, resolveAttributesForCategory, language]
-  );
+  // Row id -> what to call it and what to match a search against. Built
+  // once for the whole list, with the category's dimensions resolved per
+  // category rather than per row: twelve rows of one item asked the same
+  // question twelve times.
+  const meta = useMemo(() => {
+    const byCategory = new Map<string, ReturnType<typeof variantDimensions>>();
+    const m = new Map<string, { title: string; what: string; hay: string }>();
+    for (const r of rows) {
+      let dims = byCategory.get(r.categoryId);
+      if (!dims) {
+        dims = variantDimensions(resolveAttributesForCategory(r.categoryId as any));
+        byCategory.set(r.categoryId, dims);
+      }
+      const what = shopRowLabel(r, dims, language);
+      const title = language === 'ar' ? r.titleAr || r.titleEn : r.titleEn || r.titleAr;
+      m.set(r.id, { title, what, hay: `${title} ${what} ${r.sku ?? ''}`.toLowerCase() });
+    }
+    return m;
+  }, [rows, resolveAttributesForCategory, language]);
 
+  const titleOf = (g: StockGroup) =>
+    language === 'ar' ? g.titleAr || g.titleEn : g.titleEn || g.titleAr;
+
+  const groups = useMemo(() => groupByListing(rows), [rows]);
+
+  const searching = query.trim().length > 0;
   const shown = useMemo(() => {
     const q = query.trim().toLowerCase();
-    return q ? named.filter((n) => n.hay.includes(q)) : named;
-  }, [named, query]);
+    if (!q) return groups;
+    return narrowGroups(groups, (r) => !!meta.get(r.id)?.hay.includes(q));
+  }, [groups, meta, query]);
 
   // Counted across EVERY row, not just the visible ones: a shop that types
   // a code, adds 12, then types another code must not lose the first.
@@ -87,6 +132,20 @@ export default function RestockScreen() {
     [adds]
   );
   const pendingUnits = pending.reduce((n, m) => n + m.delta, 0);
+
+  // What is typed inside each item, counted off the UNFILTERED groups. A
+  // closed item, or one the search box is hiding half of, still says how
+  // much is sitting inside it -- typed work that nothing on screen admits
+  // to is typed work that gets typed again.
+  const pendingIn = useMemo(() => {
+    const m: Record<string, number> = {};
+    for (const g of groups) {
+      let n = 0;
+      for (const r of g.rows) n += Number(adds[r.id]) || 0;
+      if (n > 0) m[g.listingId] = n;
+    }
+    return m;
+  }, [groups, adds]);
 
   const save = async () => {
     if (pending.length === 0 || saving) return;
@@ -114,6 +173,7 @@ export default function RestockScreen() {
     // twice.
     setAdds({});
     setQuery('');
+    setOpen({});
     Alert.alert(t('restock.doneTitle'), t('restock.doneBody', { n: units }));
     try {
       // Re-read rather than adding the numbers here: the shop may have
@@ -138,6 +198,115 @@ export default function RestockScreen() {
     });
   };
 
+  // The box, and the two lines of text that say which row it belongs to.
+  // Shared by a folded-open row and by a single-row item, which is why the
+  // name it announces to a screen reader is passed in rather than rebuilt:
+  // under an open item the title is already on the line above.
+  const addBox = (row: ShopRow, label: string) => (
+    <TextInput
+      value={adds[row.id] ?? ''}
+      onChangeText={(v) => setAdd(row.id, v)}
+      keyboardType="numeric"
+      onFocus={onInputFocus}
+      placeholder="+"
+      placeholderTextColor={colors.inkSoft}
+      style={[styles.addBox, !!adds[row.id] && styles.addBoxOn]}
+      accessibilityLabel={t('restock.addTo', { what: label })}
+    />
+  );
+
+  // An item with one row: no triangle, no tap, the box right there.
+  const flatRow = (g: StockGroup) => {
+    const row = g.rows[0];
+    const m = meta.get(row.id);
+    const title = m?.title ?? titleOf(g);
+    const sub = [m?.what, row.sku].filter(Boolean).join(' · ');
+    return (
+      <View key={g.listingId} style={[styles.row, mirrorRow(isRTL)]}>
+        <View style={styles.rowText}>
+          <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
+          {!!sub && <Text style={styles.rowSub} numberOfLines={1}>{sub}</Text>}
+        </View>
+        <Text style={styles.have}>{t('restock.have', { n: row.qty })}</Text>
+        {addBox(row, [title, m?.what].filter(Boolean).join(' '))}
+      </View>
+    );
+  };
+
+  const item = (g: StockGroup) => {
+    if (g.plain) return flatRow(g);
+    const title = titleOf(g);
+    // Anything the search box narrowed is open already: typing a code and
+    // then having to tap the item it lives in is two steps where the shop
+    // meant one. A tap still decides, though -- `??`, not `||` -- so the
+    // triangle is never a control that does nothing.
+    const expanded = open[g.listingId] ?? searching;
+    const waiting = pendingIn[g.listingId] ?? 0;
+    return (
+      <View key={g.listingId}>
+        <Pressy
+          onPress={() => setOpen((p) => ({ ...p, [g.listingId]: !expanded }))}
+          accessibilityRole="button"
+          accessibilityState={{ expanded }}
+          accessibilityLabel={title}
+          style={[styles.row, styles.headRow, mirrorRow(isRTL)]}
+        >
+          <View style={styles.rowText}>
+            <Text style={styles.headTitle} numberOfLines={2}>{title}</Text>
+            <Text style={styles.rowSub} numberOfLines={1}>
+              {g.rows.length === g.rowCount
+                ? t('restock.optionCount', { n: g.rowCount })
+                : t('restock.optionsShown', { n: g.rows.length, m: g.rowCount })}
+            </Text>
+          </View>
+          <View style={styles.headRight}>
+            <Text style={styles.have}>{t('restock.have', { n: g.total })}</Text>
+            {waiting > 0 && (
+              <Text
+                style={styles.pending}
+                accessibilityLabel={t('restock.waitingToBook', { n: waiting })}
+              >
+                +{waiting}
+              </Text>
+            )}
+          </View>
+          {/* Sits in the column the number boxes occupy on the rows below,
+              so the counts line up down the whole card instead of the
+              item's own count floating 70px to the side of its rows'. */}
+          <View style={[styles.chevronSlot, expanded && styles.chevronOpen]}>
+            <Icon name="chevronRight" size={15} color={colors.inkSoft} />
+          </View>
+        </Pressy>
+        {expanded &&
+          g.rows.map((row) => {
+            const m = meta.get(row.id);
+            return (
+              <View key={row.id} style={[styles.row, mirrorRow(isRTL)]}>
+                {/* A spacer rather than paddingStart: directional padding
+                    resolves against I18nManager.isRTL, which this app never
+                    flips, so it would indent from the left in Arabic too.
+                    A flex child is turned around by mirrorRow on native and
+                    by the document's dir on web, like everything else in
+                    the row. */}
+                <View style={styles.indent} />
+                <View style={styles.rowText}>
+                  {/* Two lines, same as a single-row item: the size and
+                      colour is what the shop is looking for, and running
+                      the code in beside it makes both of them wrap. */}
+                  <Text style={styles.childTitle} numberOfLines={2}>
+                    {m?.what || t('stock.plainRowLabel')}
+                  </Text>
+                  {!!row.sku && <Text style={styles.rowSub} numberOfLines={1}>{row.sku}</Text>}
+                </View>
+                <Text style={styles.have}>{t('restock.have', { n: row.qty })}</Text>
+                {addBox(row, [title, m?.what].filter(Boolean).join(' '))}
+              </View>
+            );
+          })}
+      </View>
+    );
+  };
+
   return (
     <Screen>
       <ScrollView
@@ -154,7 +323,7 @@ export default function RestockScreen() {
           <Icon name="search" size={16} color={colors.inkSoft} />
           <TextInput
             value={query}
-            onChangeText={setQuery}
+            onChangeText={changeQuery}
             placeholder={t('restock.findPlaceholder')}
             placeholderTextColor={colors.inkSoft}
             style={styles.search}
@@ -162,7 +331,7 @@ export default function RestockScreen() {
             autoCapitalize="characters"
           />
           {query.length > 0 && (
-            <Pressy onPress={() => setQuery('')} style={styles.clear}>
+            <Pressy onPress={() => changeQuery('')} style={styles.clear}>
               <Icon name="close" size={14} color={colors.inkSoft} />
             </Pressy>
           )}
@@ -177,7 +346,7 @@ export default function RestockScreen() {
               <Text style={styles.retryText}>{t('common.retry')}</Text>
             </Pressy>
           </View>
-        ) : named.length === 0 ? (
+        ) : groups.length === 0 ? (
           <View style={styles.empty}>
             <Text style={type.soft}>{t('restock.nothingToStock')}</Text>
           </View>
@@ -186,29 +355,7 @@ export default function RestockScreen() {
             <Text style={type.soft}>{t('restock.noMatch', { q: query.trim() })}</Text>
           </View>
         ) : (
-          <View style={styles.card}>
-            {shown.map(({ row, title, what }) => (
-              <View key={row.id} style={[styles.row, mirrorRow(isRTL)]}>
-                <View style={styles.rowText}>
-                  <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
-                  <Text style={styles.rowSub} numberOfLines={1}>
-                    {[what, row.sku].filter(Boolean).join(' · ')}
-                  </Text>
-                </View>
-                <Text style={styles.have}>{t('restock.have', { n: row.qty })}</Text>
-                <TextInput
-                  value={adds[row.id] ?? ''}
-                  onChangeText={(v) => setAdd(row.id, v)}
-                  keyboardType="numeric"
-                  onFocus={onInputFocus}
-                  placeholder="+"
-                  placeholderTextColor={colors.inkSoft}
-                  style={[styles.addBox, !!adds[row.id] && styles.addBoxOn]}
-                  accessibilityLabel={t('restock.addTo', { what: [title, what].filter(Boolean).join(' ') })}
-                />
-              </View>
-            ))}
-          </View>
+          <View style={styles.card}>{shown.map(item)}</View>
         )}
       </ScrollView>
 
@@ -254,10 +401,25 @@ const styles = StyleSheet.create({
     paddingHorizontal: 14, paddingVertical: 10,
     borderBottomWidth: 1, borderBottomColor: colors.line,
   },
+  // The item's own line, told apart from the rows under it by weight and a
+  // tint rather than by a heading -- it is still a row you act on.
+  headRow: { backgroundColor: colors.surface },
+  headTitle: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
+  headRight: { alignItems: 'center', minWidth: 54 },
+  childTitle: { fontSize: 14, color: colors.ink },
+  // Indents an open item's rows, so the list reads as a list inside a list
+  // and a shop can see where the next item starts.
+  indent: { width: 18 },
+  chevronSlot: {
+    width: 62, height: 42, alignItems: 'center', justifyContent: 'center',
+    transform: [{ rotate: '0deg' }],
+  },
+  chevronOpen: { transform: [{ rotate: '90deg' }] },
   rowText: { flex: 1, minWidth: 0 },
   rowTitle: { fontSize: 14.5, color: colors.ink },
   rowSub: { ...type.tiny, marginTop: 2 },
   have: { ...type.tiny, minWidth: 54, textAlign: 'center' },
+  pending: { ...type.tiny, color: colors.accentDeep, fontWeight: '800', marginTop: 1 },
   addBox: {
     width: 62, height: 42, borderRadius: radius.sm, borderWidth: 1, borderColor: colors.line,
     backgroundColor: colors.bg, textAlign: 'center', fontSize: 15, color: colors.ink,

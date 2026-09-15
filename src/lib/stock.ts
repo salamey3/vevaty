@@ -414,6 +414,12 @@ export interface ShopRow extends Variant {
   // How many people asked to be told when this one comes back. Zero on
   // anything that is in stock.
   waiting: number;
+  // What the whole listing holds, and how many rows it holds it across --
+  // counted by the server over every active row, not over the rows in this
+  // particular answer. The morning list only hands over the rows that need
+  // something, so adding up what arrived would say a busy item is empty.
+  listingTotal: number | null;
+  listingRows: number | null;
 }
 
 // An order card a buyer sent that nobody has taken off the shelf yet.
@@ -459,6 +465,8 @@ function parseRow(raw: any): ShopRow {
     titleAr: String(raw?.title_ar ?? ''),
     categoryId: String(raw?.category_id ?? ''),
     waiting: Math.max(0, toNum(raw?.waiting, 0) ?? 0),
+    listingTotal: toNum(raw?.listing_total),
+    listingRows: toNum(raw?.listing_rows),
   };
 }
 
@@ -498,6 +506,97 @@ export function shopRowLabel(
   language: 'en' | 'ar'
 ): string {
   return !r.a && !r.b ? '' : variantLabel(r, dims, language);
+}
+
+// ---------------------------------------------- one line per item
+
+// A listing, and the stock rows of it that a screen is showing.
+//
+// The server answers in rows, because a row is what a number hangs off.
+// But a shop with three sizes in four colours has twelve rows carrying the
+// same title, and twelve identical lines is not a list -- it is a wall.
+// Every screen that shows rows across listings folds them with this first,
+// and opens one when the shop asks to see inside.
+export interface StockGroup {
+  listingId: string;
+  titleEn: string;
+  titleAr: string;
+  categoryId: string;
+  // The rows this screen is showing of it, in the order they arrived.
+  rows: ShopRow[];
+  // What the whole LISTING holds -- deliberately not the sum of `rows`.
+  // The morning list is handed only the rows at zero, so summing what
+  // arrived would put "none left" on an item with fourteen on the shelf.
+  total: number;
+  // How many rows the listing has altogether, likewise. `rows.length` out
+  // of this many is what a narrowed list is showing.
+  rowCount: number;
+  // Nothing to fold, because the ITEM only has one row: a crib, a sofa,
+  // anything with no size and no colour. Those render flat -- a triangle
+  // that opens onto the same number it was already showing costs a tap and
+  // returns nothing.
+  //
+  // Deliberately not `rows.length === 1`. A list holding one row of a
+  // twelve-row item looks identical, and rendering THAT flat puts the row's
+  // own count on a line headed by the item's name: the lamp that has one
+  // size out and sixty-four on the shelf would read "none", exactly the lie
+  // the total was added to prevent. So a narrowed item keeps its heading,
+  // which is what carries `total` and "1 of 12".
+  plain: boolean;
+}
+
+export function groupByListing(rows: ShopRow[]): StockGroup[] {
+  const groups: StockGroup[] = [];
+  const at = new Map<string, StockGroup>();
+  for (const r of rows) {
+    let g = at.get(r.listingId);
+    if (!g) {
+      g = {
+        listingId: r.listingId,
+        titleEn: r.titleEn,
+        titleAr: r.titleAr,
+        categoryId: r.categoryId,
+        rows: [],
+        total: 0,
+        rowCount: 0,
+        plain: false,
+      };
+      at.set(r.listingId, g);
+      // Pushed on first sight rather than sorted afterwards: the server
+      // already ordered these, and re-sorting here would quietly override
+      // whatever order the screen asked for -- the morning list wants the
+      // most-waited-for first, not alphabetical.
+      groups.push(g);
+    }
+    g.rows.push(r);
+  }
+  // The server sends both numbers on every row of a listing, so the first
+  // row speaks for the group. The arithmetic beside each is only for an
+  // answer that somehow arrived without them, where adding up the rows in
+  // hand beats showing nothing at all.
+  for (const g of groups) {
+    const first = g.rows[0];
+    g.total = first.listingTotal ?? g.rows.reduce((n, r) => n + r.qty, 0);
+    g.rowCount = Math.max(first.listingRows ?? g.rows.length, g.rows.length);
+    g.plain = g.rowCount === 1;
+  }
+  return groups;
+}
+
+// The same groups with only the rows a screen is still showing. Used by the
+// search box: the rows narrow, but `total`, `rowCount` and `plain` keep
+// describing the whole item, so finding one code never makes the item look
+// empty.
+export function narrowGroups(
+  groups: StockGroup[],
+  keep: (row: ShopRow) => boolean
+): StockGroup[] {
+  const out: StockGroup[] = [];
+  for (const g of groups) {
+    const rows = g.rows.filter(keep);
+    if (rows.length) out.push({ ...g, rows });
+  }
+  return out;
 }
 
 export async function fetchShopDay(): Promise<ShopDay> {

@@ -30,6 +30,7 @@ const {
   photoByDimension, applyPhotoToDimension, totalOf, isLow, variantLabel, stockErrorKey,
   gridFor, picksFromRows, photoDimension, offeredValues, rememberRow,
   pickable, rowFor, priceOf,
+  parseShopRows, parseShopDay, groupByListing, narrowGroups,
 } = await import(OUT);
 
 // The library joins the two values with U+001F, which nothing can type.
@@ -349,6 +350,133 @@ check('but a new combination starts at nothing',
   gridFor([SIZE], { size: ['s'] }, [])[0].qty, 0);
 check('and a saved plain row keeps its own number, whatever it is',
   gridFor([], {}, parseVariants([{ id: 'p1', size: null, colour: null, qty: 0 }]))[0].qty, 0);
+
+
+// --- one line per item, not one per row ---------------------------------
+// Twelve rows of the same lamp is what the server answers and the wrong
+// thing to read. Everything below is about the numbers on the folded line
+// staying true to the ITEM while the rows under it come and go.
+
+// What shop_stock_rows and shop_needs_me put on the wire. Both carry the
+// listing's own total and row count on EVERY row, so the folded line never
+// has to add up what happens to be in hand.
+const wire = (id, listing, size, colour, qty, extra = {}) => ({
+  id, listing_id: listing, title_en: `T-${listing}`, title_ar: `ع-${listing}`,
+  category_id: 'fashion-beauty-clothing', size, colour, qty,
+  listing_total: extra.total, listing_rows: extra.rows, ...extra,
+});
+
+const lamp = [
+  wire('a1', 'L1', 'xs', 'white', 3, { total: 20, rows: 4 }),
+  wire('a2', 'L1', 'xs', 'grey', 0, { total: 20, rows: 4 }),
+  wire('a3', 'L1', 's', 'white', 12, { total: 20, rows: 4 }),
+  wire('a4', 'L1', 's', 'grey', 5, { total: 20, rows: 4 }),
+];
+const sofa = [wire('b1', 'L2', null, null, 2, { total: 2, rows: 1 })];
+
+{
+  const gs = groupByListing(parseShopRows([...lamp, ...sofa]));
+  check('four rows of one lamp and a sofa make two lines', gs.length, 2);
+  check('the lamp holds its four rows', gs[0].rows.length, 4);
+  check('and says what the whole lamp holds', gs[0].total, 20);
+  check('and how many rows that is across', gs[0].rowCount, 4);
+  check('a lamp is not plain', gs[0].plain, false);
+  check('a sofa is', gs[1].plain, true);
+  check('plain is about the item, not the rows in hand',
+    groupByListing(parseShopRows([lamp[0]]))[0].plain, false);
+  check('the sofa keeps its own total', gs[1].total, 2);
+  check('titles ride along in both languages', [gs[0].titleEn, gs[0].titleAr], ['T-L1', 'ع-L1']);
+  check('so does the category, for resolving size and colour names',
+    gs[0].categoryId, 'fashion-beauty-clothing');
+}
+
+{
+  // Interleaved: the server sorts by title, but nothing may depend on that.
+  const gs = groupByListing(parseShopRows([lamp[0], sofa[0], lamp[1]]));
+  check('rows of one item are gathered wherever they fall', gs.length, 2);
+  check('and stay in the order they arrived', gs.map((g) => g.listingId), ['L1', 'L2']);
+  check('the lamp gathered both of its rows', gs[0].rows.map((r) => r.id), ['a1', 'a2']);
+  // THE POINT of the server sending the total: two rows in hand, twenty on
+  // the shelf. Adding up what arrived would say 3.
+  check('and still reports the whole item, not the rows in hand', gs[0].total, 20);
+  check('while saying how many of them it is showing', [gs[0].rows.length, gs[0].rowCount], [2, 4]);
+}
+
+{
+  // The morning list hands over ONLY the rows that are at zero.
+  const day = parseShopDay({
+    orders: [],
+    low: [],
+    out: [
+      { id: 'a2', listing_id: 'L1', title_en: 'T-L1', title_ar: 'ع-L1',
+        category_id: 'c', size: 'xs', colour: 'grey', qty: 0, waiting: 3,
+        listing_total: 20, listing_rows: 4 },
+      { id: 'a5', listing_id: 'L1', title_en: 'T-L1', title_ar: 'ع-L1',
+        category_id: 'c', size: 'm', colour: 'pink', qty: 0, waiting: 1,
+        listing_total: 20, listing_rows: 4 },
+    ],
+  });
+  const gs = groupByListing(day.out);
+  check('two sizes out of one lamp is one line', gs.length, 1);
+  check('saying two of four', [gs[0].rows.length, gs[0].rowCount], [2, 4]);
+  // The whole reason the column was added: "2 out" next to "0 left" would
+  // read as a dead item. It has fourteen on the shelf.
+  check('and twenty still on the shelf, not none', gs[0].total, 20);
+  check('the people waiting add up across the rows',
+    gs[0].rows.reduce((n, r) => n + r.waiting, 0), 4);
+
+  // The everyday case, and the one that used to lie: ONE size sells out.
+  // The lamp must not read like the crib next to it, which really does
+  // hold nothing.
+  const oneOut = groupByListing([day.out[0]]);
+  check('one size out is still an item with a heading', oneOut[0].plain, false);
+  check('showing one of its four rows', [oneOut[0].rows.length, oneOut[0].rowCount], [1, 4]);
+  check('and twenty on the shelf, not none', oneOut[0].total, 20);
+}
+
+{
+  // A search narrows the rows. The item must not shrink with them.
+  const gs = groupByListing(parseShopRows([...lamp, ...sofa]));
+  const one = narrowGroups(gs, (r) => r.id === 'a3');
+  check('narrowing to one row drops the item that had none', one.length, 1);
+  check('and keeps only the row that matched', one[0].rows.map((r) => r.id), ['a3']);
+  check('the item still says what it holds', one[0].total, 20);
+  check('and how many of its rows are showing', [one[0].rows.length, one[0].rowCount], [1, 4]);
+  // A twelve-row item narrowed to one row looks exactly like a sofa. If it
+  // rendered flat, the row's own count would sit on a line headed by the
+  // item's name -- "have 0" under a lamp holding twenty -- and the "+18
+  // typed inside" badge, which only a heading carries, would disappear.
+  check('narrowing to one row does NOT make an item plain', one[0].plain, false);
+  check('and the sofa, narrowed to its only row, still is',
+    narrowGroups(gs, (r) => r.listingId === 'L2')[0].plain, true);
+  check('narrowing does not touch the groups it was given', gs[0].rows.length, 4);
+  check('nothing matches, nothing shows', narrowGroups(gs, () => false), []);
+  check('everything matches, everything shows',
+    narrowGroups(gs, () => true).map((g) => g.rows.length), [4, 1]);
+}
+
+{
+  // An answer with the columns missing -- an older server, a malformed row
+  // -- must still show a number rather than NaN or nothing.
+  const bare = parseShopRows([
+    { id: 'c1', listing_id: 'L3', size: 'm', colour: null, qty: 4 },
+    { id: 'c2', listing_id: 'L3', size: 'l', colour: null, qty: 6 },
+  ]);
+  check('with no total on the wire, the rows in hand are added up',
+    groupByListing(bare)[0].total, 10);
+  check('and counted', groupByListing(bare)[0].rowCount, 2);
+  check('a row count smaller than the rows in hand is ignored',
+    groupByListing(parseShopRows([
+      { id: 'd1', listing_id: 'L4', qty: 1, listing_rows: 1 },
+      { id: 'd2', listing_id: 'L4', qty: 1, listing_rows: 1 },
+    ]))[0].rowCount, 2);
+  check('a total of zero is a real answer, not a missing one',
+    groupByListing(parseShopRows([
+      { id: 'e1', listing_id: 'L5', qty: 0, listing_total: 0, listing_rows: 1 },
+    ]))[0].total, 0);
+}
+
+check('nothing to group', groupByListing([]), []);
 
 const failed = results.filter((r) => !r.ok);
 for (const r of results) console.log(`${r.ok ? 'ok  ' : 'FAIL'} ${r.name}${r.detail ? ` -- ${r.detail}` : ''}`);

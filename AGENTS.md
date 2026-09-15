@@ -528,6 +528,26 @@ everything about `myazar.listing_variants` follows from that.
   in" over a delivery that had just landed — and their typed numbers were
   already cleared, so retyping it booked the whole box in twice. Once a
   write has committed, nothing after it may say otherwise.
+- **`marginStart` / `paddingStart` point the wrong way in Arabic.** They
+  resolve against `I18nManager.isRTL`, and this app never flips it — see
+  `mirrorRow`, which is why every row is mirrored by hand on native and
+  left to the document's `dir` on web. So a directional inset is left
+  padding in both languages: correct in English, and indenting from the
+  outside edge in Arabic. Use a fixed-width spacer `View` as the first
+  child instead. A flex child is turned around by whichever mechanism is
+  mirroring the row, so it cannot disagree with the row it is in.
+- **Whether a list is showing one row is not a fact about the item.** Both
+  shop screens fold an item's sizes and colours into one line, and the fold
+  was keyed off `rows.length === 1` — cheap, obvious, and wrong, because
+  the morning list is only sent the rows that are at zero. A twelve-option
+  lamp with ONE size out showed one row, so it rendered as if it were a
+  one-option item, dropped the item's total, and read "none" — identical to
+  the crib beside it that really did hold nothing, while the same lamp four
+  lines lower said "64 left". The fold is keyed off the item's own option
+  count, which the server sends. Anything a heading asserts about the THING
+  has to come from the thing; the list in front of you is a view of it, and
+  a view narrowed by a filter, a section or a cap is the normal case, not
+  the edge case.
 - **A flex child beside a fixed one needs `minWidth: 0`.** On
   react-native-web a flex item's `min-width` stays `auto`, so a TextInput
   or a line of text will not shrink below its own content — the row

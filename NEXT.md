@@ -373,6 +373,47 @@ Nothing in either stage touches the one-of-a-kind shop: a listing with no
 stock table is untouched by all of it, and a private seller never sees any
 of it.
 
+**One line per item, not one per variant**, 15 Sep 2026. A shop posting
+three sizes in four colours has twelve stock rows, and both shop screens
+were printing all twelve with the same title on them. Twelve identical
+lines is not a list, it is a wall: you cannot find the thing the delivery
+actually contained, and "out of stock" stops meaning anything when it says
+the same name three times in a row. Now an item is one line — what it
+holds altogether, how many options that is across — and a tap opens it
+onto its own sizes and colours. Anything with a single option, a crib or a
+sofa, has nothing to fold and keeps its box right there.
+
+The catch is that the folded line has to say what the ITEM holds, and
+neither screen had that number. The morning list is only sent the rows
+that are at zero, so adding up what arrived would put "none left" on a
+lamp with sixty-four on the shelf; the delivery screen has every row, but
+only up to a three-hundred-row cap and only while nothing is narrowing the
+list. So `shop_needs_me` and `shop_stock_rows` now send the listing's own
+total and row count on every row, counted server-side over the whole shop
+before any search and before any cap. `shop_stock_rows` does it in a
+separate pass on purpose: a window function beside the search would be
+computed over the rows that matched, so looking up one code would make the
+item look like it holds one thing.
+
+Review caught the same mistake one level down, which is worth writing out
+because it is the ordinary case and not the edge case. Folding was keyed
+off "this list is showing one row", and a twelve-option lamp with ONE size
+out shows one row — so it rendered flat, dropped the item's numbers, and
+read "none", identical to the crib beside it that really did hold nothing.
+The same lamp four lines lower, in Running low with two rows, correctly
+said "64 left". Same shelf, opposite message, decided by whether one or
+two rows were bad. Folding is now keyed off how many options the ITEM has,
+which is a fact about the item rather than about the list looking at it.
+
+Two smaller ones from the same review. A tap to collapse an item used to
+outrank every later search for the rest of the session, so an item you had
+once opened and shut came back folded with no box to type in — the
+hand-set state is now cleared whenever the search changes. And the morning
+list had no tiebreaker under its ordering, so rows that tie (most out rows
+have nobody waiting) came back in whatever order Postgres felt like; with
+rows folded into items, that moved whole items around between one look and
+the next.
+
 **Shop stock, stage 3: the shop's day**, 14 Sep 2026. Three things a shop
 cannot do one listing at a time.
 
