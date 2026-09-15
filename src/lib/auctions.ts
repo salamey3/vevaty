@@ -43,12 +43,25 @@ export type AuctionErrorCode =
   // Raised by register_for_auction when the bidder has not agreed to the
   // conditions of bidding currently in force.
   | 'terms_not_accepted'
+  // Raised by BOTH place_bid and register_for_auction when the account has
+  // been suspended. Suspension stops publishing and bidding and nothing
+  // else -- chat deliberately keeps working, because a dispute is exactly
+  // when you still need to reach the person you suspended.
+  | 'account_suspended'
+  // The tester-round ceiling: site_settings.max_bid_multiple x the lot's
+  // start price. NULL there means no ceiling, which is the launch state,
+  // so this cannot be raised once the dial is cleared. The ceiling itself
+  // arrives in AuctionError.minimum -- see the note on that field.
+  | 'bid_above_ceiling'
   | 'unknown';
 
 export class AuctionError extends Error {
   code: AuctionErrorCode;
-  // For `bid_too_low` the engine returns the minimum that WOULD have been
-  // accepted, so the UI can say the number rather than "too low".
+  // Whatever number the engine put in DETAIL. For `bid_too_low` that is the
+  // minimum that WOULD have been accepted; for `bid_above_ceiling` it is
+  // the MAXIMUM that would have been. The field keeps its original name
+  // rather than being renamed across every call site -- read it as "the
+  // number this rejection is about", and check `code` to know which.
   minimum: number | null;
   // Whatever actually came back, kept for the 'unknown' case and shown to
   // admins only. Without it `message` is the string "unknown" -- super()
@@ -82,6 +95,7 @@ const KNOWN_CODES = new Set<string>([
   'rate_out_of_range', 'rates_locked',
   'invalid_commission_basis', 'surplus_needs_reserve',
   'terms_not_accepted',
+  'account_suspended', 'bid_above_ceiling',
 ]);
 
 function toAuctionError(error: any): AuctionError {

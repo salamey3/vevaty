@@ -119,6 +119,7 @@ export default function AuctionRegisterScreen() {
         code === 'phone_not_verified' ? t('auctions.err.verifyPhone')
           : code === 'auction_not_open_for_registration' ? t('auctions.err.auctionClosed')
           : code === 'not_signed_in' ? t('auctions.err.signIn')
+          : code === 'account_suspended' ? t('auctions.err.suspended')
           : code === 'payment_method_invalid' ? t('auctions.err.cardUnusable')
           : code === 'terms_not_accepted' ? t('legal.superseded')
           : code === 'auction_not_found' ? t('auctions.notFound')

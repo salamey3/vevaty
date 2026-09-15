@@ -45,6 +45,12 @@ function bidErrorKey(e: AuctionError): string {
     case 'lot_not_live': return 'auctions.err.closed';
     case 'auction_not_live': return 'auctions.err.auctionClosed';
     case 'not_signed_in': return 'auctions.err.signIn';
+    case 'account_suspended': return 'auctions.err.suspended';
+    // The number-free variant on purpose. This branch is reached only when
+    // the engine's DETAIL is missing, and unlike bid_too_low the client
+    // cannot compute the ceiling itself -- it lives in site_settings. The
+    // numbered sentence is used in handleBid, where the detail is known.
+    case 'bid_above_ceiling': return 'auctions.err.aboveCeilingPlain';
     default: return 'auctions.err.generic';
   }
 }
@@ -186,6 +192,12 @@ export default function AuctionLotScreen() {
       setSheetError(
         err.code === 'bid_too_low' && err.minimum
           ? t('auctions.err.tooLow', { min: formatBidAmount(err.minimum) })
+          // The ceiling travels the same DETAIL channel the minimum does,
+          // so it needs the same treatment: without this the sentence
+          // falls through to the {min} below and names the wrong number
+          // entirely -- telling a bidder the floor when they hit the roof.
+          : err.code === 'bid_above_ceiling' && err.minimum
+          ? t('auctions.err.aboveCeiling', { max: formatBidAmount(err.minimum) })
           : t(bidErrorKey(err), { min: formatBidAmount(minimum) })
       );
       await load(false);
