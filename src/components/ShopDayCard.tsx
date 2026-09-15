@@ -19,9 +19,9 @@ import { EMPTY_DAY, ShopDay, dayIsQuiet, fetchShopDay } from '../lib/stock';
 // what and how many. When nothing is waiting it renders nothing at all --
 // a card that is always there stops being read within a week.
 //
-// Only for a verified shop, so it never appears for the overwhelming
-// majority of people, for whom Home is the buyer's screen and nothing
-// else. Same treatment and the same slot as the "did you reach the
+// Only for somebody who works in a verified shop, so it never appears for
+// the overwhelming majority of people, for whom Home is the buyer's screen
+// and nothing else. Same treatment and the same slot as the "did you reach the
 // seller?" prompt.
 
 type Nav = NativeStackNavigationProp<RootStackParamList>;
@@ -29,9 +29,13 @@ type Nav = NativeStackNavigationProp<RootStackParamList>;
 export default function ShopDayCard() {
   const navigation = useNavigation<Nav>();
   const { t, isRTL } = useLanguage();
-  const { myShop } = useAppStore();
+  // workShop, not myShop: the person at the counter is as likely to be
+  // somebody the owner took on as the owner, and the morning is theirs to
+  // act on either way. myShop stays strictly "the shop I own" and is what
+  // the storefront screens use.
+  const { workShop } = useAppStore();
   const [day, setDay] = useState<ShopDay>(EMPTY_DAY);
-  const trading = !!myShop?.verifiedAt;
+  const trading = !!workShop?.verifiedAt;
   // Home is the landing screen and this fires on every pop back to it. A
   // shop's morning does not change between one tap and the next, so it is
   // re-read at most once a minute -- the screen behind the card refreshes

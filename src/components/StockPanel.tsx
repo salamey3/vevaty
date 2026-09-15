@@ -37,7 +37,7 @@ import {
 type Busy = { id: string; kind: 'minus' | 'add' | 'count' | 'tag' } | null;
 
 export default function StockPanel({
-  listingId, dims, couldHaveStock, photos, language, isRTL, t, onTotal, onRows,
+  listingId, dims, couldHaveStock, photos, canTag, language, isRTL, t, onTotal, onRows,
 }: {
   listingId: string;
   dims: CategoryAttribute[];
@@ -53,6 +53,13 @@ export default function StockPanel({
   // load your stock / Retry" box about stock they have never had, retrying
   // for ever against a table with no rows in it.
   couldHaveStock: boolean;
+  // Whether the person looking may decide which photo belongs to which
+  // colour. Counting is the counter's job and somebody the shop took on
+  // does it; tagging goes through save_listing_variants, which rewrites
+  // the whole size-and-colour table and parks any row it is not sent, so
+  // the database keeps it to the owner. Without this the assistant would
+  // be shown a control that always fails.
+  canTag: boolean;
   language: 'en' | 'ar';
   isRTL: boolean;
   t: (k: string, v?: Record<string, string | number>) => string;
@@ -304,7 +311,7 @@ export default function StockPanel({
           the listing saves -- tagging it there would tag a URL that does
           not exist yet and would save as nothing. The buyer's chooser
           moves the gallery to this picture when they pick that colour. */}
-      {photoDim && photos.length > 0 && tagValues.length > 0 && (
+      {canTag && photoDim && photos.length > 0 && tagValues.length > 0 && (
         <View style={styles.tagBlock}>
           <Text style={styles.label}>
             {t('stock.photoPerValue', {

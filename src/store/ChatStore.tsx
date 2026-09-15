@@ -109,18 +109,24 @@ export function ChatStoreProvider({ children }: { children: React.ReactNode }) {
   const loadThreads = useCallback(async () => {
     setThreadsLoading(true);
     try {
-      const uid = await currentUserId();
+      // No buyer/seller filter. It used to say
+      // `.or(buyer_id.eq.<me>,seller_id.eq.<me>)`, which was a copy of the
+      // RLS policy written in the client -- and the moment a shop could be
+      // run by more than one person the two stopped agreeing: the policy
+      // lets a staff member see their shop's threads, and this query then
+      // asked for none of them, so their Chats tab was empty and every
+      // widened policy behind it was dead code. RLS is the only thing that
+      // decides now, and there is exactly one copy of the rule.
       const { data, error } = await supabase
         .from('chat_threads')
         .select('*')
-        .or(`buyer_id.eq.${uid},seller_id.eq.${uid}`)
         .order('created_at', { ascending: false });
       if (error) throw error;
       setThreads((data || []).map(dbThreadToLocal));
     } finally {
       setThreadsLoading(false);
     }
-  }, [currentUserId]);
+  }, []);
 
   const loadMessages = useCallback(async (threadId: string) => {
     const { data, error } = await supabase

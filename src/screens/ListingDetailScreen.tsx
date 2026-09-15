@@ -73,7 +73,7 @@ type ReportReason = (typeof REPORT_REASONS)[number];
 type Props = NativeStackScreenProps<RootStackParamList, 'ListingDetail'>;
 
 export default function ListingDetailScreen({ route, navigation }: Props) {
-  const { listings, profile, deleteListing, hideListing, markListingSold, applyStockTotal, isVerified, contactPrompts } = useAppStore();
+  const { listings, profile, deleteListing, hideListing, markListingSold, applyStockTotal, isVerified, contactPrompts, workShop } = useAppStore();
   const { ready: settingsReady, categoryById, ancestorsOf, categoryMatches, resolveAttributesForCategory, isServiceCategory, domainOfCategory, optionsOnForCategory } = useSettings();
   const { collectionBySlug, resolveCollection, priceDropPercent } = useCollections();
   const { getOrCreateThread } = useChat();
@@ -401,6 +401,13 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
   const isDesktop = useIsDesktop();
   const isOwner = !!listing && listing.sellerId === profile.id;
+  // Somebody the shop took on stands at this counter too. Correcting a
+  // count after physically counting the shelf is the one stock verb that
+  // only lives here, so gating the panel on ownership alone left an
+  // assistant able to book deliveries in and take things off but never to
+  // say what is actually on the shelf. The server already allows it.
+  const worksThisShop =
+    !!listing && !!workShop && !!listing.shopId && listing.shopId === workShop.id;
   const favorited = !!listing && isFavorite(listing.id);
   // `listing` is still nullable this high up (the screen renders a
   // not-found state below), so this is guarded rather than passed straight
@@ -1128,12 +1135,13 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       {/* The shop's own counter. Renders nothing at all unless this
           listing actually has a stock table, so a private seller's one
           jacket never sees it. */}
-      {isOwner && (
+      {(isOwner || worksThisShop) && (
         <StockPanel
           listingId={listing.id}
           dims={stockDims}
           couldHaveStock={couldHaveStock}
           photos={listing.photos}
+          canTag={isOwner}
           language={language}
           isRTL={isRTL}
           t={t}

@@ -16,6 +16,7 @@ import { colors, type, radius } from '../theme/theme';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { useLanguage } from '../i18n/LanguageContext';
+import { shopName } from '../lib/shopStaff';
 import { uploadPhoto } from '../lib/photoUpload';
 import { pickText } from '../lib/listingText';
 import { supabase } from '../lib/supabase';
@@ -74,7 +75,7 @@ function formFromShop(shop: Shop): ShopInput {
 // equivalent for a shop).
 export default function MyStorefrontScreen({ navigation, route }: Props) {
   const goBack = useGoBack();
-  const { isVerified, authChecked, myShop, listings, createShop, updateShop } = useAppStore();
+  const { isVerified, authChecked, myShop, workShop, listings, createShop, updateShop } = useAppStore();
   const { childrenOf, resolveAttributesForCategory, domains, allDomains, domainOfCategory } = useSettings();
   const { t, language, isRTL } = useLanguage();
 
@@ -467,6 +468,24 @@ export default function MyStorefrontScreen({ navigation, route }: Props) {
       <Screen maxWidth={640}>
         {header}
         <View style={styles.center}><ActivityIndicator color={colors.ink} /></View>
+      </Screen>
+    );
+  }
+
+  // Somebody who works in a shop they do not own. The route is in the deep
+  // link table, so it is reachable even though nothing on Profile offers
+  // it -- and without this they would be shown the CREATE form, fill it in
+  // and get a raw Postgres refusal back, because shops_insert excludes
+  // staff.
+  if (!myShop && workShop && !workShop.isOwner) {
+    return (
+      <Screen maxWidth={640}>
+        {header}
+        <View style={styles.center}>
+          <Text style={type.soft}>
+            {t('myStorefront.staffCannot', { shop: shopName(workShop, language) })}
+          </Text>
+        </View>
       </Screen>
     );
   }

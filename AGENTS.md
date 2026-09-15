@@ -528,6 +528,36 @@ everything about `myazar.listing_variants` follows from that.
   in" over a delivery that had just landed — and their typed numbers were
   already cleared, so retyping it booked the whole box in twice. Once a
   write has committed, nothing after it may say otherwise.
+- **A column being on a table you trust does not make it evidence.**
+  `myazar.profiles.phone` looks like the account's number and is not: the
+  table has a plain UPDATE grant, its policy's WITH CHECK is just the USING
+  clause, and the guard trigger covers `is_phone_verified` but not `phone`.
+  So its owner writes it freely -- and every visitor gets an anonymous
+  session that can insert its own profiles row. Anything that treats a
+  phone number as PROOF of who somebody is reads `auth.users.phone` with
+  `phone_confirmed_at`, which only the SMS sets and no client can touch.
+  A staff invite matched against the profiles copy and could be walked into
+  by anybody, with no account at all.
+- **Widening one permission function widens everything that asked it.**
+  `can_manage_stock` was the single chokepoint for the stock verbs, which
+  made handing staff the counter a one-line change -- and swept in
+  `save_listing_variants`, which is not a stock verb at all and parks every
+  variant row it is not sent. Before widening a shared predicate, list
+  every caller and decide about each one; the convenience that makes it one
+  line is exactly what makes it reach too far.
+- **A client-side copy of an RLS rule silently un-widens the policy.**
+  `loadThreads` filtered `.or(buyer_id.eq.me,seller_id.eq.me)` -- the old
+  policy, written out again in the app. Widening the policy for shop staff
+  changed nothing, because the query still asked for the narrow set, and
+  the feature looked built while being dead code. If RLS already decides
+  who may see a row, the query must not decide it again.
+- **A scalar subquery inside a policy turns a duplicate row into an
+  outage.** `my_shop_id()` reads `(select id from shops where owner_id =
+  uid)`. Two shops for one owner was cosmetic until that function went into
+  the `chat_threads` policy -- then it raised "more than one row returned by
+  a subquery" while filtering rows the caller is not even a party to, and
+  the account's entire chat stopped loading. Anything a policy calls needs
+  `limit 1` or a unique index behind it, preferably both.
 - **A border belongs on the element the press scales.** `Pressy` puts
   `transform: scale(0.96)` on the element it wraps, and nothing else. Put
   the border on a parent and it stays exactly where it was while the

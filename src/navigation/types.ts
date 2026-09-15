@@ -107,6 +107,7 @@ export type RootStackParamList = {
   ShopDay: undefined;
   // Booking a delivery in: every row the shop has, a +N on each, one save.
   Restock: undefined;
+  Staff: undefined;
   AdminShops: undefined;
   Admin: undefined;
   AdminCategories: undefined;

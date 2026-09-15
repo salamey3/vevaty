@@ -373,6 +373,49 @@ Nothing in either stage touches the one-of-a-kind shop: a listing with no
 stock table is untouched by all of it, and a private seller never sees any
 of it.
 
+**Shop stock, stage 4: a shop can be run by more than one person**,
+15 Sep 2026. The last of the four. Until now "the shop" and "the person
+who signed up" were the same row -- every stock function asked whether the
+listing's seller was you -- and a real shop has somebody behind the counter
+who is not the owner, standing exactly where stock moves.
+
+An owner adds people by PHONE NUMBER, and the invite can be written for
+somebody who has never opened Vevaty: it waits, and finds them when they
+sign up. They get the whole counter -- deliveries in, taking stock off,
+correcting a count, and answering buyers in the shop's chats. They do not
+get anything that changes what the shop SELLS: the storefront, the
+listings, the size-and-colour table. One shop per person, owner or staff,
+because every shop screen resolves "my shop" without being told which.
+
+What the buyer sees is unchanged, and that was worth checking rather than
+assuming: the chat header is named from the listing's seller and each
+message is drawn from its sender id, so an assistant's reply reaches the
+buyer under the shop's name while the database still records who typed it.
+
+Every stock verb already funnelled through one function, `can_manage_stock`,
+so the counter was one line to widen -- and that turned out to be the
+danger. Three things it reached that it should not have, all caught before
+shipping: `save_listing_variants` asked the same question and PARKS every
+row it is not sent, so staff could have wiped a listing's sizes; a staff
+member could create their own shop and silently stop being staff while the
+row still said they were; and a second shops row for one owner, previously
+cosmetic, would now abort the whole chat read because the resolver sits
+inside a policy.
+
+The review found worse, and it is the lesson worth keeping. The invite
+matched the number against `myazar.profiles.phone` -- and that column is
+writable by its own row's owner, so anyone could type an invited number
+onto their profile and walk in. Since every visitor gets an anonymous
+session that can insert its own profile row, it did not even need an
+account. Proved end to end, then fixed by comparing against
+`auth.users.phone` with `phone_confirmed_at`, which only the SMS can set.
+Also found: the four widened chat policies were dead code, because the
+client still filtered threads with a hand-written copy of the old rule.
+
+Still to do on this thread: the shop-wide "who did what" list and the same
+history on each item. `stock_movements.actor_id` has been recording it
+since stage 1, so both are read-side only.
+
 **Items stop running together, and Profile grows a business drawer**,
 15 Sep 2026. Two things off one look at the phone.
 

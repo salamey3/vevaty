@@ -11,6 +11,7 @@ import ConfirmDialog from '../components/ConfirmDialog';
 import BuildStamp from '../components/BuildStamp';
 import { colors, type, radius } from '../theme/theme';
 import { mirrorRow } from '../lib/mirrorRow';
+import { leaveShop, shopName, staffErrorKey } from '../lib/shopStaff';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { TIER_THRESHOLDS } from '../data/points';
@@ -28,7 +29,7 @@ import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 
 export default function ProfileScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { profile, listings, pointsHistory, fetchPointsHistory, signOut, deleteAccount, isVerified, myShop, updateAvatar, testerStatus } = useAppStore();
+  const { profile, listings, pointsHistory, fetchPointsHistory, signOut, deleteAccount, isVerified, myShop, workShop, refreshWork, updateAvatar, testerStatus } = useAppStore();
   const [uploadingAvatar, setUploadingAvatar] = useState(false);
   // The picked-but-not-yet-cropped avatar, queued for ImageCropModal -- see
   // confirmAvatarCrop below (shared component with MyStorefrontScreen's
@@ -44,6 +45,7 @@ export default function ProfileScreen() {
   // list again, and the one thing a shop opens daily -- its morning -- is
   // already reachable from the card on Home whenever something is waiting.
   const [businessOpen, setBusinessOpen] = useState(false);
+  const [leaving, setLeaving] = useState(false);
 
   const pickAvatar = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -118,6 +120,11 @@ export default function ProfileScreen() {
   // A storefront submitted and not yet reviewed. The only thing inside the
   // business group urgent enough to show on the shut row.
   const shopPending = !!myShop && !myShop.verifiedAt;
+  // Owning the place and working in it are the same drawer with different
+  // rows in it. workShop answers "is there a counter I stand at", myShop
+  // answers "is it mine" -- and only the second one opens the storefront.
+  const runsTheShop = !!workShop?.isOwner;
+  const tradingShop = !!workShop?.verifiedAt;
   // The phone column has SELECT revoked on myazar.profiles -- get_my_phone
   // (SECURITY DEFINER) is the only sanctioned way to read it back, and
   // only makes sense to call once there's a real verified session.
@@ -271,7 +278,7 @@ export default function ProfileScreen() {
             here), so it never folds a lone row away behind a tap. Anything
             added here that can be absent on its own should keep that
             true. */}
-        {isVerified && !!myShop && (
+        {isVerified && !!workShop && (
           <View style={styles.section}>
             <View style={businessOpen ? styles.group : null}>
               <Pressy
@@ -308,25 +315,49 @@ export default function ProfileScreen() {
                       still waiting on verification has no listings in it
                       yet, so its morning is always empty and the row is
                       only a dead end. */}
-                  {!!myShop?.verifiedAt && (
+                  {tradingShop && (
                     <Pressy onPress={() => navigation.navigate('ShopDay')} style={[styles.groupRow, mirrorRow(isRTL)]}>
                       <Icon name="checkCircle" size={15} color={colors.inkSoft} />
                       <Text style={styles.adminBtnText}>{t('profile.shopDay')}</Text>
                     </Pressy>
                   )}
 
-                  <Pressy onPress={() => navigation.navigate('MyStorefront')} style={[styles.groupRow, mirrorRow(isRTL)]}>
-                    <Icon name="building" size={15} color={colors.inkSoft} />
-                    <Text style={styles.adminBtnText}>{t(myShop ? 'profile.myStorefront' : 'profile.createStorefront')}</Text>
-                    {shopPending && <View style={styles.pendingDot} />}
-                  </Pressy>
+                  {/* Taking somebody on, and the storefront itself, belong
+                      to whoever owns the place. The database refuses them
+                      to anybody else; these are just not offered. */}
+                  {runsTheShop && tradingShop && (
+                    <Pressy onPress={() => navigation.navigate('Staff')} style={[styles.groupRow, mirrorRow(isRTL)]}>
+                      <Icon name="user" size={15} color={colors.inkSoft} />
+                      <Text style={styles.adminBtnText}>{t('profile.staff')}</Text>
+                    </Pressy>
+                  )}
+
+                  {runsTheShop && (
+                    <Pressy onPress={() => navigation.navigate('MyStorefront')} style={[styles.groupRow, mirrorRow(isRTL)]}>
+                      <Icon name="building" size={15} color={colors.inkSoft} />
+                      <Text style={styles.adminBtnText}>{t('profile.myStorefront')}</Text>
+                      {shopPending && <View style={styles.pendingDot} />}
+                    </Pressy>
+                  )}
+
+                  {/* The way out, for somebody who works here rather than
+                      owning it. Deliberately inside the drawer and not a
+                      red button on the front of the screen. */}
+                  {!runsTheShop && (
+                    <Pressy onPress={() => setLeaving(true)} style={[styles.groupRow, mirrorRow(isRTL)]}>
+                      <Icon name="back" size={15} color={colors.inkSoft} />
+                      <Text style={styles.adminBtnText}>
+                        {t('profile.leaveShop', { shop: shopName(workShop!, language) })}
+                      </Text>
+                    </Pressy>
+                  )}
                 </>
               )}
             </View>
           </View>
         )}
 
-        {isVerified && !myShop && (
+        {isVerified && !workShop && (
           <View style={styles.section}>
             <Pressy onPress={() => navigation.navigate('MyListings')} style={[styles.adminBtn, mirrorRow(isRTL)]}>
               <Icon name="bag" size={15} color={colors.inkSoft} />
@@ -335,7 +366,7 @@ export default function ProfileScreen() {
           </View>
         )}
 
-        {isVerified && !myShop && (
+        {isVerified && !workShop && (
           <View style={styles.section}>
             <Pressy onPress={() => navigation.navigate('MyStorefront')} style={[styles.adminBtn, mirrorRow(isRTL)]}>
               <Icon name="building" size={15} color={colors.inkSoft} />
@@ -466,6 +497,30 @@ export default function ProfileScreen() {
         {/* Which bundle this phone is actually running -- see BuildStamp. */}
         <BuildStamp />
       </ScrollView>
+
+      {/* Leaving is instant on the server, so the only thing standing
+          between a mis-tap and losing the counter is this. */}
+      <ConfirmDialog
+        visible={leaving}
+        title={t('profile.leaveShopTitle')}
+        message={t('profile.leaveShopBody', { shop: workShop ? shopName(workShop, language) : '' })}
+        confirmLabel={t('profile.leaveShopConfirm')}
+        cancelLabel={t('common.cancel')}
+        destructive
+        onConfirm={async () => {
+          setLeaving(false);
+          try {
+            await leaveShop();
+          } catch (e: any) {
+            Alert.alert(t('staff.failedTitle'), t(staffErrorKey(e)));
+          }
+          // Either way: the server is the only thing that knows where this
+          // person works now, and a stale drawer offering a counter they
+          // have left is worse than a spinner.
+          await refreshWork();
+        }}
+        onCancel={() => setLeaving(false)}
+      />
 
       <ConfirmDialog
         visible={deleteConfirmOpen}

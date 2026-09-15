@@ -68,6 +68,7 @@ import { findPlaceByFreeText } from '../data/lebanonPlaces';
 import { useRtlCarousel } from '../lib/useRtlCarousel';
 import ContactOutcomePrompt from '../components/ContactOutcomePrompt';
 import ShopDayCard from '../components/ShopDayCard';
+import StaffInviteCard from '../components/StaffInviteCard';
 
 // Parallel, always-visible selection state -- replaces the old one-facet-
 // at-a-time drill-down. Every enabled facet is its own sidebar section;
@@ -1147,6 +1148,7 @@ export default function HomeScreen() {
   // read halfway through a search.
   const shopDayCard = isSectionHome && (
     <View style={styles.contactPromptSlot}>
+      <StaffInviteCard />
       <ShopDayCard />
     </View>
   );

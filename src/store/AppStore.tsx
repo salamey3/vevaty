@@ -5,6 +5,9 @@ import { ContactOutcome, ContactPrompt, Listing, LISTING_STATUSES, ListingSaveEr
 import { SEED_LISTINGS } from '../data/seed';
 import { DEFAULT_LISTING_LIFETIME_DAYS } from '../data/categories';
 import { POINTS_RULES, BOOST_COSTS, tierForPoints } from '../data/points';
+import {
+  StaffInvite, WorkShop, fetchMyInvites, fetchWorkShop,
+} from '../lib/shopStaff';
 import { supabase, ensureSession, upsertOwnProfile } from '../lib/supabase';
 import { Alert } from '../lib/alertShim';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
@@ -295,6 +298,17 @@ interface AppStoreValue {
   // people's data, so it's fetched once per sign-in (syncFromSupabase)
   // rather than needing its own AsyncStorage persistence.
   myShop: Shop | null;
+  // The shop this app is standing at the counter of -- the one they own,
+  // OR the one somebody took them on at. Deliberately separate from
+  // `myShop`, which stays strictly "the shop I own": myShop is what
+  // attaches a listing to a storefront and what opens the storefront
+  // editor, and neither of those is a thing an assistant may do.
+  workShop: WorkShop | null;
+  // Invites waiting for this person's number. There is no push, no email
+  // and no WhatsApp channel, so the app itself is how somebody finds out
+  // they have been asked -- see StaffInviteCard.
+  staffInvites: StaffInvite[];
+  refreshWork: () => Promise<void>;
   createShop: (s: ShopInput) => Promise<Shop>;
   updateShop: (s: ShopInput) => Promise<void>;
   // Batch listings -- see createBatch/completeBatch's own doc comments
@@ -859,6 +873,15 @@ function dbBatchToLocal(row: any): Batch {
   };
 }
 
+// My own shop, described as the counter I stand at. verifiedAt is already
+// epoch milliseconds off dbShopToLocal -- parsing it again reads NaN and
+// lands on 0, which is falsy, so every verified owner's shop would go
+// quiet.
+const ownShopAsWork = (s: Shop): WorkShop => ({
+  id: s.id, slug: s.slug, nameEn: s.nameEn, nameAr: s.nameAr,
+  logoUrl: s.logoUrl, verifiedAt: s.verifiedAt, isOwner: true,
+});
+
 export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [ready, setReady] = useState(false);
   const [online, setOnline] = useState(false);
@@ -869,6 +892,20 @@ export function AppStoreProvider({ children }: { children: React.ReactNode }) {
   const [pointsHistory, setPointsHistory] = useState<PointsEvent[]>([]);
   const [auctionAnnouncements, setAuctionAnnouncements] = useState<AuctionAnnouncement[]>([]);
   const [myShop, setMyShop] = useState<Shop | null>(null);
+  const [workShop, setWorkShop] = useState<WorkShop | null>(null);
+  const [staffInvites, setStaffInvites] = useState<StaffInvite[]>([]);
+
+  // Called after accepting, declining or leaving -- the three moments the
+  // answer changes without a fresh sign-in.
+  const refreshWork = useCallback(async () => {
+    try {
+      const [shop, invites] = await Promise.all([fetchWorkShop(), fetchMyInvites()]);
+      setWorkShop(shop);
+      setStaffInvites(invites);
+    } catch (e: any) {
+      console.warn('[AppStore] could not refresh where you work:', e?.message ?? e);
+    }
+  }, []);
   const [testerStatus, setTesterStatus] = useState<TesterStatus>(NO_TESTER_STATUS);
   const userIdRef = useRef<string | null>(null);
   const profileRef = useRef<Profile>(DEFAULT_PROFILE);
@@ -1172,6 +1209,34 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
         console.warn('[AppStore] shop read refused, keeping the current shop:', shopError.message);
       } else {
         setMyShop(shopRow ? dbShopToLocal(shopRow) : null);
+      }
+
+      // The counter this person stands at, and anything waiting for their
+      // number. An owner's answer is already in hand -- their own shop --
+      // so only somebody who owns nothing pays for the extra call, which
+      // is almost everybody and is why it is the cheap branch.
+      //
+      // Both are best-effort and neither may take the sync down with it:
+      // this is the last thing an ordinary buyer needs, and a shop that
+      // cannot read its staff list can still sell.
+      if (shopRow) {
+        setWorkShop(ownShopAsWork(dbShopToLocal(shopRow)));
+        setStaffInvites([]);
+      } else {
+        try {
+          const [shop, invites] = await Promise.all([fetchWorkShop(), fetchMyInvites()]);
+          setWorkShop(shop);
+          setStaffInvites(invites);
+        } catch (e: any) {
+          // Cleared, not left alone. This runs on every sign-in, so
+          // keeping the old value on a failed read hands the account that
+          // just signed in the last one's shop -- and workShop is what
+          // decides whether "My storefront" and "Who works here" are
+          // offered. Empty is wrong in the harmless direction.
+          console.warn('[AppStore] could not read where you work:', e?.message ?? e);
+          setWorkShop(null);
+          setStaffInvites([]);
+        }
       }
 
       const { data: listingRows, error } = await supabase
@@ -3371,6 +3436,11 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
     setMyShop(null);
+    // And where they work. ShopDayCard gates on workShop alone, so leaving
+    // these standing put the previous account's "Your shop today" -- and
+    // any invite waiting for their number -- on the next person's Home.
+    setWorkShop(null);
+    setStaffInvites([]);
     setTesterStatus(NO_TESTER_STATUS);
     // Cleared explicitly, not left to the isVerified effect: swapping one
     // signed-in account for another never flips isVerified, so the
@@ -3422,6 +3492,11 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
     setProfile(DEFAULT_PROFILE);
     setPointsHistory([]);
     setMyShop(null);
+    // And where they work. ShopDayCard gates on workShop alone, so leaving
+    // these standing put the previous account's "Your shop today" -- and
+    // any invite waiting for their number -- on the next person's Home.
+    setWorkShop(null);
+    setStaffInvites([]);
     setTesterStatus(NO_TESTER_STATUS);
     // Cleared explicitly, not left to the isVerified effect: swapping one
     // signed-in account for another never flips isVerified, so the
@@ -3475,6 +3550,12 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
         if (!error && data) {
           const shop = dbShopToLocal(data);
           setMyShop(shop);
+          // And workShop with it. Profile's whole business drawer keys off
+          // workShop, which until now only syncFromSupabase ever set -- so
+          // creating a storefront made the drawer vanish and the screen
+          // offer "Create a storefront" again, until the next app start.
+          setWorkShop(ownShopAsWork(shop));
+          setStaffInvites([]);
           return shop;
         }
         lastError = error;
@@ -3522,7 +3603,11 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
         .select()
         .single();
       if (error) throw new Error(error.message || 'Could not update your storefront. Please try again.');
-      if (data) setMyShop(dbShopToLocal(data));
+      if (data) {
+        const fresh = dbShopToLocal(data);
+        setMyShop(fresh);
+        setWorkShop(ownShopAsWork(fresh));
+      }
     },
     [myShop]
   );
@@ -3579,6 +3664,9 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       fetchAuctionAnnouncements,
       markAnnouncementSeen,
       myShop,
+      workShop,
+      staffInvites,
+      refreshWork,
       createShop,
       updateShop,
       createBatch,
@@ -3616,6 +3704,9 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
       fetchAuctionAnnouncements,
       markAnnouncementSeen,
       myShop,
+      workShop,
+      staffInvites,
+      refreshWork,
       createShop,
       updateShop,
       createBatch,

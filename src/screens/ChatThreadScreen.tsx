@@ -43,7 +43,7 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
   const { threadId } = route.params;
   const { t, language, isRTL } = useLanguage();
   const insets = useSafeAreaInsets();
-  const { profile, listings, applyStockTotal } = useAppStore();
+  const { profile, listings, applyStockTotal, workShop } = useAppStore();
   const { threads, messagesByThread, loadMessages, sendMessage, sendOffer, respondToOffer, subscribeToThread, loadThreads } = useChat();
   const [otherName, setOtherName] = useState<string | null>(null);
   const [draft, setDraft] = useState('');
@@ -67,6 +67,18 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
 
   const thread = threads.find((th) => th.id === threadId);
   const listing = thread ? listings.find((l) => l.id === thread.listingId) : undefined;
+  // Not "am I the seller": the seller is the account that posted the
+  // listing, and an assistant is neither that nor the buyer.
+  //
+  // Said POSITIVELY -- am I the seller, or does this listing belong to the
+  // shop I work in -- rather than "I am not the buyer". The negative form
+  // fails open: profile.id is the literal 'me' before a profile lands and
+  // again after signing out, so a buyer would briefly be treated as the
+  // shop and see every bubble on the wrong side of the screen.
+  const iAmOnTheShopSide =
+    !!thread &&
+    (thread.sellerId === profile.id ||
+      (!!workShop && !!listing?.shopId && listing.shopId === workShop.id));
   const messages = messagesByThread[threadId] || [];
 
   // If this screen is opened directly (deep link / refresh) before the
@@ -149,20 +161,20 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
 
   useEffect(() => {
     if (!thread) return;
-    const iAmSeller = thread.sellerId === profile.id;
-    if (!iAmSeller) {
+    if (!iAmOnTheShopSide) {
       setOtherName(listing?.sellerName || t('chat.seller'));
       return;
     }
-    // I'm the seller -- look up the buyer's name (not on the listing
-    // object). Explicit column list -- see ChatScreen.tsx's same comment.
+    // I'm on the shop's side -- look up the buyer's name (not on the
+    // listing object). Explicit column list -- see ChatScreen.tsx's same
+    // comment.
     supabase
       .from('profiles')
       .select('id, full_name')
       .eq('id', thread.buyerId)
       .maybeSingle()
       .then(({ data }) => setOtherName(data?.full_name || t('chat.buyer')));
-  }, [thread, listing, profile.id, t]);
+  }, [thread, listing, iAmOnTheShopSide, t]);
 
   const handleSend = async () => {
     const body = draft.trim();
@@ -287,7 +299,15 @@ export default function ChatThreadScreen({ route, navigation }: Props) {
             contentContainerStyle={styles.messages}
             onContentSizeChange={() => listRef.current?.scrollToEnd({ animated: false })}
             renderItem={({ item }) => {
-              const mine = item.senderId === profile.id;
+              // "Mine" is my SIDE of the conversation, not my keystrokes.
+              // A shop can be run by more than one person now, so a staff
+              // member opening a thread would otherwise see the owner's
+              // replies drawn on the buyer's side and read the thread as
+              // two people talking at them. Everything that is not the
+              // buyer is the shop.
+              const mine = iAmOnTheShopSide
+                ? item.senderId !== thread?.buyerId
+                : item.senderId === profile.id;
               // An announcement from Vevaty itself -- an auction result, so
               // far. Centred and full width rather than a bubble on one
               // side, because a bubble invites a reply and there is nobody

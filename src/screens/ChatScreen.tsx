@@ -25,7 +25,7 @@ import { DESKTOP_CONTENT_MAX_WIDTH } from '../hooks/useResponsive';
 // array already covers every listing this user could have a thread on.
 export default function ChatScreen() {
   const { t, language } = useLanguage();
-  const { profile, isVerified, listings } = useAppStore();
+  const { profile, isVerified, listings, workShop } = useAppStore();
   const { threads, threadsLoading, loadThreads } = useChat();
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
   // Display names for the "other participant" on threads where the
@@ -67,8 +67,14 @@ export default function ChatScreen() {
   const rows = useMemo(() => {
     return threads.map((th: ChatThread) => {
       const listing = listings.find((l) => l.id === th.listingId);
-      const iAmSeller = th.sellerId === profile.id;
-      const otherName = iAmSeller
+      // The shop's side, not just the account that posted it: a staff
+      // member's Chats tab now carries their shop's conversations, and
+      // every one of them would otherwise be labelled with the owner's
+      // name instead of the buyer they are about to answer.
+      const iAmOnTheShopSide =
+        th.sellerId === profile.id ||
+        (!!workShop && !!listing?.shopId && listing.shopId === workShop.id);
+      const otherName = iAmOnTheShopSide
         ? (buyerNames[th.buyerId] || t('chat.buyer'))
         : (listing?.sellerName || t('chat.seller'));
       return {
