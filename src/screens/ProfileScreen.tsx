@@ -10,6 +10,7 @@ import Icon from '../icons/Icon';
 import ConfirmDialog from '../components/ConfirmDialog';
 import BuildStamp from '../components/BuildStamp';
 import { colors, type, radius } from '../theme/theme';
+import { mirrorRow } from '../lib/mirrorRow';
 import { useAppStore } from '../store/AppStore';
 import { useSettings } from '../store/SettingsStore';
 import { TIER_THRESHOLDS } from '../data/points';
@@ -39,6 +40,10 @@ export default function ProfileScreen() {
   // fresh/no-photo avatar has nothing to delete, so it skips the menu
   // entirely and behaves as it always did (see the Pressy below).
   const [avatarMenuOpen, setAvatarMenuOpen] = useState(false);
+  // Shut on arrival. The point of the fold is that Profile reads as a short
+  // list again, and the one thing a shop opens daily -- its morning -- is
+  // already reachable from the card on Home whenever something is waiting.
+  const [businessOpen, setBusinessOpen] = useState(false);
 
   const pickAvatar = async () => {
     const perm = await ImagePicker.requestMediaLibraryPermissionsAsync();
@@ -110,6 +115,9 @@ export default function ProfileScreen() {
   // Only the count is still needed here -- the listings themselves moved
   // to MyListingsScreen (see the "My Listings" nav row below).
   const myListings = useMemo(() => listings.filter((l) => l.sellerId === profile.id), [listings, profile.id]);
+  // A storefront submitted and not yet reviewed. The only thing inside the
+  // business group urgent enough to show on the shut row.
+  const shopPending = !!myShop && !myShop.verifiedAt;
   // The phone column has SELECT revoked on myazar.profiles -- get_my_phone
   // (SECURITY DEFINER) is the only sanctioned way to read it back, and
   // only makes sense to call once there's a real verified session.
@@ -245,49 +253,104 @@ export default function ProfileScreen() {
           </Pressy>
         </View>
 
-        {/* Was its own section further down the screen, mixed in among
-            Language/About/Points activity -- now a single row here, same
-            treatment as Saved listings/My Storefront below it, with the
-            actual listings (and the Delete/Item Sold/Hide Listing actions)
-            living on their own screen. See MyListingsScreen. */}
-        {isVerified && (
+        {/* Your listings, your morning and your storefront were three
+            sibling rows here, and they are one thing: everything on this
+            screen to do with selling. Three rows that belong together read
+            as three unrelated destinations, so they fold into one that
+            opens.
+
+            Only once there IS a business. A member who has never sold
+            anything would otherwise find "Create a storefront" -- the one
+            row on this screen whose job is to turn them into a seller --
+            behind a row labelled "My business", which presupposes the very
+            thing it is offering to set up. They keep the two flat rows they
+            had.
+
+            With a storefront the group always holds two rows or three
+            (Listings Manager and the storefront row are both unconditional
+            here), so it never folds a lone row away behind a tap. Anything
+            added here that can be absent on its own should keep that
+            true. */}
+        {isVerified && !!myShop && (
           <View style={styles.section}>
-            <Pressy onPress={() => navigation.navigate('MyListings')} style={styles.adminBtn}>
+            <View style={businessOpen ? styles.group : null}>
+              <Pressy
+                onPress={() => setBusinessOpen((v) => !v)}
+                accessibilityRole="button"
+                accessibilityState={{ expanded: businessOpen }}
+                accessibilityLabel={t('profile.myBusiness')}
+                style={[businessOpen ? [styles.groupHead, styles.groupHeadOpen] : styles.adminBtn, mirrorRow(isRTL)]}
+              >
+                <Icon name="briefcase" size={15} color={colors.inkSoft} />
+                <Text style={styles.adminBtnText}>{t('profile.myBusiness')}</Text>
+                {/* A storefront still waiting on review is the one signal
+                    in here that cannot wait to be tapped open for. Shown
+                    only while shut, because the row itself carries it once
+                    you can see the row. */}
+                {!businessOpen && shopPending && <View style={styles.pendingDot} />}
+                <View style={[styles.groupChevron, businessOpen && styles.groupChevronOpen]}>
+                  <Icon name="chevronRight" size={14} color={colors.inkSoft} />
+                </View>
+              </Pressy>
+
+              {businessOpen && (
+                <>
+                  {/* Was its own section further down the screen, mixed in
+                      among Language/About/Points activity. The listings
+                      themselves -- and the Delete/Item Sold/Hide actions --
+                      live on their own screen. See MyListingsScreen. */}
+                  <Pressy onPress={() => navigation.navigate('MyListings')} style={[styles.groupRow, mirrorRow(isRTL)]}>
+                    <Icon name="bag" size={15} color={colors.inkSoft} />
+                    <Text style={styles.adminBtnText}>{t('profile.myListings', { count: myListings.length })}</Text>
+                  </Pressy>
+
+                  {/* Only for a shop that is actually trading. A storefront
+                      still waiting on verification has no listings in it
+                      yet, so its morning is always empty and the row is
+                      only a dead end. */}
+                  {!!myShop?.verifiedAt && (
+                    <Pressy onPress={() => navigation.navigate('ShopDay')} style={[styles.groupRow, mirrorRow(isRTL)]}>
+                      <Icon name="checkCircle" size={15} color={colors.inkSoft} />
+                      <Text style={styles.adminBtnText}>{t('profile.shopDay')}</Text>
+                    </Pressy>
+                  )}
+
+                  <Pressy onPress={() => navigation.navigate('MyStorefront')} style={[styles.groupRow, mirrorRow(isRTL)]}>
+                    <Icon name="building" size={15} color={colors.inkSoft} />
+                    <Text style={styles.adminBtnText}>{t(myShop ? 'profile.myStorefront' : 'profile.createStorefront')}</Text>
+                    {shopPending && <View style={styles.pendingDot} />}
+                  </Pressy>
+                </>
+              )}
+            </View>
+          </View>
+        )}
+
+        {isVerified && !myShop && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('MyListings')} style={[styles.adminBtn, mirrorRow(isRTL)]}>
               <Icon name="bag" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('profile.myListings', { count: myListings.length })}</Text>
             </Pressy>
           </View>
         )}
 
+        {isVerified && !myShop && (
+          <View style={styles.section}>
+            <Pressy onPress={() => navigation.navigate('MyStorefront')} style={[styles.adminBtn, mirrorRow(isRTL)]}>
+              <Icon name="building" size={15} color={colors.inkSoft} />
+              <Text style={styles.adminBtnText}>{t('profile.createStorefront')}</Text>
+            </Pressy>
+          </View>
+        )}
+
+        {/* Stays outside the fold: what you saved is a buyer's shelf, not
+            part of the business. */}
         {isVerified && (
           <View style={styles.section}>
             <Pressy onPress={() => navigation.navigate('Favorites')} style={styles.adminBtn}>
               <Icon name="heart" size={15} color={colors.inkSoft} />
               <Text style={styles.adminBtnText}>{t('profile.savedListings')}</Text>
-            </Pressy>
-          </View>
-        )}
-
-        {/* Only for a shop that is actually trading. A storefront still
-            waiting on verification has no listings in it yet, so its
-            morning is always empty and the row is only a dead end. */}
-        {isVerified && !!myShop?.verifiedAt && (
-          <View style={styles.section}>
-            <Pressy onPress={() => navigation.navigate('ShopDay')} style={styles.adminBtn}>
-              <Icon name="checkCircle" size={15} color={colors.inkSoft} />
-              <Text style={styles.adminBtnText}>{t('profile.shopDay')}</Text>
-            </Pressy>
-          </View>
-        )}
-
-        {isVerified && (
-          <View style={styles.section}>
-            <Pressy onPress={() => navigation.navigate('MyStorefront')} style={styles.adminBtn}>
-              <Icon name="building" size={15} color={colors.inkSoft} />
-              <Text style={styles.adminBtnText}>{t(myShop ? 'profile.myStorefront' : 'profile.createStorefront')}</Text>
-              {myShop && !myShop.verifiedAt && (
-                <View style={styles.pendingDot} />
-              )}
             </Pressy>
           </View>
         )}
@@ -553,6 +616,36 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
   },
+  // The business group. Shut, it IS an adminBtn and nothing else -- the
+  // container adds nothing and the head wears the ordinary row's border, so
+  // the press-scale takes the border down with it exactly like every
+  // neighbouring row. A border sitting on the container instead would stay
+  // put while its contents shrank, which is the one way this row could
+  // announce that it is a different kind of thing. Open, the container
+  // takes over the border and grows into a card.
+  group: {
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
+    overflow: 'hidden',
+  },
+  // 47, not 48. A border sits INSIDE the box in React Native, so a shut
+  // adminBtn is 48 with 47 of content; the open head has no border of its
+  // own and sits under the group's, so 47 keeps the band the same height
+  // through the tap instead of nudging everything below it down a pixel.
+  groupHead: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 47,
+  },
+  // Tinted only once it is heading something.
+  groupHeadOpen: { backgroundColor: colors.surface },
+  groupRow: {
+    flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
+    height: 48, borderTopWidth: 1, borderTopColor: colors.line,
+  },
+  groupChevron: {
+    width: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+    transform: [{ rotate: '0deg' }],
+  },
+  groupChevronOpen: { transform: [{ rotate: '90deg' }] },
   adminBtnText: { fontSize: 14.5, fontWeight: '600', color: colors.inkSoft },
   // Unobtrusive "still pending review" signal on the My Storefront row --
   // a small dot rather than a text badge, since the full status (pending

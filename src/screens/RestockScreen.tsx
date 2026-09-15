@@ -222,7 +222,7 @@ export default function RestockScreen() {
     const title = m?.title ?? titleOf(g);
     const sub = [m?.what, row.sku].filter(Boolean).join(' · ');
     return (
-      <View key={g.listingId} style={[styles.row, mirrorRow(isRTL)]}>
+      <View key={g.listingId} style={[styles.card, styles.row, mirrorRow(isRTL)]}>
         <View style={styles.rowText}>
           <Text style={styles.rowTitle} numberOfLines={2}>{title}</Text>
           {!!sub && <Text style={styles.rowSub} numberOfLines={1}>{sub}</Text>}
@@ -243,13 +243,18 @@ export default function RestockScreen() {
     const expanded = open[g.listingId] ?? searching;
     const waiting = pendingIn[g.listingId] ?? 0;
     return (
-      <View key={g.listingId}>
+      <View key={g.listingId} style={expanded ? styles.card : null}>
         <Pressy
           onPress={() => setOpen((p) => ({ ...p, [g.listingId]: !expanded }))}
           accessibilityRole="button"
           accessibilityState={{ expanded }}
           accessibilityLabel={title}
-          style={[styles.row, styles.headRow, mirrorRow(isRTL)]}
+          // Shut, the head IS the card and wears the border itself: Pressy
+          // scales the element it is on, so a border left on the wrapper
+          // would stay put while the head shrank out from under it, and a
+          // shut item's whole card would hollow out on every tap. Open, the
+          // wrapper owns the border and the head becomes a heading.
+          style={[styles.row, expanded ? styles.headRow : styles.card, mirrorRow(isRTL)]}
         >
           <View style={styles.rowText}>
             <Text style={styles.headTitle} numberOfLines={2}>{title}</Text>
@@ -281,7 +286,7 @@ export default function RestockScreen() {
           g.rows.map((row) => {
             const m = meta.get(row.id);
             return (
-              <View key={row.id} style={[styles.row, mirrorRow(isRTL)]}>
+              <View key={row.id} style={[styles.row, styles.childRow, mirrorRow(isRTL)]}>
                 {/* A spacer rather than paddingStart: directional padding
                     resolves against I18nManager.isRTL, which this app never
                     flips, so it would indent from the left in Arabic too.
@@ -355,7 +360,7 @@ export default function RestockScreen() {
             <Text style={type.soft}>{t('restock.noMatch', { q: query.trim() })}</Text>
           </View>
         ) : (
-          <View style={styles.card}>{shown.map(item)}</View>
+          <View style={styles.list}>{shown.map(item)}</View>
         )}
       </ScrollView>
 
@@ -392,17 +397,26 @@ const styles = StyleSheet.create({
   search: { flex: 1, minWidth: 0, fontSize: 14.5, color: colors.ink },
   clear: { width: 28, height: 28, alignItems: 'center', justifyContent: 'center' },
 
+  // One card per ITEM, with air between them. They used to share a single
+  // card, so a folded item's tinted heading ran straight into the next
+  // item's row with only a hairline between -- and a hairline is what
+  // separates an item's own sizes from each other, so the next item read
+  // as one more size of the one above it.
+  list: { marginTop: 14, gap: 12 },
   card: {
-    marginTop: 14, borderWidth: 1, borderColor: colors.line,
+    borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.md, backgroundColor: colors.card, overflow: 'hidden',
   },
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 10,
     paddingHorizontal: 14, paddingVertical: 10,
-    borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  // The item's own line, told apart from the rows under it by weight and a
-  // tint rather than by a heading -- it is still a row you act on.
+  // Separated from the row ABOVE, so the last row in an item has no line
+  // hanging under it against the card's own edge.
+  childRow: { borderTopWidth: 1, borderTopColor: colors.line },
+  // Tinted only once it is heading something. Shut, every card on the
+  // screen would be tinted, so the tint would separate nothing from
+  // anything and just make the list read muddy against the page.
   headRow: { backgroundColor: colors.surface },
   headTitle: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
   headRight: { alignItems: 'center', minWidth: 54 },

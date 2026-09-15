@@ -75,7 +75,7 @@ export default function ShopDayScreen() {
     <Pressy
       key={r.id}
       onPress={() => navigation.navigate('ListingDetail', { listingId: r.listingId })}
-      style={[styles.row, mirrorRow(isRTL)]}
+      style={[styles.row, inset ? styles.childRow : styles.card, mirrorRow(isRTL)]}
     >
       {/* A spacer rather than directional padding, which resolves against
           I18nManager.isRTL -- never flipped in this app -- and so would
@@ -111,13 +111,18 @@ export default function ShopDayScreen() {
     const expanded = !!open[key];
     const waiting = g.rows.reduce((n, r) => n + r.waiting, 0);
     return (
-      <View key={key}>
+      <View key={key} style={expanded ? styles.card : null}>
         <Pressy
           onPress={() => setOpen((p) => ({ ...p, [key]: !p[key] }))}
           accessibilityRole="button"
           accessibilityState={{ expanded }}
           accessibilityLabel={titleOf(g)}
-          style={[styles.row, styles.headRow, mirrorRow(isRTL)]}
+          // Shut, the head IS the card and wears the border itself, exactly
+          // like the single-row items beside it: Pressy scales the element
+          // it is on, so a border left on the wrapper would stay put while
+          // the head shrank out from under it. Open, the wrapper owns the
+          // border and the head becomes a heading.
+          style={[styles.row, expanded ? styles.headRow : styles.card, mirrorRow(isRTL)]}
         >
           <View style={styles.rowText}>
             <Text style={styles.headTitle} numberOfLines={2}>{titleOf(g)}</Text>
@@ -160,7 +165,7 @@ export default function ShopDayScreen() {
           <Text style={styles.blockTitle}>{t(titleKey, { n: count })}</Text>
         </View>
         <Text style={styles.blockHint}>{t(hintKey)}</Text>
-        <View style={styles.card}>{children}</View>
+        <View style={styles.list}>{children}</View>
       </View>
     );
 
@@ -191,7 +196,7 @@ export default function ShopDayScreen() {
                 <Pressy
                   key={o.messageId}
                   onPress={() => navigation.navigate('ChatThread', { threadId: o.threadId })}
-                  style={[styles.row, mirrorRow(isRTL)]}
+                  style={[styles.row, styles.card, mirrorRow(isRTL)]}
                 >
                   <View style={styles.rowText}>
                     <Text style={styles.rowTitle} numberOfLines={2}>
@@ -235,6 +240,12 @@ const styles = StyleSheet.create({
   blockHead: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between' },
   blockTitle: { ...type.h3 },
   blockHint: { ...type.soft, marginTop: 2, marginBottom: 8 },
+  // One card per ITEM, with air between them. They used to share a single
+  // card, so a folded item's tinted heading ran straight into the next
+  // item's row with only a hairline between -- and a hairline is what
+  // separates an item's own sizes from each other, so the next item read
+  // as one more size of the one above it.
+  list: { gap: 12 },
   card: {
     borderWidth: 1, borderColor: colors.line, borderRadius: radius.md,
     backgroundColor: colors.card, overflow: 'hidden',
@@ -242,10 +253,13 @@ const styles = StyleSheet.create({
   row: {
     flexDirection: 'row', alignItems: 'center', gap: 12,
     paddingHorizontal: 14, paddingVertical: 12,
-    borderBottomWidth: 1, borderBottomColor: colors.line,
   },
-  // The item's own line, told apart from its rows by weight and a tint
-  // rather than by a heading -- it is still a row you act on.
+  // Separated from the row ABOVE, so the last row in an item has no line
+  // hanging under it against the card's own edge.
+  childRow: { borderTopWidth: 1, borderTopColor: colors.line },
+  // Tinted only once it is heading something. Shut, every card in the
+  // section would be tinted, so the tint would separate nothing from
+  // anything and just make the list read muddy against the page.
   headRow: { backgroundColor: colors.surface },
   headTitle: { fontSize: 14.5, fontWeight: '700', color: colors.ink },
   indent: { width: 18 },

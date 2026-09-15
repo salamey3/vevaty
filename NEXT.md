@@ -373,6 +373,41 @@ Nothing in either stage touches the one-of-a-kind shop: a listing with no
 stock table is untouched by all of it, and a private seller never sees any
 of it.
 
+**Items stop running together, and Profile grows a business drawer**,
+15 Sep 2026. Two things off one look at the phone.
+
+Every item on both shop screens sat inside ONE bordered card with hairline
+rows, which is the same treatment that separates an item's own sizes from
+each other — so a folded item's heading ran straight into the next item's
+row and the two read as one thing. Each item now has its own card with air
+between, and the row separator moved from "a line under every row" to "a
+line above every row after the first", so the last row in a card has
+nothing hanging under it against the card's edge.
+
+Folding a shut item's border onto the card wrapper turned out to be the
+wrong half, and the reason is worth keeping: `Pressy` scales the element
+it is on. A border left on the wrapper stays put while the pressed head
+shrinks out from under it, and a shut item's card IS its head — so every
+tap hollowed the whole card out. The border now lives on the head while
+shut and moves to the wrapper when open. The tint moved the same way: shut,
+every card would be tinted, so it separated nothing and only made the list
+read muddy.
+
+On Profile, Listings Manager, Your shop today and My storefront were three
+sibling rows and one subject. They fold into "My business", which shut is
+an ordinary row and open is a card. A storefront still waiting on review
+shows its dot on the shut row, because a signal behind a fold is a signal
+nobody gets. The fold only appears once there IS a business: a member who
+has never sold anything would otherwise find "Create a storefront" — the
+one row whose job is to turn them into a seller — behind a row claiming
+they already are one.
+
+Worth knowing, because it is the cost of the fold: the delivery screen is
+reachable from exactly one place, the shop's morning, and on a quiet
+morning the Home card that points there hides itself. So booking a
+delivery in went from two taps to three. Profile is a tab and stays
+mounted, so it is three taps once per app launch rather than every time.
+
 **One line per item, not one per variant**, 15 Sep 2026. A shop posting
 three sizes in four colours has twelve stock rows, and both shop screens
 were printing all twelve with the same title on them. Twelve identical

@@ -528,6 +528,13 @@ everything about `myazar.listing_variants` follows from that.
   in" over a delivery that had just landed — and their typed numbers were
   already cleared, so retyping it booked the whole box in twice. Once a
   write has committed, nothing after it may say otherwise.
+- **A border belongs on the element the press scales.** `Pressy` puts
+  `transform: scale(0.96)` on the element it wraps, and nothing else. Put
+  the border on a parent and it stays exactly where it was while the
+  pressed child shrinks away from it -- on a collapsed card, where the
+  pressed head IS the whole card, the card visibly hollows out on every
+  tap. A row that is a card carries its own border; a row that is a heading
+  inside an open card leaves the border to the card.
 - **`marginStart` / `paddingStart` point the wrong way in Arabic.** They
   resolve against `I18nManager.isRTL`, and this app never flips it — see
   `mirrorRow`, which is why every row is mirrored by hand on native and
