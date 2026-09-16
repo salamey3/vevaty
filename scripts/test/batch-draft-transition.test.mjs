@@ -34,14 +34,46 @@ import path from 'node:path';
 const ROOT = path.resolve(import.meta.dirname, '../..');
 const OUT = path.join(ROOT, 'node_modules', '.cache', 'AppStore.test.mjs');
 
-const stub = (name, contents) => ({
-  name: `stub-${name}`,
-  setup(build) {
-    const esc = name.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&');
-    build.onResolve({ filter: new RegExp(`^${esc}$`) }, (a) => ({ path: a.path, namespace: 'stub' }));
-    build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => (a.path === name ? { contents, loader: 'js' } : undefined));
-  },
-});
+// A stub is matched by WHERE IT RESOLVES TO, not by how it was spelled.
+//
+// This used to match the literal import specifier, and that quietly broke
+// the whole file. AppStore says `from '../lib/photoUpload'`, but
+// listingMedia.ts -- which AppStore also pulls in -- says
+// `from './photoUpload'` for the same module, and `from './supabase'` for
+// the same client. Those strings do not match, so the REAL modules came in
+// through the side door, dragging expo-file-system, expo-modules-core,
+// expo-asset and finally react-native's Flow-typed entry point, which
+// esbuild cannot parse. The build died before a single check ran, and
+// because this test is run by hand rather than by an npm script (see
+// below), nothing said so.
+//
+// So: a bare package name still matches exactly, and a relative path is
+// resolved against this repo's src/ once and then compared as a resolved
+// file path, whichever way an importer happens to spell it.
+const SRC = path.join(ROOT, 'src');
+const stub = (name, contents) => {
+  const bare = !name.startsWith('.');
+  // './lib/x' and '../lib/x' both mean src/lib/x here.
+  const target = bare ? null : path.resolve(SRC, 'store', name);
+  const EXTS = ['', '.ts', '.tsx', '.js', '.jsx', '/index.ts', '/index.tsx'];
+  return {
+    name: `stub-${name}`,
+    setup(build) {
+      if (bare) {
+        const esc = name.replace(/[/\\^$*+?.()|[\]{}]/g, '\\$&');
+        build.onResolve({ filter: new RegExp(`^${esc}$`) }, () => ({ path: name, namespace: 'stub' }));
+      } else {
+        build.onResolve({ filter: /^\./ }, (a) => {
+          const resolved = path.resolve(path.dirname(a.importer), a.path);
+          return EXTS.some((e) => resolved + e === target || resolved === target + e)
+            ? { path: name, namespace: 'stub' }
+            : undefined;
+        });
+      }
+      build.onLoad({ filter: /.*/, namespace: 'stub' }, (a) => (a.path === name ? { contents, loader: 'js' } : undefined));
+    },
+  };
+};
 
 await esbuild.build({
   entryPoints: [path.join(ROOT, 'src/store/AppStore.tsx')],
@@ -58,6 +90,11 @@ await esbuild.build({
   jsx: 'transform',
   jsxFactory: 'React.createElement',
   jsxFragment: 'React.Fragment',
+  // Metro injects __DEV__; node does not, and alertShim reads it to decide
+  // whether to console.warn an alert it cannot show. Undefined, it is a
+  // ReferenceError thrown from inside a catch handler, which surfaces as a
+  // crash with nothing to do with what failed.
+  define: { __DEV__: 'false' },
   plugins: [
     // A deliberately minimal hooks shim -- see this file's top comment for
     // why a single non-reactive "render" is enough for what this test
@@ -116,23 +153,74 @@ await esbuild.build({
       export function jsxDEV(type, props) { return createElement(type, props, props && props.children); }
       export const Fragment = Symbol('Fragment');
     `),
+    // react-native itself. esbuild is pointed at the package's `main`,
+    // which is Flow-typed source (`import typeof * as ... `) that it
+    // cannot parse -- so WITHOUT this stub the bundle does not build at
+    // all and this whole file dies before its first check. It is only
+    // three symbols deep: AppStore's own AppState (used inside a
+    // useEffect, which the hooks shim never runs), and the Platform.OS
+    // that testers.ts, LanguageContext and theme/fonts read at import
+    // time.
+    stub('react-native', `
+      export const AppState = {
+        currentState: 'active',
+        addEventListener() { return { remove() {} }; },
+      };
+      export const Platform = { OS: 'web', select: (o) => (o.web !== undefined ? o.web : o.default) };
+    `),
     stub('@react-native-async-storage/async-storage', `
       export default { getItem: async () => null, setItem: async () => {} };
     `),
+    // AppStore takes one thing from the language context -- `t` for the
+    // sentences it puts in front of the seller -- and the real hook throws
+    // outside a LanguageProvider, which this test deliberately does not
+    // mount. The stub returns the key so a failed lookup would be visible
+    // in an assertion rather than silently reading as empty.
+    stub('../i18n/LanguageContext', `
+      export function useLanguage() {
+        return { t: (k) => k, lang: 'en', isRTL: false, setLang() {} };
+      }
+    `),
     stub('../lib/supabase', `
       function makeBuilder(table) {
-        const capture = (op, payload) => (globalThis.__CAPTURED__ ||= []).push({ table, op, payload });
+        const state = { op: null, payload: null, id: null };
+        const capture = (op, payload) => {
+          state.op = op; state.payload = payload;
+          (globalThis.__CAPTURED__ ||= []).push({ table, op, payload });
+        };
+        // An UPDATE on listings answers with the row it matched.
+        // updateListing reads its result back and treats an empty one as a
+        // write that went nowhere -- correctly, since that is exactly the
+        // silent-loss bug @MEDIA.md records -- so a builder that always
+        // answered [] made every path throw 'refused' before reaching the
+        // transition this file exists to test.
+        const result = () => {
+          if (state.op !== 'update') return { data: [], error: null };
+          const row = { id: state.id ?? 'stub-row' };
+          if (table === 'listings') row.status = state.payload?.status;
+          return { data: [row], error: null };
+        };
         const builder = {
           select() { return builder; },
           insert(payload) { capture('insert', payload); return builder; },
           update(payload) { capture('update', payload); return builder; },
-          delete() { return builder; },
-          eq() { return builder; },
+          delete() { capture('delete', null); return builder; },
+          eq(col, val) { if (col === 'id') state.id = val; return builder; },
           in() { return builder; },
           order() { return builder; },
-          maybeSingle() { return Promise.resolve({ data: null, error: null }); },
+          // The pre-edit read of the listing's CURRENT status, which is
+          // what wasDraft/wasRejected/wasPendingReview are decided from.
+          // It is a live round trip, not the cache: updateListing falls
+          // back to listingsRef only when the read ERRORS, so a stub that
+          // answered null here made every listing look deleted and no
+          // transition could ever fire.
+          maybeSingle() {
+            return Promise.resolve(table === 'listings' && globalThis.__LIVE_LISTING__
+              ? { data: globalThis.__LIVE_LISTING__, error: null }
+              : { data: null, error: null });
+          },
           single() { return Promise.resolve({ data: null, error: null }); },
-          then(resolve, reject) { return Promise.resolve({ data: [], error: null }).then(resolve, reject); },
+          then(resolve, reject) { return Promise.resolve(result()).then(resolve, reject); },
         };
         return builder;
       }
@@ -142,21 +230,34 @@ await esbuild.build({
         functions: { invoke: async () => ({ data: null, error: null }) },
       };
       export async function ensureSession() { return { user: { id: 'test-uid', is_anonymous: false } }; }
+      export async function upsertOwnProfile() {}
+      export const SUPABASE_URL = 'https://test.invalid';
+      export const SUPABASE_PUBLISHABLE_KEY = 'test-key';
     `),
     stub('../lib/photoUpload', `
-      export async function uploadPhotos(uris) { return uris.map((u) => 'https://vevaty-media.b-cdn.net/listings/' + u); }
+      const hosted = (u) => 'https://vevaty-media.b-cdn.net/listings/' + u;
+      export async function uploadPhotos(uris) { return uris.map(hosted); }
+      // Reached from listingMedia.ts as well as from AppStore. Mirrors the
+      // real shape -- { uri, url, thumbnailUrl } per photo -- because
+      // syncPhotoKind reads all three off it.
+      export async function uploadPhotosWithThumbnails(uris) {
+        return uris.map((u) => ({ uri: u, url: hosted(u), thumbnailUrl: hosted('thumb-' + u) }));
+      }
     `),
     stub('../lib/bunnyVideo', `
       export async function attachVideoToListing() {}
       export async function deleteVideo() {}
       export function parseResolutions() { return null; }
     `),
-    stub('../lib/imageToBase64', `
-      export async function uriToCompressedBase64() { return null; }
-    `),
     stub('../lib/moderateListing', `
-      export async function triggerListingModeration(listingId, photos, title, description) {
-        (globalThis.__MODERATION_CALLS__ ||= []).push({ listingId, photos, title, description });
+      // Records the WHOLE argument list, not just the id. The call used to
+      // carry the photos, the title and the description as well, and the
+      // function judged what it was handed -- so the listing that was
+      // checked and the listing that was published were two different
+      // things (@MEDIA.md, "The check believed its caller"). A stub that
+      // only remembered the id would not notice them coming back.
+      export async function triggerListingModeration(...args) {
+        (globalThis.__MODERATION_CALLS__ ||= []).push({ listingId: args[0], args });
       }
     `),
   ],
@@ -185,8 +286,16 @@ const element = AppStoreProvider({ children: null });
 const value = element.props.value;
 
 const refs = globalThis.__REFS__;
-check('AppStoreProvider declares exactly 3 refs (userIdRef, profileRef, listingsRef)', refs.length === 3, `got ${refs.length}`);
+// The invariant is the ORDER of the first three, not the total. AppStore
+// has grown four more refs since (tRef and the three tester-status ones)
+// and will grow others; what this test positionally depends on is only
+// that userIdRef, profileRef and listingsRef are still the first three
+// declared, in that order. Checking each one's distinct starting value is
+// what would catch a reorder -- null, then an object, then an array.
+check('AppStoreProvider declares at least 3 refs', refs.length >= 3, `got ${refs.length}`);
 check('ref[0] (userIdRef) starts null', refs[0]?.current === null);
+check('ref[1] (profileRef) starts an object, not an array',
+  refs[1]?.current && typeof refs[1].current === 'object' && !Array.isArray(refs[1].current));
 check('ref[2] (listingsRef) starts an empty array', Array.isArray(refs[2]?.current) && refs[2].current.length === 0);
 
 const userIdRef = refs[0];
@@ -223,7 +332,11 @@ const basePayload = (overrides = {}) => ({
   ...overrides,
 });
 
-const seedListing = (id, status) => {
+// Seeds BOTH halves of what updateListing reads: the store's own cache,
+// and the row the server hands back when it re-reads the status before
+// deciding anything. The second is the one that decides the transition --
+// the cache is consulted only when that read fails.
+const seedListing = (id, status, moderationStatus = null) => {
   listingsRef.current = [
     {
       id,
@@ -234,6 +347,7 @@ const seedListing = (id, status) => {
       batchParked: false,
     },
   ];
+  globalThis.__LIVE_LISTING__ = { status, moderation_status: moderationStatus };
 };
 
 const lastCaptured = (table, op) =>
@@ -261,6 +375,9 @@ check('  ...resets moderation_status to "pending"', upd?.payload?.moderation_sta
 check('  ...clears moderation_reason', upd?.payload?.moderation_reason === null);
 check('  ...triggers exactly one moderation call for this listing',
   globalThis.__MODERATION_CALLS__.length === 1 && globalThis.__MODERATION_CALLS__[0].listingId === 'item-submit');
+check('  ...and passes the id and nothing else',
+  globalThis.__MODERATION_CALLS__[0]?.args?.length === 1,
+  JSON.stringify(globalThis.__MODERATION_CALLS__[0]?.args?.length));
 check('  ...never sends batch_id in the update (write-once invariant)', !('batch_id' in (upd?.payload || {})), Object.keys(upd?.payload || {}).join(','));
 check('  ...does send batch_parked', upd?.payload?.batch_parked === false);
 
@@ -274,6 +391,28 @@ await value.updateListing('item-active', basePayload({ status: undefined }));
 upd = lastCaptured('listings', 'update');
 check('editing an already-active listing does not touch status', upd?.payload?.status === undefined, JSON.stringify(upd?.payload?.status));
 check('  ...triggers no moderation call', globalThis.__MODERATION_CALLS__.length === 0);
+
+// 4. The repair path: a listing parked at 'pending_review' because its
+//    photos never landed (see @MEDIA.md). Editing it must re-run
+//    moderation -- that is the seller's only way back -- and, like every
+//    other path, must send the id alone.
+globalThis.__MODERATION_CALLS__ = [];
+seedListing('item-parked', 'pending_review');
+await value.updateListing('item-parked', basePayload({ status: undefined }));
+check('editing a parked "pending_review" listing re-runs moderation',
+  globalThis.__MODERATION_CALLS__.length === 1 && globalThis.__MODERATION_CALLS__[0].listingId === 'item-parked',
+  JSON.stringify(globalThis.__MODERATION_CALLS__.map((c) => c.listingId)));
+check('  ...with the id and nothing else',
+  globalThis.__MODERATION_CALLS__[0]?.args?.length === 1);
+
+// 5. The same listing with a human verdict on it. 'flagged' belongs to a
+//    moderator, and an edit must not hand it back to the AI to overturn.
+globalThis.__MODERATION_CALLS__ = [];
+seedListing('item-flagged', 'pending_review', 'flagged');
+await value.updateListing('item-flagged', basePayload({ status: undefined }));
+check('editing a FLAGGED listing does not re-run moderation',
+  globalThis.__MODERATION_CALLS__.length === 0,
+  JSON.stringify(globalThis.__MODERATION_CALLS__.map((c) => c.listingId)));
 
 console.log();
 let allOk = true;

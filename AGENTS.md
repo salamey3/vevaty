@@ -976,6 +976,74 @@ left two routes open that needed no failed write at all: let a listing
 expire, strip its photos through "Save & exit", press Republish; or let
 buyers auto-hide it, strip it as a draft, press Restore.
 
+# An edge function judges what is stored, never what it was sent
+
+`moderate-listing` is the only thing that sets a listing `active`, and
+until 16 Sep it was handed the photos, the title and the description in
+the request body and used the id for nothing but writing the verdict
+back. So the listing that was checked and the listing that was published
+were two different things, and one API call chose both. @MEDIA.md, "The
+check believed its caller", is the account.
+
+The rule generalises past this one function. **A request body is an
+argument, not evidence.** Anything a server decides ON has to be read
+from the database by the server, and the id is the only part of the call
+that is safe to believe — because the guards around it can check an id.
+Four of them do here, and each closes something the others do not:
+
+- **Read with the service-role key, not the caller's JWT.** A read with
+  the caller's key answers "what can you see", and on `listings` that
+  includes every live listing on the site — `active listings are publicly
+  readable` qualifies as `(status = 'active') OR (seller_id =
+  auth.uid())`. It cannot tell an owned row from a readable one.
+- **Check ownership explicitly** (or admin membership). The read no
+  longer does it for you, which is the point of the previous bullet.
+- **A human's verdict is not the caller's to move.** `flagged` and
+  `human_approved` are refused. Block list, not allow list — see the
+  moderation-gate paragraph above for why that phrasing has been wrong
+  three times running here.
+- **Check the status the row is actually in.** This one is load-bearing
+  BECAUSE the function writes as `service_role`:
+  `enforce_listing_moderation_gate` treats `request_role =
+  'service_role'` as privileged and returns `new` unchanged, so the
+  trigger that guards every other route to `active` guards nothing here.
+  The function's own check is the only one there is.
+
+The shape to watch for generally: **a service-role write is outside every
+trigger and every policy you have already written.** Whatever they were
+protecting, this code has to protect again, by hand.
+
+# A test that never builds is a test that never fails
+
+Both `scripts/test/batch-draft-transition.test.mjs` and
+`scripts/test/upload-retry.test.mjs` had been dying in esbuild rather
+than running — for weeks, silently. They are run by hand and not by an
+npm script (deliberately: a `scripts` entry moves the update fingerprint,
+see the top of this file), so nothing in CI or in a ship said so.
+
+Two causes, both worth knowing before writing another one:
+
+- **A stub matched by import STRING is matched by spelling, not by
+  module.** AppStore says `from '../lib/supabase'`; `listingMedia.ts`,
+  which AppStore also pulls in, says `from './supabase'` for the same
+  file. The stub caught the first and missed the second, so the real
+  client came in through the side door and dragged
+  expo-file-system, expo-modules-core, expo-asset and finally
+  react-native's Flow-typed entry point in behind it — which esbuild
+  cannot parse. Match on where an import RESOLVES instead; the helper in
+  `batch-draft-transition.test.mjs` does.
+- **A stub is a copy of an interface, and interfaces grow.** Both files
+  failed on `No matching export` for functions the real module had gained
+  since (`uploadPhotosWithThumbnails`, `resizeThumbnailForUpload`,
+  `upsertOwnProfile`) and the stub had not.
+
+And when one of these does come back to life, expect it to fail on what
+the code has learned since. `updateListing` now re-reads the listing's
+status from the server before deciding anything, falling back to the
+local cache only when that read ERRORS — so a stub answering `null` made
+every listing look deleted and no transition could fire. Seeding the
+store was enough when the test was written and is not any more.
+
 # A request that never answers is not an error
 
 Neither browser `fetch` nor React Native's OkHttp times out on its own,

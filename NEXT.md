@@ -117,12 +117,6 @@ Found on the way and deliberately not fixed here:
   - Setting up an authenticator from the phone app shows the text key but
     no QR code: the code arrives as an SVG, which React Native's `Image`
     does not draw. Set one up on the website.
-- **`moderate-listing` judges what the caller sends, not what is stored.**
-  It asks the AI about the photos, title and description in the request
-  body, then approves the listing by id — so a seller could send harmless
-  photos and text and publish something else. It should load the listing's
-  own stored photos and text (it already reads the row) and judge those.
-  Found while checking the edge functions for admin checks, 11 Sep.
 - **Switch on "secure password change" in Supabase Auth.** A signed-in
   session — an admin's locked one included — can change the account's
   password through the auth server without the old one. The setting asks
@@ -316,6 +310,37 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**`moderate-listing` judges the stored listing, not the request body**,
+16 Sep 2026. It took the photos, title and description out of the request
+and used the id only to write the verdict back — so what was checked and
+what was published were two different things, and a seller could choose
+both with one API call. It now reads the row with the service-role key and
+judges that; the call carries an id and nothing else. Four guards around
+it: the caller must own the listing or be an admin, a human's `flagged` or
+`human_approved` verdict is final, and the row must be at
+`pending_review` — which matters because this function writes as
+`service_role`, and `enforce_listing_moderation_gate` waves that through.
+Deployed as version 17 before the app patch, deliberately: the other order
+would have left the old function judging listings on their text alone.
+@MEDIA.md, "The check believed its caller", has the reasoning for each.
+
+Two things it fixed on the way. Every photo had been uploaded **twice** —
+once to the CDN and once as base64 in this payload, from a phone on a
+Lebanese mobile connection; the function fetches the stored thumbnail now.
+And the spin sampling moved server-side, where the two frames a moderator
+sees are no longer the client's choice.
+
+It also brought **two dead tests back**. `batch-draft-transition` and
+`upload-retry` both stub modules by the literal import string, and both
+had been failing to BUILD — `listingMedia.ts` reaches the same modules by
+a different spelling (`./supabase`, not `../lib/supabase`), so the real
+ones came in through the side door and dragged react-native's Flow-typed
+entry point in with them; `upload-retry`'s stub was simply missing an
+export photoUpload had grown. Neither is run by an npm script (that would
+move the update fingerprint), so nothing said so. Stubs now match on where
+an import RESOLVES, not how it was spelled. Both cover the new invariant:
+the moderation call passes the id and nothing else.
 
 **The admin dashboard is a queue and four drawers**, 16 Sep 2026. It was
 twelve rows of the same size in no particular order, and nothing on it

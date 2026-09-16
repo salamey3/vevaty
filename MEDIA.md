@@ -143,6 +143,126 @@ finds the rows on the first read and pays nothing. Worth remembering
 generally: a server-side rule added ahead of the client that satisfies it
 has to be written for the client that does not yet.
 
+## The check believed its caller
+
+Written 16 Sep 2026, and it is the same mistake as the 3 September one
+seen from the other end. That one published a listing before its media
+had landed. This one checked a listing that was never the listing.
+
+`moderate-listing` is the only thing in the system that sets a listing
+`active`. Until version 16 it was called like this:
+
+```
+triggerListingModeration(listingId, photos, title, description)
+```
+
+— and it judged the title, the description and the photos **out of the
+request body**, using the id for nothing but the row it wrote the verdict
+to. Every one of those four arguments came from the caller. Three holes
+follow from that one sentence, and they are worth separating because they
+need different guards.
+
+**What was checked and what was published were two different things.**
+This is the whole of it. A seller could post one listing and have another
+one checked — clean photos and innocuous text in the body, whatever they
+liked in the row — and the function would approve the row it had never
+looked at. Nothing about this needed any skill: it is one API call with a
+different JSON body, against an endpoint the app itself calls on every
+post.
+
+**A moderator's verdict could be overturned.** The function re-ran on
+whatever it was given and wrote its own answer over the top, so a listing
+a human had `flagged` could be handed back to the AI with a tamer payload
+until it approved.
+
+**It could be pointed at somebody else's listing.** Nothing checked that
+the caller owned the row. And the read it did do used the caller's own
+JWT, which reads "what can you see" rather than "what is stored" — on this
+table the `active listings are publicly readable` policy qualifies as
+`(status = 'active') OR (seller_id = auth.uid())`, so every visitor's
+anonymous session can already read any live listing.
+
+### The one guard that matters, and the four around it
+
+**The call carries an id and nothing else.** That is the fix; everything
+below is a consequence of it. The function reads the listing's own stored
+title, description and photos and judges those, so "what was checked" and
+"what was published" are the same row by construction rather than by
+agreement between two pieces of code.
+
+The rest are guards on *which* row, and each closes something the first
+one does not:
+
+- **The row is read with the service-role key**, not the caller's JWT.
+  With the caller's key a merely readable listing is indistinguishable
+  from an owned one, which is the third hole above; the point of the read
+  is what is stored, so it has to be a read that sees what is stored.
+- **The caller must be the seller, or an admin.** Membership in
+  `myazar.admins`, deliberately, rather than `admin_session_active()` —
+  the question here is not "may this person use an admin power" but "may
+  they ask for a re-check of a listing that is not theirs", and the answer
+  the check produces is about the stored row either way.
+- **A human verdict is final.** `flagged` and `human_approved` are
+  refused outright. Written as a block list, not an allow list, for the
+  reason recorded above under "The shape of the fix": listing the states
+  worth releasing has been wrong three times running here, and each miss
+  was a listing invisible for ever. `rejected` is deliberately **not** on
+  the list — that is the state a seller resubmitting has to be able to
+  climb out of.
+- **The listing must be at `pending_review`.** The only status a genuine
+  call ever arrives with: `addListing` inserts there, and all three of
+  `updateListing`'s re-moderation paths move the row there before calling.
+  This one is load-bearing precisely because the function writes with the
+  service-role key — `enforce_listing_moderation_gate` treats
+  `request_role = 'service_role'` as privileged and returns `new`
+  unchanged, so the trigger that guards every other route to `active`
+  guards nothing here. Without the status check a seller could re-moderate
+  their listing out of whatever state it was in; the database today holds
+  two lots at `auction` and eight at `removed`, and pulling a lot out of a
+  running sale by hand is not a thing anyone should be able to do.
+
+### Two things this also fixed by accident
+
+**The photos stopped being uploaded twice.** The old payload re-encoded
+six gallery photos and two spin frames to base64 and sent them, on top of
+the upload that had already put them on the CDN — from a phone, on a
+Lebanese mobile connection. The function fetches the stored
+`thumbnail_url` now (640px, and far inside the 3.5MB it will look at),
+falling back to `url`.
+
+**The spin sampling moved to the server, where it means something.** It
+was the client picking which two frames the moderator would see. One
+frame from each of up to two sets, at random rather than at a fixed
+position — a spin is one object rotating, so its frames are near-identical
+by construction and any one of them represents the set, but a fixed
+position is a position a seller could learn to keep clean.
+
+### The deployment order, again
+
+The function went first and the app second, which is the opposite of what
+it looks like it should be. Shipping the app first would have left the old
+function judging listings on their text alone for as long as the gap
+lasted — the app would have stopped sending photos to a function that
+still expected them in the body.
+
+Going the other way costs nothing, because the new function ignores the
+old payload rather than rejecting it: an older build still sends photos, a
+title and a description, they are dropped, and the listing is checked on
+what is stored. That build keeps working through the photo wait it always
+relied on. Same lesson as the one in "The deployment order" above, one
+release later: **a server-side rule added ahead of the client that
+satisfies it has to be written for the client that does not yet.**
+
+### What this is not
+
+It is not a reason to trust the AI pass more than before. It still reads
+text a seller wrote, and a listing that talks to the model rather than to
+a buyer is a prompt-injection attempt — the prompt says so, and says the
+text is the thing being judged rather than an instruction. The guard
+against that is the same one as ever: the function can only ever move a
+listing from `pending_review` to `active` or to `flagged`, and everything
+it is unsure about goes to a human.
+
 ## What is deliberately still open
 
 See @NEXT.md: `anon` cannot read `myazar.listings` at all (a restrictive

@@ -47,7 +47,14 @@ await esbuild.build({
     stub('expo-file-system', `
       export class File { constructor(u){ this.u = u; } async upload(){ return globalThis.__NATIVE_UPLOAD__(this.u); } }
       export const UploadType = { MULTIPART: 'multipart', BINARY_CONTENT: 'binary' };`),
-    stub('./imageToBase64', `export async function resizePhotoForUpload(u){ return u; }`),
+    // Both resizers, or the build fails outright on the missing export and
+    // this whole file dies before its first check -- which is what had
+    // happened: uploadPhotosWithThumbnails was added to photoUpload.ts and
+    // the stub was not told. Run by hand rather than by an npm script (see
+    // above), nothing reported it.
+    stub('./imageToBase64', `
+      export async function resizePhotoForUpload(u){ return u; }
+      export async function resizeThumbnailForUpload(u){ return 'thumb:' + u; }`),
     stub('./supabase', `
       export const SUPABASE_URL = 'https://project.supabase.co';
       export const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_test';
