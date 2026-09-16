@@ -475,6 +475,26 @@ bought. A buyer is owed something else -- that the placement was paid for --
 and the word for that is the one every other marketplace uses. The two labels
 describe the same state on purpose.
 
+## What the card draws, and the two arrays behind it
+
+Added 16 Sep 2026. The still cover is `coverThumbnailUrl`, falling back to
+`photos[0]`. The hover/hold preview is different: a gallery slideshow drawn
+from `photoThumbnails`, or, when the listing has a 360, that spin drawn
+from its `previewFrames`. Both of those are the card-sized copies, and both
+are read ENTRY FOR ENTRY against the full-size list beside them.
+
+That pairing broke in both places, the same way and invisibly -- an edit
+replaced one array and left the other describing the previous pictures, or
+a save threw the small copies away and left the card mounting 1600px
+originals. @AGENTS.md, "Two arrays read by index are one object", has the
+account; `src/lib/thumbnailPairing.ts` is the one place the rule lives now.
+
+Worth knowing for anything new drawn on a card: **the length check is not a
+correctness check.** `photoThumbnails.length === photos.length` passes
+happily when the two describe different photographs, which is exactly what
+a reorder of the same count produces. The pairing has to be maintained
+where the arrays are WRITTEN; no reader can verify it.
+
 ## Known limits
 
 - **~88 categories have no `card_priority` set** and therefore show no spec

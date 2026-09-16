@@ -13,6 +13,7 @@ import { Alert } from '../lib/alertShim';
 import { uploadPhotos, uploadPhotosWithThumbnails } from '../lib/photoUpload';
 import { PhotoWriteError, PhotoWriteStage, insertPhotoRows, writeSpinSets } from '../lib/listingMedia';
 import { attachVideoToListing, deleteVideo, parseResolutions } from '../lib/bunnyVideo';
+import { carryThumbnails } from '../lib/thumbnailPairing';
 import { triggerListingModeration } from '../lib/moderateListing';
 import { fetchMyTesterStatus, NO_TESTER_STATUS, TesterStatus } from '../lib/testers';
 import { slugify } from '../lib/slugify';
@@ -1824,7 +1825,18 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
               const coverThumbnailUrl = !cover
                 ? null
                 : thumbFor.get(cover) ?? (cover === previousCoverUrl ? it.coverThumbnailUrl : null);
-              return { ...it, photos: desiredOrder, coverThumbnailUrl };
+              // Rebuilt for the order just written, so the card's preview
+              // goes back to card-sized copies rather than staying on the
+              // 1600px originals until the next launch. A newly uploaded
+              // photo brings its own; a kept one keeps whichever it had
+              // BEFORE this edit, found by its position in the old list --
+              // and a photo we hold nothing for stands in for itself.
+              const wasThumb = new Map<string, string>();
+              if (it.photoThumbnails?.length === it.photos.length) {
+                it.photos.forEach((url, i) => wasThumb.set(url, it.photoThumbnails![i]));
+              }
+              const photoThumbnails = desiredOrder.map((url) => thumbFor.get(url) ?? wasThumb.get(url) ?? url);
+              return { ...it, photos: desiredOrder, photoThumbnails, coverThumbnailUrl };
             })
           );
           // Same line as the create path: zero threw above, a shortfall is
@@ -2452,7 +2464,20 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
         prev.map((it) => {
           if (it.id !== id) return it;
           capturedRow = it;
-          return { ...it, ...fields, ...shopDisplayFields };
+          // photoThumbnails is entry-for-entry with photos, and `fields`
+          // carries the seller's NEW arrangement while the thumbnails
+          // still describe the old one. Same count -- a reorder, or one
+          // photo swapped for another -- and the length check every
+          // reader does passes, so the card drew the old order, or a
+          // photo the seller had just deleted, until the app restarted.
+          // Buyers never saw it: their copy is rebuilt from the rows,
+          // where the two arrays are read together.
+          //
+          // undefined until syncPhotoKind lands the real ones, which
+          // falls back to the full-size photos -- heavier for a moment,
+          // and the right picture. See lib/thumbnailPairing.ts.
+          const photoThumbnails = carryThumbnails(it.photos, it.photoThumbnails, fields.photos ?? it.photos);
+          return { ...it, ...fields, ...shopDisplayFields, photoThumbnails };
         })
       );
 

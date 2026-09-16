@@ -1,5 +1,6 @@
 import { supabase } from './supabase';
 import { uploadPhotosWithThumbnails } from './photoUpload';
+import { thumbnailAt } from './thumbnailPairing';
 import { SpinSet } from '../types';
 
 // Writing a listing's 360 spin sets.
@@ -231,8 +232,37 @@ export async function writeSpinSets(
     // Uploading first shrinks that window from the whole upload to the gap
     // between two adjacent inserts, which is the size the discard was
     // written for.
-    const hostedKept = set.frames.filter((p) => /^https?:\/\//.test(p));
-    const localNew = set.frames.filter((p) => !/^https?:\/\//.test(p));
+    // Split, KEEPING each kept frame's own small copy with it.
+    //
+    // This used to be two `filter` calls, and the thumbnail of a kept frame
+    // was the frame itself -- on the stated grounds that "a kept frame has
+    // no thumbnail we know of". It does: `previewFrames` is read back off
+    // the rows in AppStore, entry for entry, and the edit form is holding
+    // it when it calls this. So every save from Edit -- a price change
+    // included, since this rewrites the whole set either way -- quietly
+    // swapped a 24-frame spin's card preview back to the 1600px originals,
+    // and it never came back on its own because the next save did it
+    // again. Roughly 180MB of Android bitmap heap for a picture drawn 350
+    // points wide.
+    //
+    // The index is the one into `set.frames`, not into `hostedKept` -- the
+    // two diverge the moment a set mixes kept frames with new ones, and
+    // that mismatch would attach one frame's thumbnail to another's.
+    // `previewFrames` is trusted only at the same length as `frames`;
+    // SpinPreviewModal's Continue drops it whenever it replaces the frames,
+    // so a shorter or longer array means an older client wrote it and the
+    // pairing cannot be relied on.
+    const hostedKept: string[] = [];
+    const hostedKeptThumbs: string[] = [];
+    const localNew: string[] = [];
+    set.frames.forEach((frame, frameIndex) => {
+      if (!/^https?:\/\//.test(frame)) {
+        localNew.push(frame);
+        return;
+      }
+      hostedKept.push(frame);
+      hostedKeptThumbs.push(thumbnailAt(set.frames, set.previewFrames, frameIndex));
+    });
     // `silent` where the caller owns the message: uploadPhotos' own alert
     // tells the reader to open the listing and tap Edit, which is not a
     // thing that can be done to an auction lot.
@@ -250,10 +280,9 @@ export async function writeSpinSets(
     const uploaded = localNew.length > 0 ? await uploadPhotosWithThumbnails(localNew, { silent: opts.silent }) : [];
     const uploadedUrls = uploaded.map((u) => u.url);
     const allUrls = [...hostedKept, ...uploadedUrls];
-    // Index-matched to allUrls. A kept frame has no thumbnail we know of
-    // -- it arrived as a bare url -- so it stands in for its own, which is
-    // exactly what the reader falls back to anyway.
-    const allThumbs = [...hostedKept, ...uploaded.map((u) => u.thumbnailUrl)];
+    // Index-matched to allUrls: the kept frames' own small copies, then
+    // the ones the upload just made.
+    const allThumbs = [...hostedKeptThumbs, ...uploaded.map((u) => u.thumbnailUrl)];
     // Reported only when the shortfall actually costs the seller
     // something. A 24-frame spin that lost one frame still turns
     // perfectly, and telling them "the 360 spin was not saved" about a

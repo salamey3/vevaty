@@ -2,6 +2,9 @@ import React, { useEffect, useRef, useState } from 'react';
 import { Animated, Image, StyleSheet, View } from 'react-native';
 import { SpinSet } from '../types';
 import { sizedPhotoUrl } from '../lib/photoSize';
+// The reader half of the frames/thumbnails pairing, shared with the two
+// places that WRITE it -- see lib/thumbnailPairing.ts for why it is one file.
+import { thumbnailsFor } from '../lib/thumbnailPairing';
 
 // The hover/long-press preview on a listing card -- a quick look at more
 // of the listing without leaving the grid. Mounted by ListingCard only
@@ -144,18 +147,6 @@ function spinFrameMs(frameCount: number): number {
   return Math.min(SPIN_FRAME_MAX_MS, Math.max(SPIN_FRAME_MIN_MS, Math.round(SPIN_ROTATION_MS / frameCount)));
 }
 
-// A spin's frames at the size a card actually draws them -- see
-// SpinSet.previewFrames. Falls back whole rather than per entry: a
-// previewFrames array of the wrong length means something upstream is
-// wrong about the pairing, and the full frames are always right.
-function previewFramesOf(set: SpinSet | undefined): string[] {
-  if (!set) return [];
-  if (Array.isArray(set.previewFrames) && set.previewFrames.length === set.frames.length) {
-    return set.previewFrames;
-  }
-  return set.frames;
-}
-
 function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth: number }) {
   const [setIndex, setSetIndex] = useState(0);
   const [frameIndex, setFrameIndex] = useState(0);
@@ -202,7 +193,8 @@ function SpinPreview({ spinSets, photoWidth }: { spinSets: SpinSet[]; photoWidth
   // The card-sized copies where they exist, the originals where they do
   // not. Guarded on length rather than trusted: the two arrays are read by
   // index, so a mismatched one would draw frame 3 of a spin at position 7.
-  const frames = previewFramesOf(spinSets[setIndex]);
+  const set = spinSets[setIndex];
+  const frames = set ? thumbnailsFor(set.frames, set.previewFrames) : [];
   if (frames.length === 0) return null;
 
   return (

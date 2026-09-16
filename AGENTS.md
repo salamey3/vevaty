@@ -1114,6 +1114,51 @@ local cache only when that read ERRORS — so a stub answering `null` made
 every listing look deleted and no transition could fire. Seeding the
 store was enough when the test was written and is not any more.
 
+# Two arrays read by index are one object
+
+A listing carries the same shape twice -- `photos` with `photoThumbnails`,
+and a 360 set's `frames` with `previewFrames`. Entry i of one is entry i of
+the other, every reader pairs them positionally, and the same bug reached
+both:
+
+- **The gallery.** `updateListing`'s optimistic paint spreads the seller's
+  new photo arrangement and never touched `photoThumbnails`, so after a
+  reorder -- or one photo swapped for another, KEEPING THE COUNT -- the two
+  arrays were the same length and described different pictures. The card
+  drew the old order, or a photo the seller had just deleted, until the app
+  was restarted.
+- **The 360.** `writeSpinSets` rewrites every frame on every save, a price
+  change included, and wrote each kept frame's own 1600px url as its
+  thumbnail -- so one edit sent that card's preview back to full-size
+  frames, and the next edit did it again. Separately,
+  SpinPreviewModal's Continue replaced the frames while keeping the old
+  thumbnails, which is the first failure again.
+
+Both are invisible. The length check every reader does passes, so nothing
+warns; one draws the wrong picture and the other draws the right picture at
+ten times the bytes. No log, no error, and a buyer never sees either
+(their copy is rebuilt from the rows, where both arrays are read together),
+so only the person who made the edit is affected and they have no reason to
+suspect anything.
+
+The rules, in `src/lib/thumbnailPairing.ts` with
+`scripts/test/thumbnail-pairing.test.mjs`:
+
+- **Replace the items and the thumbnails go**, unless the items are
+  byte-for-byte what they were. `undefined` reads as "we do not have
+  these", which every reader already handles; a stale array reads as an
+  answer.
+- **Fall back WHOLE, never per entry.** A mismatched length means the
+  pairing itself is wrong, and then no single entry is trustworthy either.
+- **Index into the FULL list, never a filtered subset of it.**
+  `writeSpinSets` splits a set into frames it keeps and frames it uploads,
+  and those indices diverge the moment a set mixes the two.
+
+The general form, for the next pair somebody adds: **two arrays that must
+be read together are one object, and every place that writes one has to
+write the other or drop it.** Storing them apart is what makes "same
+length" look like "still correct".
+
 # A request that never answers is not an error
 
 Neither browser `fetch` nor React Native's OkHttp times out on its own,

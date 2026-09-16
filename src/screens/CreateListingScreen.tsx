@@ -39,6 +39,7 @@ import {
 import { translateListing } from '../lib/translate';
 import { estimateListingPrice, AiSuggestSource, AiSuggestAttributeSchema } from '../lib/aiSuggest';
 import { mirrorRow } from '../lib/mirrorRow';
+import { carryThumbnails } from '../lib/thumbnailPairing';
 import { LebanonPlace, findPlaceByExactName, findPlaceByFreeText, findPlaceById, nearestPlace } from '../data/lebanonPlaces';
 import PlaceSuggestInput from '../components/PlaceSuggestInput';
 import { useKeyboardAwareScroll } from '../hooks/useKeyboardAwareScroll';
@@ -3384,7 +3385,21 @@ export default function CreateListingScreen({ navigation, route }: Props) {
           setSpinSets((prev) => {
             if (activeSpinIndex != null) {
               const next = [...prev];
-              next[activeSpinIndex] = { ...next[activeSpinIndex], label, frames: draftSpinFrames };
+              const was = next[activeSpinIndex];
+              // previewFrames describes the frames it was read back with,
+              // entry for entry. Replace the frames and it describes the
+              // PREVIOUS spin -- same length after a retake of the same
+              // count, so nothing downstream could tell, and the card
+              // would have drawn the old 360 under the new one's frames.
+              // Dropping it costs only the small copies for this save;
+              // writeSpinSets falls back to the frame's own url, which is
+              // what it did for every kept frame until today.
+              next[activeSpinIndex] = {
+                ...was,
+                label,
+                frames: draftSpinFrames,
+                previewFrames: carryThumbnails(was.frames, was.previewFrames, draftSpinFrames),
+              };
               return next;
             }
             return [...prev, { id: `spin-${Date.now()}-${prev.length}`, label, frames: draftSpinFrames }];

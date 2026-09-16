@@ -127,16 +127,6 @@ Found on the way and deliberately not fixed here:
 **Card previews: three loose ends from the spin thumbnails change** (found
 10 Sep while checking it, put aside for the tester round):
 
-- **Editing a listing throws away its 360's small copies.** Every save from
-  Edit — a price change included — rewrites all of a listing's spin frames,
-  and `writeSpinSets` gives every frame it keeps its own full-size address
-  as its thumbnail, so one edit sends that card's preview back to
-  full-size frames. The edit form already carries the real thumbnails
-  (`previewFrames`); `writeSpinSets` never takes them. Contained fix.
-- **The seller's own card can preview stale photos.** Reorder or swap photos
-  in Edit while keeping the same count, and the seller's own device can
-  preview the old order, or a removed photo, until the app restarts. A
-  retaken 360 does the same while it uploads. Buyers are unaffected.
 - **Auction lots built from scratch in admin upload their 360 with no small
   copies.** Auctions are switched off, so no rush.
 
@@ -303,6 +293,32 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**The card's small copies stopped describing the wrong pictures**, 16 Sep
+2026. Two open items that turned out to be one bug in two places: a listing
+holds `photos` beside `photoThumbnails`, and a 360 set holds `frames`
+beside `previewFrames`, and both pairs are read entry for entry.
+
+The gallery half: `updateListing` painted the seller's new photo
+arrangement and left the thumbnails describing the old one, so a reorder —
+or one photo swapped for another, keeping the count — left two arrays of
+equal length describing different pictures, and the card drew the old
+order, or a photo just deleted, until the app restarted. The 360 half:
+`writeSpinSets` rewrote every frame on every save, a price change included,
+and gave each kept frame its own 1600px url as its thumbnail, so one edit
+sent that card's preview back to full-size frames — about 180MB of Android
+bitmap heap for a picture drawn 350 points wide — and the next edit did it
+again. A 360 retake had the gallery's version of the bug too: the frames
+were replaced and the old thumbnails kept.
+
+Neither is visible. The length check every reader does passes in both
+cases; one draws the wrong picture and the other draws the right one at ten
+times the bytes, with no error anywhere and no effect on buyers. The
+decision now lives in one place with a test (`src/lib/thumbnailPairing.ts`,
+`scripts/test/thumbnail-pairing.test.mjs`, 29 checks) and AGENTS.md gains
+the general rule. The test was checked against the old code first: four
+checks fail without the fix, which is the only thing that makes the other
+twenty-five worth anything.
 
 **Four columns only the server may write**, 16 Sep 2026. `profiles.phone`,
 `profiles.points`, `profiles.tier` and `listings.is_test` were all writable
