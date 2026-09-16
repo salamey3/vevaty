@@ -267,12 +267,15 @@ posting, chatting and seeing numbers.
   with `presentation: 'modal'` is drawn above the whole root layer on iOS.
   Android and the website are unaffected, and the first round has no
   iPhone testers.
-- **`is_test` can be switched off by the listing's own seller.**
-  `authenticated` holds table-level UPDATE on `listings`, and nothing
-  guards the column. No screen writes it, so only a tester deliberately
-  calling the API could — but the end-of-round clean-up trusts it. A guard
-  trigger in the style of `guard_posting_points_awarded` closes it; it was
-  left out of this change because it sits on every listing update.
+- **(Closed 16 Sep) `is_test` could be switched off by the listing's own
+  seller.** `authenticated` holds table-level UPDATE on `listings` and
+  nothing guarded the column, so a tester calling the API directly could
+  take their own listings out of the end-of-round clean-up, which trusts
+  it. `guard_listing_is_test_trg` freezes it against client writes now.
+  UPDATE only: `mark_test_listing` decides the value at INSERT, and a
+  client asking for `true` on its own listing is only volunteering for the
+  clean-up. Nothing legitimate has ever changed it afterwards, so the
+  guard refuses outright rather than quietly reverting.
 - **(Closed 11 Sep) The admin functions never checked the code.** The
   `admin_*` functions checked `myazar.admins` and never the session's
   `aal`, so the password alone opened the Tester centre. They now ask for

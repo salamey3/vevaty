@@ -6,7 +6,7 @@ import Pressy from '../components/Pressy';
 import Icon from '../icons/Icon';
 import Button from '../components/Button';
 import { colors, type, radius } from '../theme/theme';
-import { supabase, normalizePhone, sendPhoneChangeOtp, verifyPhoneChangeOtp, upsertOwnProfile } from '../lib/supabase';
+import { normalizePhone, sendPhoneChangeOtp, verifyPhoneChangeOtp, upsertOwnProfile } from '../lib/supabase';
 import { RootStackParamList } from '../navigation/types';
 import { useLanguage } from '../i18n/LanguageContext';
 
@@ -104,38 +104,38 @@ export default function ChangePhoneScreen({ navigation }: Props) {
     // the old one, because get_seller_contact reads this column and not
     // auth.users.
     //
-    // Checked with `.select()`, not fired blind: an `.update().eq()` that
-    // matches no row returns error: null (@AGENTS.md), so the error check
-    // alone would not have caught it.
+    // THROUGH upsert_own_profile, never a direct write to the column
+    // (16 Sep 2026). This used to PATCH profiles.phone itself and fall
+    // back to the RPC only if that failed. The fallback is now the whole
+    // path, and the database refuses the direct write.
     //
-    // On failure it goes through upsert_own_profile before giving up --
-    // the SECURITY DEFINER RPC AuthScreen's verifyCode uses, which exists
-    // precisely because a client-side write to profiles is the one that
-    // silently never persisted (see its comment in lib/supabase.ts). That
-    // is worth a second attempt here because no screen in this app writes
-    // profiles.phone: if both fail there is nothing the seller can do
-    // about it themselves, which is why the message they get says to
-    // start the change again rather than sending them to a Save button
-    // that does not touch this column.
+    // The reason is that the two were indistinguishable. `profiles`
+    // carries a TABLE-level UPDATE grant -- so a column-level revoke buys
+    // nothing (@AGENTS.md, "Grant every new column") -- and while this
+    // screen wrote the column directly, so could a browser console, with
+    // the same credentials and no OTP. The number a buyer is shown could
+    // be set to any number at all, which is the one that could point a
+    // buyer at a stranger. A guard cannot tell a screen from a console;
+    // it can only tell a client from the server. So the client stopped
+    // writing it.
+    //
+    // Safe for a member mid-change: the invite rule inside that function
+    // applies only to the call that MAKES an account a member, and this
+    // account already is one (see @TESTERS.md, "Where the wall actually
+    // is"). A half-registered account that reaches this screen is a
+    // different matter and is correctly asked for an invite -- the direct
+    // write used to move its number without ever making it a member.
+    //
+    // There is no second attempt left to make. If this fails there is
+    // nothing the seller can do from any other screen, which is why the
+    // message says to start the change again rather than pointing at a
+    // Save button that does not touch this column.
     let phoneSaved = false;
     try {
-      const { data: phoneRows, error: phoneError } = await supabase
-        .from('profiles').update({ phone: sentPhone }).eq('id', uid).select('id');
-      if (phoneError || !phoneRows || phoneRows.length === 0) {
-        console.warn('[ChangePhone] profiles.phone not updated:', phoneError?.message || 'no row matched');
-      } else {
-        phoneSaved = true;
-      }
+      await upsertOwnProfile({ phone: sentPhone, isPhoneVerified: true });
+      phoneSaved = true;
     } catch (e: any) {
-      console.warn('[ChangePhone] profiles.phone update threw:', e?.message || e);
-    }
-    if (!phoneSaved) {
-      try {
-        await upsertOwnProfile({ phone: sentPhone, isPhoneVerified: true });
-        phoneSaved = true;
-      } catch (e: any) {
-        console.warn('[ChangePhone] upsert_own_profile also failed:', e?.message || e);
-      }
+      console.warn('[ChangePhone] upsert_own_profile failed:', e?.message || e);
     }
     if (!phoneSaved) setProfileWarning(t('changePhone.profileNotUpdated'));
   };

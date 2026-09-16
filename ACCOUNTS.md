@@ -199,6 +199,49 @@ write on the next launch (`AppStore.repairMembership`, which the server
 refuses unless the sign-up itself would have been allowed), and an admin
 can let the person in by tagging their number in the Tester centre.
 
+## The number buyers see, and the balance, are the server's
+
+Closed 16 Sep 2026. Three columns on `profiles` were writable by the
+account itself, and none of them is the account's to state.
+
+`profiles.phone` is the one that matters most. It is a copy of
+`auth.users.phone` — the login identity, which only an OTP moves — and it
+is what `get_seller_contact` reads when a buyer taps Show number. So an
+account could set the number buyers are shown to anything at all, skipping
+the verification the Change phone number screen exists to enforce, and
+point every buyer at a stranger.
+
+The reason it was open is the one @AGENTS.md keeps repeating: `profiles`
+carries a TABLE-level UPDATE grant, so the column-level revoke that keeps
+`phone` unreadable does nothing to stop it being written. And a guard
+cannot tell a screen from a console — they are the same credentials making
+the same call. It can only tell a client from the server. So the client
+stopped writing it: ChangePhoneScreen goes through `upsert_own_profile`
+now, like `verifyCode` always did, and the column raises for any client
+write.
+
+That function is safe for a phone change mid-round, which is worth stating
+because it looks like it should not be: its invite rule applies only to
+the call that MAKES an account a member, and a member changing their
+number already is one. A half-registered account reaching that screen IS
+asked for an invite — correctly, since the old direct write used to move
+such an account's number without ever making it a member.
+
+**`points` and `tier` were worse than a console trick, because the app
+itself sent them.** The first launch of a new account inserted its profile
+row with `points` and `tier` taken from the device's own cached copy —
+which on the website is browser storage, and belongs to the person sitting
+there. A new account could be created holding any balance and any tier it
+liked, through the ordinary launch path. Points are a running total the
+server keeps in `points_transactions`, and `tier` is whatever
+`myazar.effective_tier` makes of them — which is the whole mechanism that
+lets an admin's `tier_override` stick instead of being recomputed away. So
+the app stopped sending either, and the database ignores them if an older
+build still does. It ignores rather than refuses on purpose: refusing
+would turn every un-updated build's profile insert into a missing profile
+row, which is the quiet start of "my name won't save". On UPDATE it
+raises, because no build has ever changed a balance from the client.
+
 ## The guest accounts, and the six of them per launch
 
 The admin Users list showed about a hundred members against two real

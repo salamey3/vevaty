@@ -1013,6 +1013,76 @@ The shape to watch for generally: **a service-role write is outside every
 trigger and every policy you have already written.** Whatever they were
 protecting, this code has to protect again, by hand.
 
+# A guard is not tested until a row actually changed
+
+Four columns were frozen against client writes on 16 Sep 2026
+(`profiles.phone`, `profiles.points`, `profiles.tier`, `listings.is_test`
+-- see "Columns only the server may write" below). The first run of the
+test said all four guards were doing nothing. They were fine. The TEST was
+wrong, twice, and both mistakes are ones this codebase already has rules
+about:
+
+- **An UPDATE that matches no row is not an error** -- the same fact
+  @MEDIA.md's audit is built on, applied to the test instead of the app.
+  The probe ran four forbidden updates, caught no exception, and concluded
+  "allowed". Every one of them had matched zero rows. A security test must
+  read `row_count`, and it needs a CONTROL -- an update that is supposed
+  to succeed -- or a probe that reaches nothing looks exactly like a
+  permissive system.
+- **A client probe needs a realistic JWT, `aal` included.** The reason
+  nothing matched: the RESTRICTIVE "admin identity requires mfa" policy on
+  `profiles` and `listings` tests `auth.jwt() ->> 'aal'` against the
+  account's verified factors. A hand-written claims blob without `aal`
+  yields NULL, the policy fails, and every row in both tables disappears
+  for that session. `set local request.jwt.claims` must carry `sub`,
+  `role`, `aal` and `is_anonymous`.
+
+Note which way that failure points. A missing guard tested this way looks
+PRESENT -- the write "fails", so the guard appears to work. Getting this
+wrong does not produce a false alarm, it produces a false all-clear.
+
+The shape of a test that means something: switch to the real role, set
+realistic claims, run a control that must change exactly one row, then run
+the forbidden writes and require an exception rather than a zero count.
+Wrap the lot in a transaction and ROLL BACK -- these tests are worth
+running against the live database, because a guard that only works on a
+copy of the schema is not the thing anyone needs to know about.
+
+# Columns only the server may write
+
+`authenticated` holds TABLE-level UPDATE on `myazar.profiles` and
+`myazar.listings`, so a column-level REVOKE buys nothing (see "Grant every
+new column" above -- same fact, opposite direction). A trigger is the only
+thing that can separate a client writing the table from the server writing
+it on the client's behalf, and the test it uses is the role:
+
+```sql
+if current_user not in ('anon', 'authenticated') then return new; end if;
+```
+
+Every function that legitimately writes these columns is SECURITY DEFINER
+and owned by `postgres`, so inside one `current_user` is `postgres`. An
+edge function's service-role connection passes for the same reason. That
+is also where any future admin change has to go, so it lands in
+`admin_actions`.
+
+Frozen so far: `is_phone_verified`, `tester_roles`, suspension,
+`phone`, `points` and `tier` on profiles
+(`guard_profile_membership_columns`); `posting_points_awarded`,
+`sale_points_awarded` and `is_test` on listings.
+
+**Raise on UPDATE, ignore on INSERT -- and the difference is about old
+clients, not about severity.** Every build before 16 Sep sends `points`
+and `tier` on the launch profile insert, out of the device's own cache; on
+the website that cache is browser storage, so the balance was never worth
+anything. Raising would refuse the profile row for every build that has
+not taken the update, and a missing profile row is the quiet start of "my
+name won't save". So the INSERT branch overwrites them with the column
+defaults -- which is what a new account is worth anyway -- and the UPDATE
+branch raises, because nothing in any build has ever changed a balance
+from the client. The columns no build has EVER sent (`phone`,
+`tester_roles`, suspension) raise on both.
+
 # A test that never builds is a test that never fails
 
 Both `scripts/test/batch-draft-transition.test.mjs` and

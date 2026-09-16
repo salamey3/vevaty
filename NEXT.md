@@ -74,25 +74,18 @@ Found on the way and deliberately not fixed here:
   them is a tidy-up, not a fix — but mind @MEDIA.md: their subquery is also
   why `anon` cannot read `listings` at all, so dropping them changes what a
   signed-out visitor can read.
-- **A seller can switch `is_test` off their own listing** (added this
-  morning with the invites; table-level UPDATE on `listings`, nothing
-  guarding the column), which is what the end-of-round clean-up trusts. No
-  screen writes it. A guard trigger in the style of
-  `guard_posting_points_awarded` closes it.
 - **Check that phone sign-ups need the text message.** Membership now rests
   on `auth.users.phone_confirmed_at`, which Supabase sets without an OTP if
   phone confirmation is switched off in the Auth settings. One look in the
   dashboard.
-- **`profiles.phone` is still directly writable by its owner** — the
-  number buyers are shown. Change phone number is the OTP-verified way to
-  move it; a console can skip that. Same shape as `profiles.points` below.
-- **Collection link previews have not been built since the move to the new
-  database.** `build-og.mjs` still points at the old Supabase project
-  (`ueqfkxvvfrhppdsnsfpx`), so every ship prints "could not fetch
-  collections for OG snippets" and skips them. Pointing it at the project
-  in `src/lib/supabase.ts` is one line, but it switches back on a step
-  that has not run since 27 Aug and whose failure stops the ship — do it on
-  its own, with a ship somebody is watching.
+- **Collection link previews still are not built, but not for the reason
+  written here before.** `build-og.mjs` was pointed at the old Supabase
+  project; it points at the live one now, so the remaining question is
+  only whether the step works when it can actually reach the database. It
+  still prints "could not fetch collections for OG snippets" from any
+  machine whose network does not allow the Supabase host, which is what a
+  sandbox looks like and not what a ship looks like. Worth one ship with
+  somebody watching, since a failure there stops the ship.
 - **Leaving the admin panel is rougher than it looks.** All older than
   the admin sign-in move of 10 Sep, but the Admin row on Profile now makes
   the panel something a phone signs in to:
@@ -310,6 +303,40 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Four columns only the server may write**, 16 Sep 2026. `profiles.phone`,
+`profiles.points`, `profiles.tier` and `listings.is_test` were all writable
+by the account itself: `authenticated` holds TABLE-level UPDATE on both
+tables, so the column-level revokes that keep `phone` unreadable never
+stopped it being written. The phone one had teeth — that column is what a
+buyer gets when they tap Show number, so an account could point every
+buyer at a stranger's number without ever meeting an OTP.
+
+`points` and `tier` were worse than a console trick, because the app sent
+them itself: the first launch of a new account inserted its profile row
+with both taken from the device's cached copy, which on the website is
+browser storage. A new account could be created holding any balance and
+any tier it liked, through the ordinary launch path.
+
+One migration extends `guard_profile_membership_columns` to cover all
+three and adds `guard_listing_is_test_trg`. An app patch went first, so
+nothing legitimate is ever refused by a guard the app has not caught up
+with: ChangePhoneScreen calls `upsert_own_profile` instead of writing the
+column (safe mid-round — the invite rule applies only to the call that
+MAKES a member), and the launch insert stops sending points and tier.
+Older builds that still send them are ignored rather than refused, because
+refusing would turn their profile insert into a missing profile row.
+@ACCOUNTS.md, "The number buyers see, and the balance, are the server's".
+
+**The first test of those guards said all four were doing nothing, and it
+was wrong.** Every forbidden UPDATE had matched zero rows — the restrictive
+"admin identity requires mfa" policy tests `auth.jwt() ->> 'aal'`, and a
+hand-written claims blob without it makes both tables vanish for that
+session. An update that matches no row raises nothing, so "no exception"
+read as "allowed". Note which way that points: a MISSING guard tested this
+way looks present. AGENTS.md gains the rule — a security probe needs a
+control that must change exactly one row, and must read `row_count` rather
+than trust the absence of an error.
 
 **`moderate-listing` judges the stored listing, not the request body**,
 16 Sep 2026. It took the photos, title and description out of the request
@@ -1295,10 +1322,6 @@ Four things this work turned up and deliberately did not fix:
   and adopting hosted URLs narrowed the window a lot, but the real fix is
   a per-listing queue.
 
-- **`profiles.points` and `profiles.tier` are still UPDATE-granted to
-  `authenticated`.** `claim_posting_points` closed the honest path; the
-  balance is still directly writable by anyone with a console. The same
-  treatment — a definer RPC and a revoke — would close it.
 
 ## Waiting on something external
 

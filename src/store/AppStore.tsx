@@ -1093,12 +1093,24 @@ function dbAnnouncementToLocal(row: any): AuctionAnnouncement {
         // and every later `.update().eq('id', uid)` matches zero rows and
         // returns error: null if it does not. A refused insert here is the
         // quiet start of "my name won't save".
+        //
+        // NO points AND NO tier (16 Sep 2026). This used to send both,
+        // out of the device's own cached copy -- which on the website is
+        // browser storage, and belongs to the person sitting there. So a
+        // new account could be created holding any balance and any tier
+        // it liked, through the app's ordinary launch path, without a
+        // console and without touching the ledger. Neither is the
+        // device's to state: points are a running total the server keeps
+        // in points_transactions, and tier is whatever myazar.effective_tier
+        // makes of them, which is what lets an admin's tier override
+        // stick (see @ACCOUNTS.md). Both columns default correctly (0 and
+        // 'bronze'), so leaving them out IS the right starting state
+        // rather than an omission the server has to repair. The database
+        // ignores them if an older build still sends them.
         const { error: profileInsertError } = await supabase.from('profiles').insert({
           id: uid,
           full_name: cached.name !== 'You' ? cached.name : null,
           district: cached.district || null,
-          points: cached.points || 0,
-          tier: cached.tier.toLowerCase(),
         });
         if (profileInsertError) {
           // Not thrown -- a failed profile row must not stop the app
