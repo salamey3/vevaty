@@ -50,7 +50,10 @@ const CONFIG = 'deploy.config.json';
 // nothing happened. Every file also lands via a rename rather than being
 // written over in place, so no request can ever be answered with half of
 // one (see uploadAtomically).
-const ASSETS = ['.htaccess'];
+// .htaccess is NOT here any more. Which of the two the build produced goes
+// up is decided after asking the live server whether PHP executes, so it
+// is uploaded in its own step below rather than with everything else.
+const ASSETS = [];
 const PAGES = [
   'index.html',
   'about.html', 'privacy-policy.html', 'terms.html',
@@ -143,8 +146,25 @@ function sh(cfg, port, command) {
 // the whole old file or the whole new one, never part of either. The
 // moves are listed explicitly rather than globbed, so a stray file in the
 // temp directory can never be swept into the document root.
-function uploadAtomically(cfg, port, files, label, required = []) {
-  const missingRequired = required.filter((f) => !existsSync(`dist/${f}`));
+// An entry is normally just a path, uploaded under its own name. It can
+// also be { from, to } to land under a DIFFERENT name -- which exists for
+// exactly one case: the two .htaccess variants the build produces, only
+// one of which becomes the server's .htaccess.
+//
+// The obvious shortcut was to copy the chosen variant over dist/.htaccess
+// before uploading. That is a trap, and a nasty one: a transient 502 on
+// the PHP check would overwrite the real .htaccess with the no-PHP one,
+// and the re-run that ship.mjs tells the operator to do would then find
+// PHP working, pick "dist/.htaccess", and upload the no-PHP content under
+// the name of the good file -- with the log cheerfully reporting that PHP
+// was running. Every listing URL silently dead, nothing detecting it.
+const localOf = (e) => (typeof e === 'string' ? e : e.from);
+const remoteOf = (e) => (typeof e === 'string' ? e : e.to);
+
+function uploadAtomically(cfg, port, entries, label, required = []) {
+  const files = entries.map(remoteOf);
+  const sourceFor = new Map(entries.map((e) => [remoteOf(e), localOf(e)]));
+  const missingRequired = required.filter((f) => !existsSync(`dist/${sourceFor.get(f) ?? f}`));
   if (missingRequired.length) {
     // The old code warned and carried on here, and reported success. The
     // file that made that dangerous is .htaccess: without it the server
@@ -157,14 +177,14 @@ function uploadAtomically(cfg, port, files, label, required = []) {
         '  Run `npm run build:web` again. Nothing has been uploaded.'
     );
   }
-  const present = files.filter((f) => existsSync(`dist/${f}`));
-  const missing = files.filter((f) => !existsSync(`dist/${f}`));
+  const present = files.filter((f) => existsSync(`dist/${sourceFor.get(f) ?? f}`));
+  const missing = files.filter((f) => !existsSync(`dist/${sourceFor.get(f) ?? f}`));
   if (missing.length) console.log(`  (not built, skipping: ${missing.join(', ')})`);
   if (!present.length) return [];
 
   const remoteDir = cfg.remoteDir.replace(/\/$/, '');
   const tmpDir = `${remoteDir}/.deploy-tmp`;
-  const sources = present.map((f) => `dist/${f}`);
+  const sources = present.map((f) => `dist/${sourceFor.get(f) ?? f}`);
   console.log(`  ${label}: ${present.join(', ')}`);
 
   // Entries may carry a directory component (fonts/inter-400.woff2), so the
@@ -186,19 +206,29 @@ function uploadAtomically(cfg, port, files, label, required = []) {
   // Grouped by destination directory so the common case (everything at the
   // root) is still a single scp, and only a subdirectory costs an extra one.
   const byDir = new Map();
+  const renamed = [];
   for (const f of present) {
+    const src = sourceFor.get(f) ?? f;
+    // A file going up under a different name is scp'd to that exact path
+    // rather than into a directory, so it arrives already named correctly.
+    if (src !== f) { renamed.push([src, f]); continue; }
     const d = dirname(f) === '.' ? '' : dirname(f);
     if (!byDir.has(d)) byDir.set(d, []);
     byDir.get(d).push(`dist/${f}`);
   }
-  for (const [d, files] of byDir) {
-    const target = `${cfg.user}@${cfg.host}:${tmpDir}${d ? `/${d}` : ''}/`;
+  const scp = (args) => {
     try {
-      execFileSync('scp', ['-P', port, ...files, target], { stdio: 'inherit' });
+      execFileSync('scp', ['-P', port, ...args], { stdio: 'inherit' });
     } catch {
       console.log('  retrying with the legacy scp protocol...');
-      execFileSync('scp', ['-O', '-P', port, ...files, target], { stdio: 'inherit' });
+      execFileSync('scp', ['-O', '-P', port, ...args], { stdio: 'inherit' });
     }
+  };
+  for (const [d, files] of byDir) {
+    scp([...files, `${cfg.user}@${cfg.host}:${tmpDir}${d ? `/${d}` : ''}/`]);
+  }
+  for (const [src, dest] of renamed) {
+    scp([`dist/${src}`, `${cfg.user}@${cfg.host}:${tmpDir}/${dest}`]);
   }
 
   // chmod BEFORE the move, so a file is never briefly live with the wrong
@@ -254,6 +284,36 @@ async function isAlreadyServed(origin, name, expectedSha256) {
     const r = await fetchAndHash(origin, name);
     return r.ok && r.hash === expectedSha256;
   } catch {
+    return false;
+  }
+}
+
+// Asks listing.php to identify itself.
+//
+// The token it prints cannot appear in the response if PHP is off: a host
+// serving the file as text would send back the source, which starts with
+// "<?php" and contains the echo statement rather than its output. So the
+// check is both "did it answer" and "is the answer computed" -- the
+// second one is the one that matters, and it is why this looks for a
+// string with the PHP major version interpolated into it rather than
+// anything that appears literally in the file.
+async function phpExecutes(origin) {
+  try {
+    const r = await fetchAndHash(origin, 'listing.php?selftest=1');
+    if (!r.ok) {
+      console.log(`  PHP check: the server answered ${r.status} for listing.php`);
+      return false;
+    }
+    const body = r.body.toString('utf8');
+    if (/^<\?php/.test(body.trim())) {
+      console.log('  PHP check: the server returned the FILE, not its output -- PHP is not running.');
+      return false;
+    }
+    const ok = /^vevaty-php-ok \d+$/m.test(body.trim());
+    console.log(ok ? `  PHP check: running (${body.trim()})` : `  PHP check: unexpected answer: ${body.slice(0, 80)}`);
+    return ok;
+  } catch (e) {
+    console.log(`  PHP check: could not ask (${e?.message || e})`);
     return false;
   }
 }
@@ -336,6 +396,7 @@ export async function deployWeb() {
     manifest.shareImage,
     ...(manifest.fonts || []),
     ...(manifest.chunks || []),
+    ...(manifest.server || []),
   ].filter(Boolean);
   if (alreadyThere) console.log(`  ${manifest.bundle} is already on the server and matches -- not re-uploading`);
   uploadAtomically(cfg, port, assets, 'uploading assets', ASSETS);
@@ -354,6 +415,43 @@ export async function deployWeb() {
   for (const chunk of manifest.chunks || []) {
     const localChunk = readFileSync(`dist/${chunk}`);
     await verifyUploaded(origin, chunk, createHash('sha256').update(localChunk).digest('hex'), `chunk ${chunk.split('/').pop()}`);
+  }
+
+  // Does this host actually EXECUTE PHP?
+  //
+  // Everything server-rendered rests on the answer, and getting it wrong
+  // is not a degraded page, it is listing.php's source code served as
+  // text to every visitor who opens a listing. So the file goes up first,
+  // is asked directly (?selftest=1 needs no rewrite rule), and only an
+  // answer that could not have come from a plain text file counts. The
+  // .htaccess that routes listing URLs into it is uploaded afterwards,
+  // and only then.
+  const phpWorks = await phpExecutes(origin);
+  const htaccessSource = phpWorks ? 'dist/.htaccess' : 'dist/.htaccess-nophp';
+  if (!existsSync(htaccessSource)) {
+    throw new Error(`${htaccessSource} is missing. Run \`npm run build:web\` again. Nothing further has been uploaded.`);
+  }
+  if (!phpWorks) {
+    console.log('  WARNING: this host did not run listing.php, so PHP is off or misconfigured.');
+    console.log('  Uploading the .htaccess WITHOUT the server-rendered listing pages. The site');
+    console.log('  works exactly as it did before; search engines just get the empty shell.');
+  }
+  uploadAtomically(
+    cfg,
+    port,
+    [{ from: htaccessSource.replace(/^dist\//, ''), to: '.htaccess' }],
+    `uploading .htaccess (${phpWorks ? 'with' : 'WITHOUT'} server-rendered pages)`,
+    ['.htaccess']
+  );
+
+  // robots.txt gets the same treatment as the bundle, for a different
+  // reason: it is the only file here whose wrong state cannot be undone.
+  // A robots.txt that failed to land is the difference between "shut" and
+  // "open to Google", and by the time anyone notices, the crawl of a
+  // thirteen-listing site has already happened.
+  if ((manifest.server || []).includes('robots.txt')) {
+    const localRobots = readFileSync('dist/robots.txt');
+    await verifyUploaded(origin, 'robots.txt', createHash('sha256').update(localRobots).digest('hex'), 'robots.txt');
   }
 
   // The share card is not worth failing a deploy over -- a blank link

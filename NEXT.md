@@ -415,6 +415,30 @@ after shipping this.**
   `ajrrmropskvutjizulkb`. Collection share previews are built from the
   wrong database.
 
+**Vevaty can be found, once the door is opened**, 16 Sep 2026 — see
+@SEO.md. The site had no robots.txt, no sitemap, no structured data
+anywhere, and listing URLs that existed only inside a JavaScript bundle.
+Google was not failing to render the listings; it had never been told they
+exist. Now: a sitemap generated live from the database, per-listing pages
+that carry the title, price, photo and schema.org Product data before any
+JavaScript runs, and a robots.txt that keeps all of it shut until there is
+something worth indexing.
+
+**The door is the whole point.** Thirteen listings, most of them tests, is
+not what Vevaty wants Google's first impression to be. One line in
+`public/robots.txt` opens it when the tester round is done.
+
+Both pages are PHP on the existing cPanel host — not a rewrite, two files.
+The deploy proves PHP actually executes before it will upload an .htaccess
+that routes real URLs into them, because the failure mode otherwise is
+every listing page serving PHP source as text.
+
+Also fixed here, outstanding since 12 Sep: `build-og.mjs` was pointed at
+`ueqfkxvvfrhppdsnsfpx`, a different and older Supabase project, while the
+app has always run on `ajrrmropskvutjizulkb`. Every collection link
+preview WhatsApp and Facebook have ever shown was built from the wrong
+database.
+
 **The public site depended on a session it does not need**, 15 Sep 2026.
 Anonymous sign-ins were switched off at the Supabase project some time
 around 13 Sep, and `ensureSession()` throws when `signInAnonymously` is

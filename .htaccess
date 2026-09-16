@@ -19,6 +19,23 @@
   RewriteCond %{REQUEST_FILENAME} -d
   RewriteRule ^ - [L]
 
+  # ---- server-rendered pages (see public/listing.php) -----------------
+  #
+  # These two lines are the only thing on the site that depends on PHP
+  # running, and deploy-web.mjs will not upload this file with them in it
+  # until it has fetched listing.php?selftest=1 back and seen PHP answer.
+  # If PHP were off, Apache would serve the source of listing.php as text
+  # and every listing page would be a wall of code -- which is exactly the
+  # shape of failure this project keeps having and keeps closing.
+  #
+  # A crawler asking for /listing/<uuid> gets the title, price, photo and
+  # schema.org data in the HTML. A person gets the same app shell they
+  # always got. /listing/<uuid>/payment deliberately does NOT match --
+  # the pattern ends at the id -- so that in-app route still falls through
+  # to the SPA below.
+  RewriteRule ^sitemap\.xml$ sitemap.php [L]
+  RewriteRule ^listing/([0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12})/?$ listing.php?id=$1 [L]
+
   # A MISSING ASSET MUST 404, not quietly turn into index.html.
   #
   # Everything below this point is a request for a file that is not on the

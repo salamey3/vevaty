@@ -33,8 +33,14 @@ import { createClient } from '@supabase/supabase-js';
 // Same public, RLS-protected constants src/lib/supabase.ts uses -- safe to
 // embed, not secrets. Duplicated here (rather than imported) because this
 // script runs under plain Node, outside Metro/Expo's bundler.
-const SUPABASE_URL = 'https://ueqfkxvvfrhppdsnsfpx.supabase.co';
-const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_J3b1Uyp4ZvV5ItcAYBhPRg_EX3On8Ez';
+// These were pointed at ueqfkxvvfrhppdsnsfpx -- a DIFFERENT, older Supabase
+// project -- while the app has run on ajrrmropskvutjizulkb throughout. The
+// comment below said they were the same constants src/lib/supabase.ts uses;
+// they were not, and had not been for as long as anyone had looked. Every
+// collection link preview WhatsApp and Facebook have shown was therefore
+// built from the wrong database. Found 12 Sep, fixed 16 Sep.
+const SUPABASE_URL = 'https://ajrrmropskvutjizulkb.supabase.co';
+const SUPABASE_PUBLISHABLE_KEY = 'sb_publishable_DK_WRVSv9ymAGCgL9o8k9g_9Lg2wB1l';
 const SITE_ORIGIN = 'https://vevaty.com';
 const DIST = 'dist';
 

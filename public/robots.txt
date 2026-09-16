@@ -1,0 +1,27 @@
+# Vevaty is not open to search engines yet, and that is deliberate.
+#
+# There are a handful of listings on the site, most of them tests. The
+# first time Google crawls a marketplace it forms an impression of how
+# much is there and how good it is, and that impression is slow and
+# expensive to change. Being indexed as an empty, half-test site is worse
+# than not being indexed at all.
+#
+# Everything else -- the sitemap, the per-listing pages, the structured
+# data -- is already built and working. This file is the door, and it is
+# the only thing standing between Vevaty and being crawled.
+#
+# TO OPEN: delete the "Disallow: /" line below, leave everything else, and
+# ship. Do it when the tester round is over and the site has real listings
+# from real sellers. Nothing else needs to change.
+
+User-agent: *
+Disallow: /
+
+# Never worth crawling, whatever the door is doing: the control room, and
+# the share snippets, which are redirect pages that exist only so
+# WhatsApp and Facebook can read a link preview. Google should see the
+# real page instead.
+Disallow: /control-room
+Disallow: /share/
+
+Sitemap: https://vevaty.com/sitemap.xml

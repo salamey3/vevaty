@@ -262,9 +262,17 @@ const bootScript =
       'if(ob)ob.disconnect();' +
       'b.style.transition="opacity .25s ease";b.style.opacity="0";' +
       'setTimeout(function(){if(b.parentNode)b.parentNode.removeChild(b);},260);}' +
-    'var ob=new MutationObserver(function(){if(r.firstElementChild)clear();});' +
+    // "React has mounted" is NOT "#root has a child" -- listing.php puts the
+    // crawler-readable copy of a listing inside #root before this script
+    // runs, and the naive check dismissed the loader ~0.3s into a 20s
+    // download, leaving the visitor staring at unstyled clipped markup for
+    // the rest of it. Whatever is already there when this runs is the seed;
+    // only something DIFFERENT means React has taken the element over.
+    'var seed=r.firstElementChild;' +
+    'function mounted(){var c=r.firstElementChild;return !!c&&c!==seed;}' +
+    'var ob=new MutationObserver(function(){if(mounted())clear();});' +
     'ob.observe(r,{childList:true});' +
-    'if(r.firstElementChild)clear();' +
+    'if(mounted())clear();' +
     'setTimeout(clear,40000);' +
   '})();<\/script>';
 
@@ -447,6 +455,21 @@ if (shareDataUri) {
   console.log(`Copied ${shareImagePath} -> ${DIST}/${SHARE_IMAGE_NAME} (og:image now points at the file)`);
 }
 
+// Copied verbatim out of public/ by Expo. Asserted rather than filtered:
+// these four are load-bearing now (robots.txt is the only thing keeping
+// Vevaty out of Google's index), and a build that quietly shipped none of
+// them would look completely normal.
+const SERVER_FILES = ['robots.txt', '_vevaty.php', 'listing.php', 'sitemap.php'];
+const missingServerFiles = SERVER_FILES.filter((f) => !fs.existsSync(path.join(DIST, f)));
+if (missingServerFiles.length) {
+  throw new Error(
+    `dist/ is missing ${missingServerFiles.join(', ')} -- these live in public/ and Expo copies that\n` +
+      'directory verbatim on export. robots.txt in particular is the only thing keeping this site\n' +
+      'out of search results before it is ready.'
+  );
+}
+const serverFiles = SERVER_FILES;
+
 // What deploy-web.mjs uploads instead of guessing. The bundle's name
 // changes every build, and the one thing that must never happen is an
 // index.html on the server naming a file that is not there -- so the name
@@ -460,6 +483,10 @@ const manifest = {
   shareImage: shareDataUri ? SHARE_IMAGE_NAME : null,
   fonts: fontFiles.map((f) => `fonts/${f}`),
   chunks: lazyChunks.map((f) => `_expo/static/js/web/${f}`),
+  // Copied verbatim out of public/ by Expo. Listed so deploy-web.mjs
+  // uploads them; listing.php and sitemap.php are also what the PHP check
+  // is about, so their presence here is what makes that check possible.
+  server: serverFiles,
   shellBytes: fs.statSync(htmlPath).size,
   builtAt: new Date().toISOString(),
 };
@@ -470,8 +497,41 @@ console.log(`Wrote ${DIST}/asset-manifest.json`);
 // dist/'s contents always includes it -- without it Apache 404s on any
 // client-side route (/profile, /control-room/categories) on refresh.
 if (fs.existsSync('.htaccess')) {
+  const htaccess = fs.readFileSync('.htaccess', 'utf8');
   fs.copyFileSync('.htaccess', path.join(DIST, '.htaccess'));
   console.log(`Copied .htaccess -> ${path.join(DIST, '.htaccess')}`);
+
+  // A second copy with the two PHP rules stripped out.
+  //
+  // deploy-web.mjs asks the live server whether PHP actually executes
+  // before it decides which of these to upload. If it does not, the
+  // rules that route listing URLs into listing.php would serve the file's
+  // SOURCE to every visitor, so the deploy uses this one instead and says
+  // loudly what it did. The site loses server-rendered listing pages and
+  // keeps working in every other respect, which is the right way round.
+  // Matched on what the rule SUBSTITUTES TO, not on how it is spelled. An
+  // earlier version keyed on `RewriteRule ^(sitemap|listing)` with one
+  // literal space, so aligning the rules with a second space would have
+  // left one of them in the no-PHP file -- and the no-PHP file exists
+  // precisely to be uploaded to a host that would then serve that file's
+  // PHP source as text to every visitor. The count is asserted rather than
+  // "did anything change", because one rule surviving is the whole
+  // catastrophe and would otherwise pass.
+  const PHP_RULES = 2;
+  const isPhpRule = (line) => /^\s*RewriteRule\s.*\s(listing|sitemap)\.php/.test(line);
+  const lines = htaccess.split('\n');
+  const stripped = lines.filter((line) => !isPhpRule(line));
+  const removed = lines.length - stripped.length;
+  if (removed !== PHP_RULES) {
+    throw new Error(
+      `.htaccess: expected to strip ${PHP_RULES} PHP rewrite rule(s) for the no-PHP fallback, stripped ${removed}.\n` +
+        'Every rule that routes a URL into a .php file must be recognised here, or the fallback\n' +
+        'uploaded to a host without PHP would serve that file\'s source to every visitor.'
+    );
+  }
+  const withoutPhp = stripped.join('\n');
+  fs.writeFileSync(path.join(DIST, '.htaccess-nophp'), withoutPhp, 'utf8');
+  console.log(`Wrote ${path.join(DIST, '.htaccess-nophp')} (fallback for a host without PHP)`);
 } else {
   console.log('WARNING: .htaccess not found -- dist/ will be missing the SPA-fallback rewrite rule');
 }

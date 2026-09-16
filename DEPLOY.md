@@ -202,6 +202,14 @@ Two things stop it, and both matter:
    `index.html`, so if one ever does go missing the failure is visible in
    the network tab at a glance rather than being a silent blank page.
 
+Two of the uploaded files are PHP (`listing.php`, `sitemap.php` — see
+@SEO.md). They are the only part of the site that depends on PHP running,
+and the deploy proves it does before uploading the `.htaccess` that routes
+real URLs into them: if PHP is off, Apache serves those files' source as
+text and every listing page becomes a wall of code. On a host without PHP
+the build's `.htaccess-nophp` goes up instead and the site behaves exactly
+as it did before.
+
 The site is more than two files now. `dist/` also carries
 `fonts/*.woff2` and, since the control room was code-split,
 `_expo/static/js/web/*.js` — one chunk per admin screen, referenced by
