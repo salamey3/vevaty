@@ -616,6 +616,33 @@ everything about `myazar.listing_variants` follows from that.
   sold out at noon would stop answering its own filter. The listing's
   total reaching zero is what puts SOLD OUT on the card.
 
+# A count that failed is not a count of zero
+
+An admin panel that summarises "what needs you" is reading several counts
+at once, and the interesting case is not the one that comes back large --
+it is the one that does not come back at all. `count ?? 0` turns a refused
+query, a dropped socket and a locked session into the same cheerful zero,
+and the summary then states that there is no work waiting when nobody
+knows. It is invisible on screen by construction: an empty queue and an
+unknown queue look identical.
+
+So a count records its answer **only on success**, its key stays
+`undefined` otherwise, and any sentence asserting that everything is clear
+waits for every count to have answered -- three zeroes and one unknown is
+not four zeroes. The individual line for an unknown queue simply does not
+appear, which is the safe direction: the page behind it is still one tap
+away, and nothing claims anything about it.
+
+Two things follow. The derivation belongs in `src/lib/` with a test
+(`adminNeeds.ts`, `admin-needs.test.mjs`) rather than inline in the screen,
+because the failure mode cannot be seen by looking at the screen -- same
+reasoning as `cardSpecs.ts`. And a count that is only ASKED FOR under a
+condition must only be WAITED FOR under that same condition, or the summary
+never completes: consignments is not counted while auctions are switched
+off, so it is not part of "everything came back" either, and a stale value
+left in state from before the switch was flipped must not keep rendering a
+line for a section nobody can see.
+
 # RLS filters rows. It never confers a privilege
 
 The whole admin half of the auctions feature was written, reviewed and

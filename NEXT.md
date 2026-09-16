@@ -317,6 +317,44 @@ the domains work, and both are `active = false` until then.
 
 ## Recently done
 
+**The admin dashboard is a queue and four drawers**, 16 Sep 2026. It was
+twelve rows of the same size in no particular order, and nothing on it
+said which of them had work waiting inside. The twelve are now grouped by
+what the thing IS -- the tester round, listings and accounts, what buyers
+see, auctions -- in collapsible drawers built the same way as Profile's
+"My business" (border on the head while shut, because Pressy scales the
+element it is on). Session security stays visible at the bottom; a
+sign-out button behind a tap is the wrong kind of tidy.
+
+Grouping alone would not have fixed the real problem: the things that pile
+up sit in three different drawers, so every morning would still mean
+opening all four to find out whether anything was waiting. So above them
+is a **"Needs you" strip** -- the same answer as the shop's own morning
+list, and the same sentence when it is empty. It shows only the lines that
+have something in them, each jumping straight to the page that holds it,
+and each count is the SAME predicate the page it links to filters on
+(`src/lib/adminNeeds.ts`, `scripts/test/admin-needs.test.mjs`, 23 checks).
+
+Two decisions in it are worth keeping:
+
+- **A count that failed is not a count of zero.** Each of the five
+  head-counts records its answer only on success, so a refused or dropped
+  one leaves its key undefined and its line simply does not appear. And
+  "Nothing needs you" waits for EVERY queue to have answered -- three
+  zeroes and one unknown is not four zeroes, and a panel that says nothing
+  needs you over an unknown is telling a comfortable lie. That is the whole
+  reason the derivation is a module with a test rather than four lines in
+  the component: the failure is invisible on screen.
+- **The Auctions drawer is shown even while auctions are off**, marked
+  `off`, because the switch that turns them back on lives inside it.
+  Hiding the drawer would hide the only way to reach the switch.
+
+Still open, both small: which drawers are open survives navigating away and
+back (a module-level `let`) but not a reload, which is fine and could
+become a stored preference if it grates; and **the tester round is the
+first drawer because that is what the panel is opened for while the round
+runs** -- move it below "Listings and accounts" when the round ends.
+
 **The website stopped re-downloading itself**, 15 Sep 2026. vevaty.com was
 ONE `index.html` with the whole 4 MB bundle inlined, sent `no-store` with
 no etag. Measured on a real Lebanese mobile connection: 24.7 s to

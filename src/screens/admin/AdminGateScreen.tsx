@@ -10,10 +10,31 @@ import { colors, type, radius } from '../../theme/theme';
 import { useSettings } from '../../store/SettingsStore';
 import { useLanguage } from '../../i18n/LanguageContext';
 import { supabase } from '../../lib/supabase';
+import { mirrorRow } from '../../lib/mirrorRow';
+import { needsYou, type NeedCounts, type NeedKey } from '../../lib/adminNeeds';
 import { RootStackParamList } from '../../navigation/types';
 import AdminLockedBackdrop from './AdminLockedBackdrop';
 
 const LOCK_DURATION_OPTIONS = [10, 20, 30, 60, 120, 180];
+
+type DrawerKey = 'testers' | 'listings' | 'site' | 'auctions';
+
+// Which drawers are open survives leaving the panel and coming back, which a
+// plain useState does not: this screen is navigated to fresh every time --
+// unlike Profile, which is a tab and stays mounted -- so without this every
+// visit starts with all four shut and the row you want is always two taps
+// away. Module scope rather than storage: it resets on reload, which is
+// predictable, and a preference this small does not deserve a write.
+// The tester round starts open because while the round runs it is what this
+// panel is opened for; move that default when the round ends.
+const drawerMemory: Record<DrawerKey, boolean> = {
+  testers: true, listings: false, site: false, auctions: false,
+};
+
+// The four queues, in the order they are worth being interrupted by. Each
+// count is the SAME predicate the page it links to filters on, because a
+// number that disagrees with the list it opens is worse than no number.
+
 
 // The admin panel's front door, and since 10 Sep 2026 the ONLY one. The member
 // login screen used to carry a "Sign in as admin instead" link that every
@@ -43,19 +64,31 @@ const LOCK_DURATION_OPTIONS = [10, 20, 30, 60, 120, 180];
 // database, and needs an email and password to sign in here.
 export default function AdminGateScreen() {
   const navigation = useNavigation<NativeStackNavigationProp<RootStackParamList>>();
-  const { t } = useLanguage();
+  const { t, isRTL } = useLanguage();
   const {
     isAdmin, adminChecked, adminSignIn, adminSignOut,
     adminEnrollMfaStart, adminMfaVerify,
     lockDurationMinutes, setLockDuration, sessionLocked,
+    siteSettings,
   } = useSettings();
+  const auctionsOn = siteSettings.auctionsEnabled;
+
+  const toggleDrawer = (k: DrawerKey) => setDrawers((d) => {
+    const next = { ...d, [k]: !d[k] };
+    drawerMemory[k] = next[k];
+    return next;
+  });
 
   const [mode, setMode] = useState<'signIn' | 'mfaEnroll' | 'mfaChallenge'>('signIn');
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [openReportCount, setOpenReportCount] = useState<number | null>(null);
+  // undefined = not counted yet or the count FAILED. Never 0: a failed count
+  // rendered as zero reads as "clear", which is the one thing it must not be
+  // allowed to say. See allClear below.
+  const [counts, setCounts] = useState<NeedCounts>({});
+  const [drawers, setDrawers] = useState<Record<DrawerKey, boolean>>({ ...drawerMemory });
   // MFA enroll/challenge step state -- see submit()/submitMfa() below.
   const [mfaFactorId, setMfaFactorId] = useState<string | null>(null);
   const [mfaQrCode, setMfaQrCode] = useState<string | null>(null);
@@ -138,15 +171,42 @@ export default function AdminGateScreen() {
   };
 
   // Keyed on the lock too: counted while locked, the server refuses it (0)
-  // and the badge would stay hidden after the code.
+  // and the strip would read "nothing needs you" after the code.
+  //
+  // Five head-counts, no rows fetched. Each one records its answer ONLY on
+  // success, so a refused or dropped count leaves its key undefined and its
+  // line simply does not appear -- the page behind it is still one tap away
+  // in its drawer. The alternative, treating a failure as zero, would have
+  // the panel state that there is no work waiting when nobody knows.
   useEffect(() => {
     if (!isAdmin || sessionLocked) return;
-    supabase
-      .from('reports')
-      .select('id', { count: 'exact', head: true })
-      .eq('status', 'open')
-      .then(({ count }) => setOpenReportCount(count ?? 0));
-  }, [isAdmin, sessionLocked]);
+    let alive = true;
+    const got = (k: NeedKey) => ({ count, error }: { count: number | null; error: unknown }) => {
+      if (!alive || error) return;
+      setCounts((c) => ({ ...c, [k]: count ?? 0 }));
+    };
+    // Flags filed against listings and users.
+    supabase.from('reports').select('id', { count: 'exact', head: true })
+      .eq('status', 'open').then(got('reports'));
+    // Storefronts not yet verified -- AdminShopsScreen's own 'pending' filter.
+    supabase.from('shops').select('id', { count: 'exact', head: true })
+      .is('verified_at', null).then(got('shops'));
+    // What testers sent and nobody has opened yet.
+    supabase.from('problem_reports').select('id', { count: 'exact', head: true })
+      .eq('status', 'new').then(got('problems'));
+    // AdminModerationScreen's isFlagged, written as a server-side filter:
+    // anything the AI declined, plus anything parked at pending_review.
+    supabase.from('listings').select('id', { count: 'exact', head: true })
+      .or('moderation_status.eq.flagged,status.eq.pending_review').then(got('moderation'));
+    // Only worth asking for while the section exists for buyers at all.
+    if (auctionsOn) {
+      supabase.from('auction_submissions').select('id', { count: 'exact', head: true })
+        .in('status', ['pending', 'needs_info']).then(got('consignments'));
+    }
+    return () => { alive = false; };
+  }, [isAdmin, sessionLocked, auctionsOn]);
+
+  const { needs, allClear } = needsYou(counts, auctionsOn);
 
   // Opened straight from vevaty.com/control-room -- or from an inner admin
   // page, which shows this form in its place -- this can be the only screen
@@ -188,108 +248,151 @@ export default function AdminGateScreen() {
         <ScrollView contentContainerStyle={styles.scroll}>
           <Text style={styles.dashboardTitle}>{t('admin.dashboardTitle')}</Text>
 
-          {/* The tester round first: while it runs, it is what this panel is
-              opened for most. See TESTERS.md. */}
-          <Pressy onPress={() => navigation.navigate('AdminTesters')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.testerCentre')}</Text>
-              <Text style={styles.rowSub}>{t('admin.testerCentreSub')}</Text>
+          {/* Everything below the strip is grouped by what the thing IS; the
+              things that PILE UP are spread across three of those groups, so
+              on its own the grouping would still mean opening all four every
+              morning to find out whether anything was waiting. Same answer as
+              the shop's own morning list (ShopDayScreen): the queue is not a
+              place, it is a state, so it gets a strip of shortcuts rather than
+              a fifth drawer duplicating four pages. Nothing lives twice. */}
+          {needs.length > 0 && (
+            <View style={styles.needs}>
+              <Text style={styles.needsTitle}>{t('admin.needs.title')}</Text>
+              {needs.map((need) => (
+                <Pressy
+                  key={need.key}
+                  onPress={() => navigation.navigate(need.route)}
+                  style={[styles.needsRow, mirrorRow(isRTL)]}
+                >
+                  <View style={styles.needsCount}>
+                    <Text style={styles.needsCountText}>{need.count}</Text>
+                  </View>
+                  <Text style={styles.needsLabel}>{t(need.label)}</Text>
+                  <View style={styles.spacer} />
+                  <Icon name="chevronRight" size={15} color={colors.inkSoft} />
+                </Pressy>
+              ))}
             </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
+          )}
 
-          <Pressy onPress={() => navigation.navigate('AdminProblemReports')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.problemReports')}</Text>
-              <Text style={styles.rowSub}>{t('admin.problemReportsSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
+          {/* Only once every count has actually come back. A count that failed
+              leaves its key undefined, and "nothing needs you" over an unknown
+              is the panel telling a comfortable lie. */}
+          {allClear && <Text style={styles.allClear}>{t('admin.needs.nothing')}</Text>}
 
-          <Pressy onPress={() => navigation.navigate('AdminCategories')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageCategories')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageCategoriesSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
+          <Drawer
+            title={t('admin.group.testers')}
+            open={drawers.testers}
+            onToggle={() => toggleDrawer('testers')}
+            isRTL={isRTL}
+          >
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.testerCentre')}
+              sub={t('admin.testerCentreSub')}
+              onPress={() => navigation.navigate('AdminTesters')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.problemReports')}
+              sub={t('admin.problemReportsSub')}
+              badge={counts.problems}
+              onPress={() => navigation.navigate('AdminProblemReports')}
+            />
+          </Drawer>
 
-          <Pressy onPress={() => navigation.navigate('AdminCollections')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageCollections')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageCollectionsSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
+          <Drawer
+            title={t('admin.group.listings')}
+            open={drawers.listings}
+            onToggle={() => toggleDrawer('listings')}
+            isRTL={isRTL}
+          >
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageModeration')}
+              sub={t('admin.manageModerationSub')}
+              badge={counts.moderation}
+              onPress={() => navigation.navigate('AdminModeration')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageReports')}
+              sub={t('admin.manageReportsSub')}
+              badge={counts.reports}
+              onPress={() => navigation.navigate('AdminReports')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageUsers')}
+              sub={t('admin.manageUsersSub')}
+              onPress={() => navigation.navigate('AdminUsers')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageStorefronts')}
+              sub={t('admin.manageStorefrontsSub')}
+              badge={counts.shops}
+              onPress={() => navigation.navigate('AdminShops')}
+            />
+          </Drawer>
 
-          <Pressy onPress={() => navigation.navigate('AdminAuctions')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageAuctions')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageAuctionsSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
+          <Drawer
+            title={t('admin.group.site')}
+            open={drawers.site}
+            onToggle={() => toggleDrawer('site')}
+            isRTL={isRTL}
+          >
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageCategories')}
+              sub={t('admin.manageCategoriesSub')}
+              onPress={() => navigation.navigate('AdminCategories')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageCollections')}
+              sub={t('admin.manageCollectionsSub')}
+              onPress={() => navigation.navigate('AdminCollections')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageBanners')}
+              sub={t('admin.manageBannersSub')}
+              onPress={() => navigation.navigate('AdminBanners')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageBranding')}
+              sub={t('admin.manageBrandingSub')}
+              onPress={() => navigation.navigate('AdminBranding')}
+            />
+          </Drawer>
 
-          <Pressy onPress={() => navigation.navigate('AdminAuctionSubmissions')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.consignments')}</Text>
-              <Text style={styles.rowSub}>{t('admin.consignmentsSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
-
-          <Pressy onPress={() => navigation.navigate('AdminBanners')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageBanners')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageBannersSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
-
-          <Pressy onPress={() => navigation.navigate('AdminBranding')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageBranding')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageBrandingSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
-
-          <Pressy onPress={() => navigation.navigate('AdminModeration')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageModeration')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageModerationSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
-
-          <Pressy onPress={() => navigation.navigate('AdminShops')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageStorefronts')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageStorefrontsSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
-
-          <Pressy onPress={() => navigation.navigate('AdminUsers')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageUsers')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageUsersSub')}</Text>
-            </View>
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
-
-          <Pressy onPress={() => navigation.navigate('AdminReports')} style={styles.row}>
-            <View style={{ flex: 1 }}>
-              <Text style={styles.rowTitle}>{t('admin.manageReports')}</Text>
-              <Text style={styles.rowSub}>{t('admin.manageReportsSub')}</Text>
-            </View>
-            {!!openReportCount && (
-              <View style={styles.reportCountBadge}>
-                <Text style={styles.reportCountBadgeText}>{openReportCount}</Text>
-              </View>
-            )}
-            <Icon name="chevronRight" size={16} color={colors.inkSoft} />
-          </Pressy>
+          {/* Shown even while the section is switched off for buyers, and
+              marked as such -- because the switch that turns it back ON lives
+              inside AdminAuctionsScreen. Hiding the drawer would hide the only
+              way to reach it. */}
+          <Drawer
+            title={t('admin.group.auctions')}
+            note={auctionsOn ? undefined : t('admin.group.auctionsOff')}
+            open={drawers.auctions}
+            onToggle={() => toggleDrawer('auctions')}
+            isRTL={isRTL}
+          >
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.manageAuctions')}
+              sub={t('admin.manageAuctionsSub')}
+              onPress={() => navigation.navigate('AdminAuctions')}
+            />
+            <DashRow
+              isRTL={isRTL}
+              title={t('admin.consignments')}
+              sub={t('admin.consignmentsSub')}
+              badge={counts.consignments}
+              onPress={() => navigation.navigate('AdminAuctionSubmissions')}
+            />
+          </Drawer>
 
           <Text style={styles.sectionLabel}>{t('admin.security.title')}</Text>
 
@@ -411,6 +514,71 @@ export default function AdminGateScreen() {
   );
 }
 
+// A collapsible group of dashboard rows. Shut, the head IS an ordinary
+// bordered row and the container adds nothing -- because Pressy scales the
+// element it is on, so a border left on the container would stay put while
+// the pressed head shrank away from it and the bar would visibly hollow out.
+// Open, the container takes the border over and the head gives up its own,
+// at 47 rather than 48: a border sits INSIDE the box in React Native, so a
+// shut head is 48 with 47 of content, and matching that keeps the bar the
+// same height through the tap instead of nudging the page down a pixel.
+// Same construction as Profile's "My business" drawer, for the same reasons.
+function Drawer({ title, note, open, onToggle, isRTL, children }: {
+  title: string; note?: string; open: boolean; onToggle: () => void;
+  isRTL: boolean; children: React.ReactNode;
+}) {
+  return (
+    <View style={styles.drawerWrap}>
+      <View style={open ? styles.drawerBox : null}>
+        <Pressy
+          onPress={onToggle}
+          accessibilityRole="button"
+          accessibilityState={{ expanded: open }}
+          accessibilityLabel={title}
+          style={[open ? [styles.drawerHead, styles.drawerHeadOpen] : styles.drawerHeadShut, mirrorRow(isRTL)]}
+        >
+          <Text style={styles.drawerTitle}>{title}</Text>
+          {!!note && (
+            <View style={styles.offPill}>
+              <Text style={styles.offPillText}>{note}</Text>
+            </View>
+          )}
+          <View style={styles.spacer} />
+          <View style={[styles.drawerChevron, open && styles.drawerChevronOpen]}>
+            <Icon name="chevronRight" size={14} color={colors.inkSoft} />
+          </View>
+        </Pressy>
+        {open && children}
+      </View>
+    </View>
+  );
+}
+
+// One row inside a drawer. The count is the same figure the strip at the top
+// uses, repeated here so a drawer opened directly still says which of its
+// pages has work in it.
+function DashRow({ title, sub, onPress, badge, isRTL }: {
+  title: string; sub: string; onPress: () => void; badge?: number; isRTL: boolean;
+}) {
+  return (
+    <Pressy onPress={onPress} accessibilityRole="button" style={[styles.drawerRow, mirrorRow(isRTL)]}>
+      {/* minWidth 0: on react-native-web a flex item keeps min-width auto, so
+          a long subtitle beside the fixed chevron pushes the row past the
+          card instead of wrapping inside it. */}
+      <View style={styles.rowBody}>
+        <Text style={styles.rowTitle}>{title}</Text>
+        <Text style={styles.rowSub}>{sub}</Text>
+      </View>
+      {!!badge && (
+        <View style={styles.countBadge}>
+          <Text style={styles.countBadgeText}>{badge}</Text>
+        </View>
+      )}
+      <Icon name="chevronRight" size={16} color={colors.inkSoft} />
+    </Pressy>
+  );
+}
+
 const styles = StyleSheet.create({
   topBar: { flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between', paddingHorizontal: 12, height: 48 },
   iconBtn: { width: 36, height: 36, borderRadius: 18, alignItems: 'center', justifyContent: 'center' },
@@ -436,18 +604,69 @@ const styles = StyleSheet.create({
   error: { color: colors.danger, fontSize: 13, marginTop: 14 },
   switchLink: { marginTop: 16, alignItems: 'center' },
   switchLinkText: { fontSize: 13, fontWeight: '600', color: colors.ink },
-  row: {
-    flexDirection: 'row', alignItems: 'center', gap: 10,
-    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
-    borderRadius: radius.md, padding: 16, marginBottom: 12,
+  // A flex spacer child, never marginStart/paddingStart: those resolve
+  // against I18nManager.isRTL, which this app never flips, so they would
+  // indent from the outside edge in Arabic. A flex child is turned around by
+  // whatever is mirroring the row, so it cannot disagree with the row.
+  spacer: { flex: 1, minWidth: 0 },
+
+  // ---- the strip
+  needs: {
+    backgroundColor: colors.card, borderWidth: 1, borderColor: colors.accentRing,
+    borderRadius: radius.md, paddingHorizontal: 14, paddingTop: 12, paddingBottom: 4,
+    marginBottom: 18,
   },
+  needsTitle: {
+    ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5,
+    color: colors.accentDeep, marginBottom: 4,
+  },
+  needsRow: { flexDirection: 'row', alignItems: 'center', gap: 10, paddingVertical: 9 },
+  needsCount: {
+    minWidth: 24, height: 24, borderRadius: 12, paddingHorizontal: 6,
+    backgroundColor: colors.accentTint, alignItems: 'center', justifyContent: 'center',
+  },
+  needsCountText: { fontSize: 12.5, fontWeight: '700', color: colors.accentDeep },
+  needsLabel: { fontSize: 14, fontWeight: '600', color: colors.ink },
+  allClear: { ...type.soft, fontSize: 14.5, marginBottom: 18 },
+
+  // ---- the drawers
+  drawerWrap: { marginBottom: 12 },
+  drawerBox: {
+    borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, overflow: 'hidden',
+  },
+  drawerHeadShut: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16,
+    height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line,
+  },
+  drawerHead: {
+    flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 16, height: 47,
+  },
+  drawerHeadOpen: { backgroundColor: colors.surface },
+  drawerTitle: { ...type.h3, fontSize: 15 },
+  drawerChevron: {
+    width: 16, height: 16, alignItems: 'center', justifyContent: 'center',
+    transform: [{ rotate: '0deg' }],
+  },
+  drawerChevronOpen: { transform: [{ rotate: '90deg' }] },
+  offPill: {
+    paddingHorizontal: 7, height: 19, borderRadius: radius.pill,
+    backgroundColor: colors.surface, alignItems: 'center', justifyContent: 'center',
+  },
+  offPillText: { fontSize: 10.5, fontWeight: '700', color: colors.inkSoft },
+
+  drawerRow: {
+    flexDirection: 'row', alignItems: 'center', gap: 10,
+    paddingHorizontal: 16, paddingVertical: 13,
+    borderTopWidth: 1, borderTopColor: colors.line, backgroundColor: colors.card,
+  },
+  rowBody: { flex: 1, minWidth: 0 },
   rowTitle: { ...type.h3 },
   rowSub: { ...type.soft, marginTop: 2 },
-  reportCountBadge: {
+  countBadge: {
     minWidth: 22, height: 22, borderRadius: 11, paddingHorizontal: 6,
-    backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center', marginRight: 4,
+    backgroundColor: colors.danger, alignItems: 'center', justifyContent: 'center',
   },
-  reportCountBadgeText: { fontSize: 11.5, fontWeight: '700', color: colors.white },
+  countBadgeText: { fontSize: 11.5, fontWeight: '700', color: colors.white },
   signOutBtn: {
     flexDirection: 'row', alignItems: 'center', justifyContent: 'center', gap: 8,
     height: 48, borderRadius: radius.md, borderWidth: 1, borderColor: colors.line, marginTop: 24,
