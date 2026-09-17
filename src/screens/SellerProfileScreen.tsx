@@ -17,6 +17,7 @@ import { useGoBack } from '../hooks/useGoBack';
 import HomeMarkButton from '../components/HomeMarkButton';
 import { monthYear } from '../lib/relativeTime';
 import { fetchSellerRating, fetchSellerReviews, SellerReview } from '../lib/reviews';
+import { mirrorRow } from '../lib/mirrorRow';
 
 // How many a seller page shows before it says there are more.
 const REVIEW_PAGE = 20;
@@ -260,8 +261,8 @@ export default function SellerProfileScreen({ route, navigation }: Props) {
         <View style={styles.reviewList}>
           {reviews.map((r) => (
             <View key={r.id} style={styles.review}>
-              <View style={[styles.reviewTop, isRTL && styles.rowRTL]}>
-                <View style={[styles.reviewStars, isRTL && styles.rowRTL]}>
+              <View style={[styles.reviewTop, mirrorRow(isRTL)]}>
+                <View style={[styles.reviewStars, mirrorRow(isRTL)]}>
                   {[1, 2, 3, 4, 5].map((n) => (
                     <Icon
                       key={n}
@@ -393,7 +394,6 @@ const styles = StyleSheet.create({
   reviewWhen: { ...type.tiny, color: colors.inkSoft },
   // This app never flips I18nManager, so every mirrored row is spelled out
   // (see src/lib/mirrorRow.ts).
-  rowRTL: { flexDirection: 'row-reverse' },
   review: {
     backgroundColor: colors.card, borderWidth: 1, borderColor: colors.line,
     borderRadius: radius.md, padding: 12, gap: 5,

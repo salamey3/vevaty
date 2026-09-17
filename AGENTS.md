@@ -1114,6 +1114,44 @@ local cache only when that read ERRORS — so a stub answering `null` made
 every listing look deleted and no transition could fire. Seeding the
 store was enough when the test was written and is not any more.
 
+# Mirroring for Arabic: never `isRTL && row-reverse`
+
+`mirrorRow(isRTL)` exists because the web and native disagree about who
+reverses a row. On the web `LanguageContext` sets
+`document.documentElement.dir = 'rtl'` and the browser reverses every row
+container itself, so a manual `row-reverse` on top flips it BACK to
+left-to-right. Native has no ambient direction -- this app never flips
+`I18nManager.isRTL` -- so there it has to be spelled out.
+
+It was introduced with the brand lockup, applied across `ListingCard`, and
+then **not** applied anywhere else. On 17 Sep there were still 22 call
+sites across 8 files doing the raw `isRTL && styles.somethingRTL`, and
+every one of them was backwards on the Arabic website: the listing page's
+price row, its meta rows, its spec rows and both seller rows; the carousel
+headers on Home and on the collection sections; the filter chips; the
+review sheet; the browse page's section headers; the posting form's specs
+review; the seller profile. The app was fine throughout, which is why it
+survived so long -- the website is the half nobody was testing.
+
+Two rules, and the second is the one that is easy to miss:
+
+- **A mirrored row goes through `mirrorRow(isRTL)`.** Never a style object
+  holding `flexDirection: 'row-reverse'` behind an `isRTL &&`.
+- **The cross axis has the same problem**, and `mirrorRow` cannot express
+  it. `alignSelf: 'flex-end'` behind an `isRTL &&` resolves to the LEFT on
+  the Arabic web, because the cross axis is reversed there too and
+  `flex-start` was already the right edge. That is `mirrorAlignSelf(isRTL)`,
+  in the same file. Two styles had it; the AI badge on a listing had it on
+  BOTH axes at once, so it unreversed itself and then stranded itself
+  against the wrong edge.
+
+What is NOT affected, so it can stay as it is: `textAlign: 'right'`,
+`writingDirection`, physical `left`/`right` offsets, physical border sides,
+and `transform: scaleX(-1)`. None of those are direction-relative, so they
+mean the same thing on both platforms. The test is whether the property
+resolves against the writing direction -- the flex `start`/`end` keywords
+do, absolute sides do not.
+
 # Two arrays read by index are one object
 
 A listing carries the same shape twice -- `photos` with `photoThumbnails`,

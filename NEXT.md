@@ -114,16 +114,6 @@ Found on the way and deliberately not fixed here:
   session — an admin's locked one included — can change the account's
   password through the auth server without the old one. The setting asks
   for recent sign-in first. A dashboard switch, no code.
-- **Every launch runs the settings refresh twice, side by side** — once
-  from SettingsStore's first-mount effect and once from the auth
-  listener's INITIAL_SESSION — so categories, attributes and site settings
-  are fetched twice and two admin checks overlap. Since 10 Sep only the
-  newer check may write (so a slow one from an earlier session cannot
-  undo a sign-in), which leaves one rare case: if the newer check's read
-  fails while the older one's succeeded, an admin reloading an admin page
-  gets the sign-in form. Letting a refresh that arrives mid-flight run
-  once more afterwards, instead of alongside, fixes both.
-
 **Card previews: three loose ends from the spin thumbnails change** (found
 10 Sep while checking it, put aside for the tester round):
 
@@ -228,14 +218,6 @@ Two things worth fixing:
   and Bunny returns exactly that -- so this is not urgent, and it is also not
   something to discover on a mid-range phone later. See @CARDS.md.
 
-- **The storefront pill sits on the wrong edge in Arabic on the web.**
-  `storefrontPillRTL` uses `alignSelf: 'flex-end'`, and on the web the
-  document already carries `dir="rtl"`, so the cross axis is reversed and
-  `flex-end` resolves to the left. Same web-versus-native divergence
-  `mirrorRow` exists for, in a style `mirrorRow` cannot express. Pre-dates the
-  card rebuild and was left alone rather than widened into it; the app is
-  unaffected, only Arabic web.
-
 - **Card specs are numbered everywhere they can be** (6 Sep) — every
   category that has attributes now has a card spec row. What follows is the
   older note, kept for the reasoning behind curating them by hand rather
@@ -293,6 +275,44 @@ Jobs and Services are deliberately not on this list: they are step four of
 the domains work, and both are `active = false` until then.
 
 ## Recently done
+
+**Most of the Arabic website was laid out backwards**, 17 Sep 2026. The
+open item said one style -- the shop pill's edge. It was 22 call sites
+across 8 files, all doing the raw `isRTL && styles.somethingRTL` that
+`mirrorRow` was written to replace and that only `ListingCard` was ever
+converted to. On the Arabic web the document already carries `dir="rtl"`
+and the browser reverses each row itself, so every one of those manual
+reversals flipped it back to left-to-right: the listing page's price row,
+meta rows, spec rows and both seller rows; the carousel headers on Home and
+the collection sections; the filter chips; the review sheet; the browse
+page's section headers; the posting form's specs review; the seller
+profile. The app was right throughout, which is why nobody caught it --
+and three of the six testers are on the website, because they are on
+iPhone.
+
+The cross axis needed a helper of its own (`mirrorAlignSelf`), for the two
+styles that reached for `alignSelf: 'flex-end'` behind an `isRTL &&`: the
+shop pill the note caught, and the AI badge on a listing, which had it on
+both axes at once. Untouched, deliberately: textAlign, writingDirection,
+physical offsets and border sides, and the chevron's scaleX -- none of them
+resolve against the writing direction, so they already mean the same thing
+on both platforms.
+
+**And the settings refresh stopped running twice at launch.** The
+first-mount effect and the auth listener's INITIAL_SESSION both fired it in
+the same tick, so four tables were fetched twice and two admin checks
+overlapped -- and when the newer check's read failed while the older's
+succeeded, the answer that won was "not an admin", so an admin reloading an
+admin page got the sign-in form over a good session. A request arriving
+mid-flight is now QUEUED to run once afterwards rather than alongside,
+because the second caller may know about a sign-in the first did not; a
+burst collapses into one re-run. `src/lib/singleFlight.ts` with
+`scripts/test/single-flight.test.mjs`, 12 checks -- one of which caught a
+real fault while being written: the internal re-run had nobody awaiting it,
+so a failed refresh surfaced as an unhandled rejection. The ten admin save
+paths deliberately do NOT use the queue: they await a refresh to pull their
+own change back, and joining a fetch that started before their write would
+resolve against data that cannot contain it.
 
 **The card's small copies stopped describing the wrong pictures**, 16 Sep
 2026. Two open items that turned out to be one bug in two places: a listing

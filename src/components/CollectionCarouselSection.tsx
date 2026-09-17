@@ -18,6 +18,7 @@ import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { useIsDesktop, useCarouselCardWidth } from '../hooks/useResponsive';
 import { CAROUSEL_ROW_INSET, CAROUSEL_ROW_GAP } from '../lib/cardWidth';
 import { useScrollChrome } from '../store/ScrollChromeContext';
+import { mirrorRow } from '../lib/mirrorRow';
 
 // Home-screen row for one Collection (Editor's Picks / Hot Deals / Just
 // Listed) -- same header+horizontal-scroll shape as
@@ -103,7 +104,7 @@ export default function CollectionCarouselSection({
 
   return (
     <View style={styles.section} onLayout={onLayout}>
-      <View style={[styles.headerRow, isRTL && styles.headerRowRTL, flush && styles.flush]}>
+      <View style={[styles.headerRow, mirrorRow(isRTL), flush && styles.flush]}>
         <Text style={[styles.title, isRTL && styles.titleRTL]} numberOfLines={1}>{label}</Text>
         <Pressy onPress={onSeeAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.seeAll}>{t('home.seeAll')}</Text>
@@ -169,7 +170,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: CAROUSEL_ROW_INSET, marginBottom: 10,
   },
-  headerRowRTL: { flexDirection: 'row-reverse' },
   title: { ...type.h3, flex: 1 },
   titleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },

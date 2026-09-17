@@ -63,6 +63,7 @@ import { shareLink } from '../lib/share';
 import { Alert } from '../lib/alertShim';
 import { openCategoryFromOutside } from '../lib/browseNav';
 import OptionsChooser from '../components/OptionsChooser';
+import { mirrorRow, mirrorAlignSelf } from '../lib/mirrorRow';
 import {
   EMPTY_OPTIONS, ListingOptions, Picks, fetchListingOptions, prunePicks, sendListingOrder, whyNotOrderable,
 } from '../lib/listingOptions';
@@ -1043,7 +1044,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
 
   const details = (
     <>
-      <View style={[styles.priceRow, isRTL && styles.priceRowRTL]}>
+      <View style={[styles.priceRow, mirrorRow(isRTL)]}>
         {/* A rental leads with its rent and period rather than a bare
             number; a property offered both ways leads with the sale price
             and carries the rent on the line below. See listingPriceLines. */}
@@ -1107,7 +1108,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           // openThisCategory.
           <Pressy
             onPress={openThisCategory}
-            style={[styles.metaRow, isRTL && styles.metaRowRTL]}
+            style={[styles.metaRow, mirrorRow(isRTL)]}
           >
             <Icon name={(cat.icon as any) || 'bag'} size={13} color={colors.inkSoft} />
             <Text style={[type.soft, styles.categoryLink]}>
@@ -1116,7 +1117,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             <Icon name="chevronRight" size={12} color={colors.inkSoft} />
           </Pressy>
         )}
-        <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+        <View style={[styles.metaRow, mirrorRow(isRTL)]}>
           <Icon name="location" size={13} color={colors.inkSoft} />
           <Text style={type.soft}>
             {[listingDistrict(listing, language), listing.caza, listing.governorate]
@@ -1124,7 +1125,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
               .join(isRTL ? '، ' : ', ')}
           </Text>
         </View>
-        <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+        <View style={[styles.metaRow, mirrorRow(isRTL)]}>
           <Icon name="check" size={13} color={colors.inkSoft} />
           <Text style={type.soft}>{t('listingDetail.postedOn', { date: absoluteDate(listing.createdAt, language) })} · {relativeTimeFrom(listing.createdAt, language)}</Text>
         </View>
@@ -1154,7 +1155,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       )}
 
       {listing.aiGenerated && (
-        <View style={[styles.aiTag, isRTL && styles.aiTagRTL]}>
+        <View style={[styles.aiTag, mirrorRow(isRTL), mirrorAlignSelf(isRTL)]}>
           <Icon name="sparkle" size={12} color={colors.ink} />
           <Text style={styles.aiTagText}>{t('listingDetail.aiTag')}</Text>
         </View>
@@ -1168,7 +1169,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
           <Text style={[styles.sectionLabel, isRTL && styles.rtlText]}>{t('listingDetail.specs')}</Text>
           <View style={styles.specsGrid}>
             {specs.map((a) => (
-              <View key={a.id} style={[styles.specRow, isRTL && styles.specRowRTL]}>
+              <View key={a.id} style={[styles.specRow, mirrorRow(isRTL)]}>
                 <Text style={type.soft}>{language === 'ar' ? a.labelAr : a.labelEn}</Text>
                 <Text style={type.body}>{formatAttrValue(a, listing.attributes[a.slug], language)}</Text>
               </View>
@@ -1241,14 +1242,14 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       {listing.shopId && listing.shopSlug ? (
         <Pressy
           onPress={() => navigation.push('Storefront', { shopSlug: listing.shopSlug! })}
-          style={[styles.sellerRow, isRTL && styles.sellerRowRTL]}
+          style={[styles.sellerRow, mirrorRow(isRTL)]}
           accessibilityLabel="View storefront"
         >
           <View style={styles.sellerAvatar}>
             <Icon name="building" size={18} color={colors.inkSoft} />
           </View>
           <View style={{ flex: 1 }}>
-            <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
+            <View style={[styles.sellerNameRow, mirrorRow(isRTL)]}>
               <Text style={type.h3}>{listingShopName(listing, language)}</Text>
             </View>
             <Text style={[styles.memberSince, isRTL && styles.rtlText]}>{t('listingDetail.storefront')}</Text>
@@ -1260,7 +1261,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
       ) : (
         <Pressy
           onPress={() => navigation.push('SellerProfile', { sellerId: listing.sellerId })}
-          style={[styles.sellerRow, isRTL && styles.sellerRowRTL]}
+          style={[styles.sellerRow, mirrorRow(isRTL)]}
           accessibilityLabel="View seller profile"
         >
           <View style={styles.sellerAvatar}>
@@ -1271,7 +1272,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             )}
           </View>
           <View style={{ flex: 1 }}>
-            <View style={[styles.sellerNameRow, isRTL && styles.sellerNameRowRTL]}>
+            <View style={[styles.sellerNameRow, mirrorRow(isRTL)]}>
               <Text style={type.h3}>{listing.sellerName}</Text>
               {listing.sellerVerified && (
                 <View style={styles.verifiedBadge}>
@@ -1282,7 +1283,7 @@ export default function ListingDetailScreen({ route, navigation }: Props) {
             </View>
             {/* Only when it is real. See sellerScore's note above. */}
             {sellerScore.count > 0 && sellerScore.average != null && (
-              <View style={[styles.metaRow, isRTL && styles.metaRowRTL]}>
+              <View style={[styles.metaRow, mirrorRow(isRTL)]}>
                 <Icon name="star" size={12} color={colors.accent} filled />
                 <Text style={type.tiny}>
                   {sellerScore.average.toFixed(1)}
@@ -2067,7 +2068,6 @@ const styles = StyleSheet.create({
   // flex-start of the row -- i.e. the LEFT edge, even in Arabic.
   // row-reverse flips which edge "flex-start" actually is, so the price
   // anchors to the right instead.
-  priceRowRTL: { flexDirection: 'row-reverse' },
   stockText: { ...type.soft, marginTop: 4, fontWeight: '600' },
   stockTextEmpty: { color: colors.danger },
   ownerModerationNotice: {
@@ -2109,7 +2109,6 @@ const styles = StyleSheet.create({
   // instead, each row-based layout mirrors itself explicitly via isRTL,
   // same pattern TabBar.tsx/Screen.tsx already use. Icon-then-text reads
   // backwards in Arabic; row-reverse puts the text first, icon trailing.
-  metaRowRTL: { flexDirection: 'row-reverse' },
   // Correction to the theme.ts `textAlign: 'auto'` fix: 'auto' turns out
   // to resolve via I18nManager.isRTL on real native Android/iOS, NOT by
   // inspecting the string's own Unicode script the way a browser's CSS
@@ -2125,11 +2124,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', gap: 6, alignSelf: 'flex-start',
     backgroundColor: colors.warnBg, borderRadius: radius.pill, paddingHorizontal: 10, height: 28, marginTop: 12,
   },
-  // row-reverse alone would still leave the pill itself hugging the LEFT
-  // edge of the screen (alignSelf: 'flex-start' from aiTag above) -- flip
-  // that too, or the badge ends up mirrored internally but stranded on
-  // the wrong side entirely.
-  aiTagRTL: { flexDirection: 'row-reverse', alignSelf: 'flex-end' },
   aiTagText: { fontSize: 11.5, fontWeight: '600', color: colors.ink },
   // Plain left-aligned uppercase labels ("Description", "Details &
   // Specs", "Seller", "Similar listings") -- like every other bare Text
@@ -2154,14 +2148,11 @@ const styles = StyleSheet.create({
   // right) but backwards in Arabic, where the label should lead from the
   // right. row-reverse swaps which side each Text renders on without
   // touching justify-content: space-between.
-  specRowRTL: { flexDirection: 'row-reverse' },
   sellerRow: { flexDirection: 'row', alignItems: 'center', gap: 12 },
-  sellerRowRTL: { flexDirection: 'row-reverse' },
   sellerNameRow: { flexDirection: 'row', alignItems: 'center', gap: 6, flexWrap: 'wrap' },
-  sellerNameRowRTL: { flexDirection: 'row-reverse' },
   // Mirrors chevronRight (there's no separate chevronLeft glyph in the
   // icon set) so it still reads as "this row navigates further" pointing
-  // toward the row's own leading edge once sellerRowRTL has flipped which
+  // toward the row's own leading edge once mirrorRow has flipped which
   // side that is.
   chevronRTL: { transform: [{ scaleX: -1 }] },
   sellerAvatar: {

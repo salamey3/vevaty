@@ -5,6 +5,7 @@ import Icon from '../icons/Icon';
 import { colors, type, radius } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
 import { leaveReview, ReviewError, ReviewGate } from '../lib/reviews';
+import { mirrorRow } from '../lib/mirrorRow';
 
 // Rating a seller after dealing with them: five stars and, optionally, a
 // sentence. Nothing more, on purpose -- the thing a buyer will actually
@@ -89,7 +90,7 @@ export default function ReviewSheet({
     <Modal visible={visible} transparent animationType="fade" onRequestClose={onClose}>
       <View style={styles.backdrop}>
         <View style={styles.sheet}>
-          <View style={[styles.head, isRTL && styles.rowRTL]}>
+          <View style={[styles.head, mirrorRow(isRTL)]}>
             <Text style={styles.title} numberOfLines={2}>
               {editing ? t('reviews.editTitle', { name: sellerName })
                        : t('reviews.title', { name: sellerName })}
@@ -149,7 +150,7 @@ export default function ReviewSheet({
 
           {error ? <Text style={styles.error}>{error}</Text> : null}
 
-          <View style={[styles.actions, isRTL && styles.rowRTL]}>
+          <View style={[styles.actions, mirrorRow(isRTL)]}>
             <Pressy onPress={onClose} style={styles.cancelBtn} disabled={saving}>
               <Text style={styles.cancelText}>{t('common.cancel')}</Text>
             </Pressy>
@@ -217,5 +218,4 @@ const styles = StyleSheet.create({
   saveBtnIdle: { opacity: 0.4 },
   saveText: { fontSize: 14.5, fontWeight: '800', color: colors.white },
   // The app never flips I18nManager, so mirrored rows are spelled out.
-  rowRTL: { flexDirection: 'row-reverse' },
 });

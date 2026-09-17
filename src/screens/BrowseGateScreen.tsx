@@ -81,7 +81,7 @@ function GateRow({
 
   return (
     <View style={styles.section} onLayout={onLayout}>
-      <View style={[styles.sectionHeader, isRTL && styles.sectionHeaderRTL]}>
+      <View style={[styles.sectionHeader, mirrorRow(isRTL)]}>
         <Text style={[styles.sectionTitle, isRTL && styles.sectionTitleRTL]} numberOfLines={1}>
           {heading}
         </Text>
@@ -356,7 +356,6 @@ const styles = StyleSheet.create({
     flexDirection: 'row', alignItems: 'center', justifyContent: 'space-between',
     paddingHorizontal: CAROUSEL_ROW_INSET, marginBottom: 10,
   },
-  sectionHeaderRTL: { flexDirection: 'row-reverse' },
   sectionTitle: { ...type.h3, flex: 1 },
   sectionTitleRTL: { textAlign: 'right', writingDirection: 'rtl' },
   seeAll: { fontSize: 12.5, fontWeight: '600', color: colors.inkSoft },

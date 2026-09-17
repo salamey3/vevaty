@@ -388,7 +388,16 @@ there the mirror has to be spelled out.
 
 `src/lib/mirrorRow.ts` holds that one line of platform logic; row layouts
 that must mirror should go through `mirrorRow(isRTL)` rather than applying
-`row-reverse` directly. It is the same web-has-real-direction-support /
+`row-reverse` directly, and a child that must hug the leading edge of a
+column goes through `mirrorAlignSelf(isRTL)` beside it -- the cross axis is
+reversed on the Arabic web for the same reason, and `alignSelf: 'flex-end'`
+behind an `isRTL &&` lands on the wrong edge there.
+
+That was written when the lockup was fixed and then not carried anywhere
+else: 22 call sites across 8 files were still doing it by hand until 17
+Sep, so most of the Arabic website's rows were laid out backwards while the
+app looked right. If you are adding a mirrored row, use the helpers; if you
+are reading one that does not, it is a bug. It is the same web-has-real-direction-support /
 native-doesn't split that `useRtlCarousel` documents for horizontal
 scrollers, and the same reason `textAlign: 'auto'` silently did nothing on
 device.

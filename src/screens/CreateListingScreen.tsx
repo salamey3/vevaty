@@ -3242,7 +3242,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
                 {specAttrs
                   .filter((a) => attrHasValue(attrValues[a.slug]))
                   .map((a) => (
-                    <View key={a.id} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
+                    <View key={a.id} style={[styles.specsReviewRow, mirrorRow(isRTL)]}>
                       <Text style={type.soft}>{language === 'ar' ? a.labelAr : a.labelEn}</Text>
                       <Text style={type.body}>{formatAttrValue(a, attrValues[a.slug], language)}</Text>
                     </View>
@@ -3252,7 +3252,7 @@ export default function CreateListingScreen({ navigation, route }: Props) {
             {stockWorthWriting && stockRowsToSave.length > 0 && (
               <View style={styles.specsReview}>
                 {stockRowsToSave.map((r) => (
-                  <View key={r.id} style={[styles.specsReviewRow, isRTL && styles.specsReviewRowRTL]}>
+                  <View key={r.id} style={[styles.specsReviewRow, mirrorRow(isRTL)]}>
                     <Text style={type.soft}>
                       {variantDims.length === 0 ? t('stock.plainRowLabel') : variantLabel(r, variantDims, language)}
                     </Text>
@@ -3805,8 +3805,7 @@ const styles = StyleSheet.create({
   title: { ...type.h2, marginTop: 2, marginBottom: 2 },
   specsReview: { marginTop: 18, gap: 8 },
   specsReviewRow: { flexDirection: 'row', justifyContent: 'space-between', paddingVertical: 6, borderBottomWidth: 1, borderBottomColor: colors.line },
-  // See ListingDetailScreen's specRowRTL comment -- same fix, same reason.
-  specsReviewRowRTL: { flexDirection: 'row-reverse' },
+  // See ListingDetailScreen's spec row comment -- same fix, same reason.
   // See ListingDetailScreen's rtlText comment -- theme.ts's textAlign:
   // 'auto' resolves via I18nManager.isRTL on native (never flipped in
   // this app), not per-string content detection, so it didn't actually

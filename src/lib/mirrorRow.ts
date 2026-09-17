@@ -24,3 +24,23 @@ const ROW_REVERSE: ViewStyle = { flexDirection: 'row-reverse' };
 export function mirrorRow(isRTL: boolean): ViewStyle | null {
   return isRTL && NEEDS_MANUAL_MIRROR ? ROW_REVERSE : null;
 }
+
+const ALIGN_SELF_END: ViewStyle = { alignSelf: 'flex-end' };
+
+// The CROSS-axis twin of mirrorRow, for a child that has to hug the
+// leading edge of a column in both languages.
+//
+// `alignSelf: 'flex-start'` is the leading edge by definition, so on web
+// -- where the document carries the direction -- there is nothing to do
+// and this returns null. Native resolves flex-start against a layout that
+// never flips, so there it has to be spelled out as flex-end, exactly as
+// the main axis does above.
+//
+// Written because two styles reached for `isRTL && { alignSelf:
+// 'flex-end' }` and got the double-flip on the cross axis: the shop pill
+// on a horizontal card, and the AI badge on a listing, which managed it on
+// both axes at once -- the row unreversed itself AND the badge stranded
+// itself against the wrong edge.
+export function mirrorAlignSelf(isRTL: boolean): ViewStyle | null {
+  return isRTL && NEEDS_MANUAL_MIRROR ? ALIGN_SELF_END : null;
+}

@@ -14,7 +14,7 @@ import { useAppStore } from '../store/AppStore';
 import { useFavorites } from '../store/FavoritesStore';
 import { useLanguage } from '../i18n/LanguageContext';
 import { listingTitle, listingDistrict, listingShopName } from '../lib/listingText';
-import { mirrorRow } from '../lib/mirrorRow';
+import { mirrorRow, mirrorAlignSelf } from '../lib/mirrorRow';
 import { sizedPhotoUrl } from '../lib/photoSize';
 import { relativeTimeFrom } from '../lib/relativeTime';
 import { cardKindLabel, cardConditionLabel, resolveCardSpecs } from '../lib/cardSpecs';
@@ -365,12 +365,14 @@ export default function ListingCard({
         // mirrorRow, not a raw `isRTL && row-reverse`: on web the document
         // already has dir="rtl" and reverses this row itself, so a manual
         // row-reverse flips it BACK and puts the building icon on the wrong
-        // side of the shop name. See mirrorRow's own comment. Every row in
-        // this file went the same way in this change; the one that could not
-        // is storefrontPillRTL, which is an alignSelf rather than a
-        // direction and has no mirrorRow equivalent -- noted in NEXT.md.
+        // side of the shop name. See mirrorRow's own comment.
         mirrorRow(isRTL),
-        horizontal && isRTL && styles.storefrontPillRTL,
+        // And mirrorAlignSelf for the same reason one axis over. This used
+        // to be a flat `isRTL && { alignSelf: 'flex-end' }`, which on the
+        // Arabic website resolved to the LEFT -- the cross axis is reversed
+        // there too, so flex-start was already the right edge and the
+        // override moved it off it.
+        horizontal ? mirrorAlignSelf(isRTL) : null,
       ]}
       hitSlop={{ top: 4, bottom: 4, left: 4, right: 4 }}
     >
@@ -1136,12 +1138,6 @@ const styles = StyleSheet.create({
     paddingHorizontal: 8, height: 20,
   },
   storefrontPillName: { fontSize: 10.5, fontWeight: '800', color: colors.primary },
-  // Right-aligns the pill within the horizontal layout's RTL column,
-  // same as every other right-aligned element there -- not used on the
-  // vertical layout, whose overlay position stays fixed regardless of
-  // language (see bottomOverlay below, and favoriteBadge/cornerBadge
-  // above, which are fixed corners for the same reason).
-  storefrontPillRTL: { alignSelf: 'flex-end' },
   // Vertical layout only: the shop pill lives on the photo, bottom-left,
   // fixed regardless of RTL -- same reasoning as favoriteBadge/
   // cornerBadge/previewButton above, none of which mirror for RTL either,

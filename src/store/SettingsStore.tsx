@@ -2,6 +2,7 @@ import React, { createContext, useCallback, useContext, useEffect, useMemo, useR
 import AsyncStorage from '@react-native-async-storage/async-storage';
 import { AppState } from 'react-native';
 import { supabase, ensureSession } from '../lib/supabase';
+import { singleFlight } from '../lib/singleFlight';
 import { applyBrandColors } from '../theme/theme';
 import { applyFavicon } from '../lib/favicon';
 import { AttributeOption, AttributeType, Category, CategoryAttribute, ConditionMode, FilterFacet, ListingDomain, SiteSettings } from '../types';
@@ -685,21 +686,68 @@ export function SettingsProvider({ children }: { children: React.ReactNode }) {
     await checkIsAdmin();
   }, [applySiteSettings, checkIsAdmin]);
 
+  // ONE AT A TIME, WITH A TRAILING RE-RUN.
+  //
+  // Two things ask for a refresh at launch, in the same tick: the
+  // first-mount effect below, and the auth listener, which fires
+  // INITIAL_SESSION the moment it is attached. Side by side they fetched
+  // the categories, the domains, the attributes and the site settings
+  // twice -- four duplicated round trips on the slowest screen in the app
+  // -- and ran two admin checks that overlap.
+  //
+  // The overlapping admin checks are the part with teeth. Since 10 Sep
+  // only the NEWER check may write, so a slow one from an earlier session
+  // cannot undo a sign-in; but that leaves the case where the newer one's
+  // read fails while the older one's succeeded. The newer answer wins and
+  // it is "not an admin", so an admin reloading an admin page is shown the
+  // sign-in form over a session that was fine.
+  //
+  // QUEUED, not dropped. The second caller may know something the first
+  // did not -- a sign-in that landed while the first fetch was in the air
+  // -- so its request runs once AFTER the one in flight rather than
+  // alongside it, and rather than being thrown away. Any number of
+  // requests arriving during a run collapse into one re-run.
+  //
+  // Deliberately NOT used by the admin write paths further down, which
+  // await a refresh to pull their own change back: handing one of those
+  // the promise of a fetch that started BEFORE the write would resolve it
+  // against data that cannot contain the edit. They call
+  // refreshFromSupabase directly and get a read that starts after them.
+  // The queue itself is in lib/singleFlight.ts with a test -- "runs once
+  // more afterwards" is the kind of thing that silently degrades to "is
+  // dropped" the next time somebody simplifies it, and nothing on screen
+  // would say so.
+  //
+  // Held in a ref and built once: rebuilding it when refreshFromSupabase
+  // changes identity would hand out a fresh queue that knows nothing about
+  // the run already in flight, which is the bug this closes. The ref below
+  // keeps it calling the current one.
+  const refreshImplRef = useRef<() => Promise<void>>(async () => {});
+  refreshImplRef.current = refreshFromSupabase;
+  const requestRefreshRef = useRef<(() => Promise<void>) | null>(null);
+  if (!requestRefreshRef.current) {
+    requestRefreshRef.current = singleFlight(() => refreshImplRef.current());
+  }
+  const requestRefresh = useCallback((): Promise<void> => requestRefreshRef.current!(), []);
+
   useEffect(() => {
     if (loadedOnce.current) return;
     loadedOnce.current = true;
-    refreshFromSupabase();
-  }, [refreshFromSupabase]);
+    void requestRefresh();
+  }, [requestRefresh]);
 
   // Re-check admin status (and re-pull data, since RLS visibility can
   // depend on who's signed in) whenever the Supabase auth session changes
-  // -- e.g. signing in/out of the admin panel.
+  // -- e.g. signing in/out of the admin panel. The very first of these is
+  // INITIAL_SESSION, which is the one that used to race the mount effect
+  // above; the rest are real sign-ins and sign-outs, and they deserve the
+  // same one-at-a-time treatment among themselves.
   useEffect(() => {
     const { data: sub } = supabase.auth.onAuthStateChange(() => {
-      refreshFromSupabase();
+      void requestRefresh();
     });
     return () => sub.subscription.unsubscribe();
-  }, [refreshFromSupabase]);
+  }, [requestRefresh]);
 
   const categories = useMemo(
     () =>

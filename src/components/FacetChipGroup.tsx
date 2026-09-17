@@ -3,6 +3,7 @@ import { StyleSheet, Text, View } from 'react-native';
 import Pressy from './Pressy';
 import { colors, radius, type } from '../theme/theme';
 import { useLanguage } from '../i18n/LanguageContext';
+import { mirrorRow } from '../lib/mirrorRow';
 
 export type ChipOption = { key: string; label: string; count: number };
 
@@ -49,7 +50,7 @@ export default function FacetChipGroup({
   return (
     <View style={styles.section}>
       <Text style={[styles.title, isRTL && styles.rtlText]}>{title}</Text>
-      <View style={[styles.row, isRTL && styles.rowRTL]}>
+      <View style={[styles.row, mirrorRow(isRTL)]}>
         {visible.map((o) => {
           const active = selected.includes(o.key);
           return (
@@ -76,7 +77,6 @@ const styles = StyleSheet.create({
   title: { ...type.tiny, textTransform: 'uppercase', letterSpacing: 0.5, marginBottom: 8 },
   rtlText: { textAlign: 'right', writingDirection: 'rtl' },
   row: { flexDirection: 'row', flexWrap: 'wrap', gap: 8 },
-  rowRTL: { flexDirection: 'row-reverse' },
   chip: {
     flexDirection: 'row', alignItems: 'center', gap: 5,
     height: 34, paddingHorizontal: 12, borderRadius: radius.pill,

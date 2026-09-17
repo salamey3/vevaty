@@ -17,6 +17,7 @@ import { useRtlCarousel } from '../lib/useRtlCarousel';
 import { useIsDesktop, useCarouselCardWidth } from '../hooks/useResponsive';
 import { CAROUSEL_ROW_INSET, CAROUSEL_ROW_GAP } from '../lib/cardWidth';
 import { useScrollChrome } from '../store/ScrollChromeContext';
+import { mirrorRow } from '../lib/mirrorRow';
 
 // One home-page section for a single top-level category: a
 // "[Category name] · See all" header row followed by its own
@@ -72,7 +73,7 @@ export default function CategoryCarouselSection({
 
   return (
     <View style={styles.section} onLayout={onLayout}>
-      <View style={[styles.headerRow, isRTL && styles.headerRowRTL, flush && styles.flush]}>
+      <View style={[styles.headerRow, mirrorRow(isRTL), flush && styles.flush]}>
         <Text style={[styles.title, isRTL && styles.titleRTL]} numberOfLines={1}>{label}</Text>
         <Pressy onPress={onSeeAll} hitSlop={{ top: 8, bottom: 8, left: 8, right: 8 }}>
           <Text style={styles.seeAll}>{t('home.seeAll')}</Text>
@@ -125,10 +126,9 @@ const styles = StyleSheet.create({
   // Puts the category name on the right and "See all" on the left,
   // matching Arabic reading order -- row-reverse alone flips which side
   // each child renders on without touching the space-between spacing.
-  headerRowRTL: { flexDirection: 'row-reverse' },
   title: { ...type.h3, flex: 1 },
   // title's own text still defaults to flush-left inside its flex:1 box
-  // even once headerRowRTL has moved that box to the right side of the
+  // even once the row is mirrored and that box sits on the right side of the
   // row -- this is the same class of bug as theme.ts's dead `textAlign:
   // 'auto'` (see ListingDetailScreen's rtlText comment for the full
   // story), so it needs the same explicit override.
